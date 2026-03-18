@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import type { Schedule, ShiftType, Assignment, Employee } from "@/lib/types";
+import type { Schedule, ShiftType, Assignment, Employee, DayType, DaySetting } from "@/lib/types";
 
 const SHIFT_COLORS = [
   "bg-violet-50 text-violet-800","bg-sky-50 text-sky-800","bg-emerald-50 text-emerald-800",
@@ -9,6 +9,16 @@ const SHIFT_COLORS = [
   "bg-orange-50 text-orange-800","bg-lime-50 text-lime-800","bg-fuchsia-50 text-fuchsia-800",
   "bg-red-50 text-red-800","bg-blue-50 text-blue-800",
 ];
+
+const HEBREW_MONTH_FORMATTER = new Intl.DateTimeFormat('he-u-ca-hebrew', { month: 'long' });
+
+function toHebrewNumeral(n: number): string {
+  const units = ["", "א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט"];
+  const tens = ["", "י", "כ", "ל"];
+  if (n === 15) return "טו";
+  if (n === 16) return "טז";
+  return tens[Math.floor(n / 10)] + units[n % 10];
+}
 
 // Israeli weekend: Friday=5, Saturday=6
 function isWeekend(year: number, month: number, day: number) {
@@ -38,9 +48,23 @@ interface Props {
   onAssignmentChange: (day: number, shiftName: string, newEmpName: string) => void;
   changedCells: Set<string>;
   maxShifts?: number;
+  dayTypes: DayType[];
+  daySettings: DaySetting[];
+  onDayTypeChange: (date: string, day_type_id: string | null) => void;
 }
 
-export default function ScheduleTable({ schedule, shiftTypes, assignments, employees, onAssignmentChange, changedCells, maxShifts = 0 }: Props) {
+export default function ScheduleTable({
+  schedule,
+  shiftTypes,
+  assignments,
+  employees,
+  onAssignmentChange,
+  changedCells,
+  maxShifts = 0,
+  dayTypes,
+  daySettings,
+  onDayTypeChange
+}: Props) {
   const [dragSrc, setDragSrc] = useState<{ day: number; shiftName: string; emp: string } | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ day: number; shiftName: string } | null>(null);
   const [popup, setPopup] = useState<PopupState | null>(null);
@@ -76,6 +100,12 @@ export default function ScheduleTable({ schedule, shiftTypes, assignments, emplo
 
   const daysInMonth = new Date(schedule.year, schedule.month, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  // Map of date (YYYY-MM-DD) to day type ID
+  const dayTypeOverrides: Record<string, string> = {};
+  for (const s of daySettings) {
+    dayTypeOverrides[s.date] = s.day_type_id;
+  }
 
   function isSwapValid(srcEmp: string, srcShiftName: string, tgtEmp: string, tgtShiftName: string): boolean {
     const srcSt = shiftByName[srcShiftName];
@@ -281,7 +311,72 @@ export default function ScheduleTable({ schedule, shiftTypes, assignments, emplo
   function renderPopupContent() {
     if (!popup) return null;
     if (popup.stage === "select") return renderSelectStage(popup.day, popup.shiftName);
-    return renderResolveStage(popup.day, popup.shiftName, popup.targetEmp);
+    if (popup.stage === "resolve") return renderResolveStage(popup.day, popup.shiftName, popup.targetEmp);
+    return null;
+  }
+
+  function DayCellSelector({ day, currentTypeId }: { day: number; currentTypeId?: string }) {
+    const [open, setOpen] = useState(false);
+    const dateStr = `${schedule.year}-${String(schedule.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const activeType = dayTypes.find(dt => dt.id === currentTypeId);
+    const dayOfWeek = new Date(schedule.year, schedule.month-1, day).getDay();
+    const dayNames = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+    const dateObj = new Date(schedule.year, schedule.month - 1, day);
+    const hMonth = HEBREW_MONTH_FORMATTER.format(dateObj);
+    const hDayNum = parseInt(new Intl.DateTimeFormat('he-u-ca-hebrew', { day: 'numeric' }).format(dateObj));
+    const hebrewDate = `${toHebrewNumeral(hDayNum)} ב${hMonth}`;
+
+    return (
+      <div className="relative group/day">
+        <div
+          onClick={() => setOpen(!open)}
+          className={`cursor-pointer p-1 rounded-lg transition-all flex flex-col items-center min-w-[36px] ${
+            activeType ? activeType.color : "hover:bg-slate-200/50"
+          }`}
+        >
+          <div className="flex w-full justify-between items-center gap-1 px-0.5">
+            <span className="text-sm font-bold">{day}</span>
+            <span className="text-[9px] font-medium text-slate-500 whitespace-nowrap">{hebrewDate}</span>
+          </div>
+          {activeType ? (
+            <div className="text-[10px] font-bold uppercase truncate max-w-[40px] leading-tight">
+              {activeType.name}
+            </div>
+          ) : (
+            <div className="text-[10px] text-slate-400">
+              {dayNames[dayOfWeek]}
+            </div>
+          )}
+        </div>
+
+        {open && (
+          <div className="absolute z-50 top-0 right-full mr-2 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 flex flex-col gap-0.5 w-32 animate-in fade-in slide-in-from-right-2">
+            <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase">סוג יום</p>
+            <button
+              onClick={() => { onDayTypeChange(dateStr, null); setOpen(false); }}
+              className={`w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                !currentTypeId ? "bg-slate-100 border-slate-200 text-slate-700" : "text-slate-500 border-transparent hover:bg-slate-50"
+              }`}
+            >
+              רגיל (ברירת מחדל)
+            </button>
+            {dayTypes.map((dt) => (
+              <button
+                key={dt.id}
+                onClick={() => { onDayTypeChange(dateStr, dt.id); setOpen(false); }}
+                className={`w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  currentTypeId === dt.id ? `${dt.color} shadow-sm border-current` : "text-slate-500 border-transparent hover:bg-slate-50"
+                }`}
+              >
+                {dt.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Overlay to close */}
+        {open && <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />}
+      </div>
+    );
   }
 
   return (
@@ -314,11 +409,13 @@ export default function ScheduleTable({ schedule, shiftTypes, assignments, emplo
                   <tr key={day} className={`border-b border-slate-100 transition-colors hover:bg-blue-50/40 ${
                     weekend ? "bg-slate-50" : ""
                   }`}>
-                    <td className={`px-4 py-2.5 text-center font-bold sticky right-0 z-10 ${
-                      weekend ? "bg-slate-100 text-slate-500" : "bg-white text-slate-700"
+                    <td className={`px-2 py-2 text-center sticky right-0 z-10 ${
+                      weekend ? "bg-slate-100" : "bg-white"
                     }`}>
-                      <div className="text-sm">{day}</div>
-                      {weekend && <div className="text-xs text-slate-400">{new Date(schedule.year, schedule.month-1, day).getDay() === 6 ? "שב׳" : "ו׳"}</div>}
+                      <DayCellSelector
+                        day={day}
+                        currentTypeId={dayTypeOverrides[`${schedule.year}-${String(schedule.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`]}
+                      />
                     </td>
                     {sorted.map((st, i) => {
                       const shiftName = st.names[0];

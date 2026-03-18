@@ -178,3 +178,33 @@ export const importConstraintsCsv = async (
   }
   return res.json() as Promise<ConstraintImportResult>;
 };
+
+// ---------------------------------------------------------------------------
+// Day Types & Settings
+// ---------------------------------------------------------------------------
+
+export const getDayTypes = () => request<DayType[]>("/day-types");
+
+export const createDayType = (data: { name: string; color: string }) =>
+  request<DayType>("/day-types", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const updateDayType = (id: string, data: { name?: string; color?: string }) =>
+  request<DayType>(`/day-types/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
+export const deleteDayType = (id: string) =>
+  request<{ ok: boolean }>(`/day-types/${id}`, { method: "DELETE" });
+
+export const getDaySettings = (year: number, month: number) =>
+  request<DaySetting[]>(`/day-settings/${year}/${month}`);
+
+export const setDaySetting = (date: string, day_type_id: string | null) =>
+  request<{ ok: boolean }>("/day-settings", {
+    method: "POST",
+    body: JSON.stringify({ date, day_type_id }),
+  });

@@ -3,12 +3,19 @@ import { useState } from "react";
 import ShiftTypeTable, { attrToBadgeColor, ToggleSwitch } from "@/components/ShiftTypeTable";
 import type { ScheduleOn } from "@/lib/types";
 import { useShiftTypes } from "@/hooks/useShiftTypes";
+import { useDayTypes } from "@/hooks/useDayTypes";
+import DayTypeManager from "@/components/DayTypeManager";
+import CalendarConfigurator from "@/components/CalendarConfigurator";
 
 export default function ShiftTypesPage() {
   const {
     shiftTypes, columnHeaders, loading, error,
     updateShiftType, setDesired, createShiftType, deleteShiftType, loadDefaults, reload,
   } = useShiftTypes();
+  const {
+    dayTypes, loading: dayTypesLoading,
+    createDayType: createDayTypeAction, deleteDayType: deleteDayTypeAction, updateDayType: updateDayTypeAction
+  } = useDayTypes();
 
   // ── Load Defaults state ───────────────────────────────────────────────────
   const [defaultsLoading, setDefaultsLoading] = useState(false);
@@ -33,7 +40,7 @@ export default function ShiftTypesPage() {
   // ── Manual Add state ──────────────────────────────────────────────────────
   const [newNames, setNewNames] = useState("");
   const [selectedAttrs, setSelectedAttrs] = useState<Set<string>>(new Set());
-  const [newScheduleOn, setNewScheduleOn] = useState<ScheduleOn>("all");
+  const [newScheduleOn, setNewScheduleOn] = useState<ScheduleOn>(["all"]);
   const [newIsDesired, setNewIsDesired] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
@@ -43,6 +50,28 @@ export default function ShiftTypesPage() {
       const next = new Set(prev);
       next.has(attr) ? next.delete(attr) : next.add(attr);
       return next;
+    });
+  };
+
+  const toggleScheduleOn = (val: string) => {
+    setNewScheduleOn((prev) => {
+      if (val === "all") return ["all"];
+      const next = prev.filter(v => v !== "all");
+      let result: string[];
+      if (next.includes(val)) {
+        result = next.filter(v => v !== val);
+      } else {
+        result = [...next, val];
+      }
+
+      if (result.length === 0) return ["all"];
+
+      // Check if "everything" is selected
+      const allSpecific = ["weekdays", "friday", "weekend", ...dayTypes.map(dt => dt.id)];
+      const hasAllSpecific = allSpecific.every(opt => result.includes(opt));
+      if (hasAllSpecific) return ["all"];
+
+      return result;
     });
   };
 
@@ -60,7 +89,7 @@ export default function ShiftTypesPage() {
       });
       setNewNames("");
       setSelectedAttrs(new Set());
-      setNewScheduleOn("all");
+      setNewScheduleOn(["all"]);
       setNewIsDesired(false);
     } catch (e) {
       setAddError((e as Error).message);
@@ -102,6 +131,18 @@ export default function ShiftTypesPage() {
         </div>
       </div>
 
+      {/* ── Day Types & Calendar ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <DayTypeManager
+          dayTypes={dayTypes}
+          loading={dayTypesLoading}
+          createDayType={createDayTypeAction}
+          deleteDayType={deleteDayTypeAction}
+          updateDayType={updateDayTypeAction}
+        />
+        <CalendarConfigurator dayTypes={dayTypes} />
+      </div>
+
       {/* ── Manual Add ── */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100">
@@ -136,11 +177,10 @@ export default function ShiftTypesPage() {
                   return (
                     <label
                       key={attr}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-all text-xs font-semibold select-none ${
-                        checked
+                      className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-all text-xs font-semibold select-none ${checked
                           ? `${attrToBadgeColor(attr)} border-current shadow-sm`
                           : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300"
-                      }`}
+                        }`}
                     >
                       <input
                         type="checkbox"
@@ -151,7 +191,7 @@ export default function ShiftTypesPage() {
                       <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${checked ? "bg-current border-current" : "border-slate-300 bg-white"}`}>
                         {checked && (
                           <svg viewBox="0 0 10 10" fill="white" className="w-2.5 h-2.5">
-                            <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                            <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                           </svg>
                         )}
                       </span>
@@ -168,23 +208,31 @@ export default function ShiftTypesPage() {
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-2">ימי תזמון</label>
               <div className="flex gap-1.5 flex-wrap">
-                {([
-                  { value: "all",      label: "כל הימים",  color: "bg-slate-100 text-slate-600 border-slate-200", active: "bg-slate-200 text-slate-800 border-slate-300" },
-                  { value: "weekdays", label: "ימי חול",   color: "bg-blue-50 text-blue-500 border-blue-200",     active: "bg-blue-100 text-blue-700 border-blue-300" },
-                  { value: "friday",   label: "שישי",      color: "bg-orange-50 text-orange-400 border-orange-200", active: "bg-orange-100 text-orange-600 border-orange-300" },
-                  { value: "weekend",  label: "סוף שבוע",  color: "bg-purple-50 text-purple-400 border-purple-200", active: "bg-purple-100 text-purple-700 border-purple-300" },
-                ] as const).map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setNewScheduleOn(opt.value)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                      newScheduleOn === opt.value ? opt.active + " shadow-sm" : opt.color + " hover:shadow-sm"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+                {(() => {
+                  const staticOpts = [
+                    { value: "all", label: "כל הימים", color: "bg-white text-slate-500 border-slate-200 hover:bg-slate-50", active: "bg-slate-600 text-white border-slate-600" },
+                    { value: "weekdays", label: "ימי חול", color: "bg-white text-slate-500 border-slate-200 hover:bg-slate-50", active: "bg-blue-600 text-white border-blue-600" },
+                    { value: "friday", label: "שישי", color: "bg-white text-slate-500 border-slate-200 hover:bg-slate-50", active: "bg-orange-600 text-white border-orange-600" },
+                    { value: "weekend", label: "סוף שבוע", color: "bg-white text-slate-500 border-slate-200 hover:bg-slate-50", active: "bg-purple-600 text-white border-purple-600" },
+                  ];
+                  const dynamicOpts = dayTypes.map(dt => ({
+                    value: dt.id,
+                    label: dt.name,
+                    color: "bg-white text-slate-500 border-slate-200 hover:bg-slate-50",
+                    active: dt.color.replace("100", "600").replace(/text-[a-z]+-800/, "text-white").replace(/border-[a-z]+-200/, `border-${dt.color.split("-")[1]}-600`)
+                  }));
+                  return [...staticOpts, ...dynamicOpts].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => toggleScheduleOn(opt.value)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${newScheduleOn.includes(opt.value) ? opt.active + " shadow-sm border-current" : opt.color + " border-transparent hover:bg-slate-100"
+                        }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ));
+                })()}
               </div>
             </div>
             <label className="flex items-center gap-3 cursor-pointer">
@@ -229,6 +277,7 @@ export default function ShiftTypesPage() {
           onUpdate={updateShiftType}
           onToggleDesired={setDesired}
           onDelete={deleteShiftType}
+          dayTypes={dayTypes}
         />
       )}
     </div>

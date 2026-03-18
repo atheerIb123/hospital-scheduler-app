@@ -25,16 +25,17 @@ def generate():
         shift_types = [s for s in db.shift_types.find() if not s.get("skip", False)]
         rules = list(db.attribute_rules.find())
 
-        # Load constraints for the requested month/year
+        # Load constraints and day settings for the requested month/year
         month_prefix = f"{year:04d}-{month:02d}-"
         constraints = list(db.constraints.find({"date": {"$regex": f"^{month_prefix}"}}))
+        day_settings = list(db.day_settings.find({"date": {"$regex": f"^{month_prefix}"}}))
 
         if not employees:
             return jsonify({"status": "failed", "reason": "אין עובדים מוגדרים. ייבא קובץ CSV תחילה."}), 400
         if not shift_types:
             return jsonify({"status": "failed", "reason": "אין סוגי משמרות מוגדרים."}), 400
 
-        result = generate_schedule(employees, shift_types, rules, month, year, constraints)
+        result = generate_schedule(employees, shift_types, rules, month, year, constraints, day_settings)
 
         doc = {
             "month": month,

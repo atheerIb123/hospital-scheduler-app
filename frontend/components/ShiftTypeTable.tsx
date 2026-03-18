@@ -1,17 +1,25 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import type { ShiftType, ScheduleOn } from "@/lib/types";
+import type { ShiftType, ScheduleOn, DayType } from "@/lib/types";
 
-const SCHEDULE_ON_OPTIONS: { value: ScheduleOn; label: string; color: string }[] = [
-  { value: "all",      label: "כל הימים",  color: "bg-slate-100 text-slate-600 border-slate-200" },
-  { value: "weekdays", label: "ימי חול",   color: "bg-blue-100 text-blue-700 border-blue-200" },
-  { value: "friday",   label: "שישי",      color: "bg-orange-100 text-orange-600 border-orange-200" },
-  { value: "weekend",  label: "סוף שבוע",  color: "bg-purple-100 text-purple-700 border-purple-200" },
+const SCHEDULE_ON_OPTIONS: { value: string; label: string; color: string }[] = [
+  { value: "all", label: "כל הימים", color: "bg-slate-100 text-slate-600 border-slate-200" },
+  { value: "weekdays", label: "ימי חול", color: "bg-blue-100 text-blue-700 border-blue-200" },
+  { value: "friday", label: "שישי", color: "bg-orange-100 text-orange-600 border-orange-200" },
+  { value: "weekend", label: "סוף שבוע", color: "bg-purple-100 text-purple-700 border-purple-200" },
 ];
 
-function scheduleOnLabel(value: ScheduleOn | undefined): { label: string; color: string } {
-  const opt = SCHEDULE_ON_OPTIONS.find(o => o.value === (value ?? "all"));
-  return opt ?? SCHEDULE_ON_OPTIONS[0];
+function scheduleOnLabel(value: ScheduleOn | undefined, dayTypes: any[]): { label: string; color: string } {
+  const selected = Array.isArray(value) ? value : (value ? [value] : ["all"]);
+  if (selected.includes("all")) return { label: "כל הימים", color: "bg-slate-100 text-slate-600 border-slate-200" };
+
+  const options = [...SCHEDULE_ON_OPTIONS, ...dayTypes.map(dt => ({ value: dt.id, label: dt.name, color: dt.color }))];
+  const first = options.find(o => o.value === selected[0]);
+
+  if (!first) return { label: "בחר...", color: "bg-slate-100 text-slate-600 border-slate-200" };
+
+  const label = selected.length > 1 ? `${first.label} (+${selected.length - 1})` : first.label;
+  return { label: label as string, color: first.color as string };
 }
 
 const BADGE_COLORS = [
@@ -47,15 +55,13 @@ export function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange
       aria-checked={checked}
       onClick={onChange}
       style={{ direction: "ltr" }}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
-        checked ? "bg-amber-400" : "bg-slate-200"
-      }`}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${checked ? "bg-amber-400" : "bg-slate-200"
+        }`}
     >
       <span
         aria-hidden="true"
-        className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ease-in-out ${
-          checked ? "translate-x-5" : "translate-x-0"
-        }`}
+        className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ease-in-out ${checked ? "translate-x-5" : "translate-x-0"
+          }`}
       />
     </button>
   );
@@ -110,11 +116,10 @@ function AttrEditor({
               type="button"
               disabled={saving}
               onClick={() => onToggle(attr)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all disabled:opacity-50 ${
-                checked
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all disabled:opacity-50 ${checked
                   ? `${color} shadow-sm scale-105`
                   : "bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600"
-              }`}
+                }`}
             >
               {checked && (
                 <svg viewBox="0 0 10 10" className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -134,10 +139,40 @@ function AttrEditor({
 }
 
 // ── Day-type selector ────────────────────────────────────────────────────────
-function DayTypeSelector({ value, onChange }: { value: ScheduleOn; onChange: (v: ScheduleOn) => void }) {
+function DayTypeSelector({ value, onChange, dayTypes }: { value: ScheduleOn; onChange: (v: ScheduleOn) => void; dayTypes: DayType[] }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const current = scheduleOnLabel(value);
+
+  const selected = Array.isArray(value) ? value : (value ? [value as any] : ["all"]);
+  const current = scheduleOnLabel(selected, dayTypes);
+
+  const toggle = (val: string) => {
+    if (val === "all") {
+      onChange(["all"]);
+      return;
+    }
+    const next = selected.filter(v => v !== "all");
+    let result: string[];
+    if (next.includes(val)) {
+      result = next.filter(v => v !== val);
+    } else {
+      result = [...next, val];
+    }
+
+    if (result.length === 0) {
+      onChange(["all"]);
+      return;
+    }
+
+    // Check if "everything" is selected
+    const allSpecific = ["weekdays", "friday", "weekend", ...dayTypes.map(dt => dt.id)];
+    const hasAllSpecific = allSpecific.every(opt => result.includes(opt));
+    if (hasAllSpecific) {
+      onChange(["all"]);
+    } else {
+      onChange(result);
+    }
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -161,19 +196,43 @@ function DayTypeSelector({ value, onChange }: { value: ScheduleOn; onChange: (v:
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 flex flex-col gap-0.5 w-32">
+        <div className="absolute z-50 mt-1 right-0 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 flex flex-col gap-1 w-48 animate-in slide-in-from-top-1 duration-200">
+          <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase tracking-wider">בחר ימי תזמון</p>
           {SCHEDULE_ON_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
-              onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full text-center px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                value === opt.value
-                  ? `${opt.color} shadow-sm`
-                  : "text-slate-500 border-transparent hover:bg-slate-50"
-              }`}
+              onClick={() => toggle(opt.value)}
+              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${selected.includes(opt.value)
+                  ? `${opt.color.replace("100", "600").replace(/text-[a-z]+-700|text-[a-z]+-600/, "text-white").replace(/border-[a-z]+-200/, `border-${opt.color.split("-")[1]}-600`)} shadow-sm border border-current`
+                  : "text-slate-500 hover:bg-slate-50 border border-transparent"
+                }`}
             >
-              {opt.label}
+              <span>{opt.label}</span>
+              {selected.includes(opt.value) && (
+                <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3">
+                  <path d="M2.5 6l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </button>
+          ))}
+          {dayTypes.length > 0 && <div className="h-px bg-slate-100 my-1 mx-2" />}
+          {dayTypes.map((dt) => (
+            <button
+              key={dt.id}
+              type="button"
+              onClick={() => toggle(dt.id)}
+              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${selected.includes(dt.id)
+                  ? `${dt.color.replace("100", "600").replace(/text-[a-z]+-800/, "text-white").replace(/border-[a-z]+-200/, `border-${dt.color.split("-")[1]}-600`)} shadow-sm border border-current`
+                  : "text-slate-500 hover:bg-slate-50 border border-transparent"
+                }`}
+            >
+              <span className="truncate max-w-[100px]">{dt.name}</span>
+              {selected.includes(dt.id) && (
+                <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3">
+                  <path d="M2.5 6l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
             </button>
           ))}
         </div>
@@ -182,19 +241,20 @@ function DayTypeSelector({ value, onChange }: { value: ScheduleOn; onChange: (v:
   );
 }
 
-// ── Table ────────────────────────────────────────────────────────────────────
 export default function ShiftTypeTable({
   shiftTypes,
   columnHeaders,
   onUpdate,
   onToggleDesired,
   onDelete,
+  dayTypes,
 }: {
   shiftTypes: ShiftType[];
   columnHeaders: string[];
   onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
   onToggleDesired: (id: string, value: boolean) => Promise<ShiftType>;
   onDelete: (id: string) => Promise<void>;
+  dayTypes: DayType[];
 }) {
   const desiredCount = shiftTypes.filter((s) => s.is_desired).length;
 
@@ -245,6 +305,7 @@ export default function ShiftTypeTable({
                   onUpdate={onUpdate}
                   onToggleDesired={onToggleDesired}
                   onDelete={onDelete}
+                  dayTypes={dayTypes}
                 />
               ))}
             </tbody>
@@ -255,7 +316,6 @@ export default function ShiftTypeTable({
   );
 }
 
-// ── Row ──────────────────────────────────────────────────────────────────────
 function ShiftTypeRow({
   shiftType,
   idx,
@@ -263,6 +323,7 @@ function ShiftTypeRow({
   onUpdate,
   onToggleDesired,
   onDelete,
+  dayTypes,
 }: {
   shiftType: ShiftType;
   idx: number;
@@ -270,6 +331,7 @@ function ShiftTypeRow({
   onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
   onToggleDesired: (id: string, value: boolean) => Promise<ShiftType>;
   onDelete: (id: string) => Promise<void>;
+  dayTypes: DayType[];
 }) {
   const [editName, setEditName] = useState(shiftType.names.join(", "));
   const [deleting, setDeleting] = useState(false);
@@ -313,8 +375,8 @@ function ShiftTypeRow({
   const rowBg = shiftType.is_desired
     ? "bg-amber-50/60 hover:bg-amber-50"
     : idx % 2 === 0
-    ? "hover:bg-slate-50"
-    : "bg-slate-50/40 hover:bg-slate-50";
+      ? "hover:bg-slate-50"
+      : "bg-slate-50/40 hover:bg-slate-50";
 
   return (
     <tr className={`border-b border-slate-50 transition-all duration-200 ${deleting ? "opacity-40" : ""} ${rowBg}`}>
@@ -342,11 +404,10 @@ function ShiftTypeRow({
           <button
             type="button"
             onClick={() => setAttrOpen((v) => !v)}
-            className={`group w-full text-right flex flex-wrap gap-1.5 items-center rounded-lg px-2 py-1.5 border transition-all min-h-[2rem] ${
-              attrOpen
+            className={`group w-full text-right flex flex-wrap gap-1.5 items-center rounded-lg px-2 py-1.5 border transition-all min-h-[2rem] ${attrOpen
                 ? "border-blue-300 bg-blue-50/50 ring-2 ring-blue-100"
                 : "border-transparent hover:border-slate-200 hover:bg-slate-50"
-            }`}
+              }`}
           >
             {localAttrs.length === 0 ? (
               <span className="text-xs text-slate-400 italic flex items-center gap-1">
@@ -391,6 +452,7 @@ function ShiftTypeRow({
         <DayTypeSelector
           value={shiftType.schedule_on ?? (shiftType.friday_only ? "friday" : "all")}
           onChange={(v) => onUpdate(shiftType.id, { schedule_on: v })}
+          dayTypes={dayTypes}
         />
       </td>
 

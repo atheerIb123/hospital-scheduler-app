@@ -12,9 +12,21 @@ def generate_schedule(
     month: int,
     year: int,
     constraints: List[Dict[str, Any]] = None,
+    day_settings: List[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     days_in_month = calendar.monthrange(year, month)[1]
     days = list(range(1, days_in_month + 1))
+
+    # Actual settings map: {day_num: day_type_id}
+    day_overrides: Dict[int, str] = {}
+    if day_settings:
+        for ds in day_settings:
+            # ds["date"] is "YYYY-MM-DD"
+            try:
+                dnum = int(ds["date"].split("-")[-1])
+                day_overrides[dnum] = ds["day_type_id"]
+            except (ValueError, KeyError, IndexError):
+                continue
 
     friday_days   = {d for d in days if date(year, month, d).weekday() == 4}
     saturday_days = {d for d in days if date(year, month, d).weekday() == 5}
@@ -24,16 +36,33 @@ def generate_schedule(
     def applicable_days(shift: dict) -> set:
         """Return the set of days this shift should be scheduled on."""
         scope = shift.get("schedule_on")
-        # Backwards compat: if schedule_on absent, fall back to friday_only flag
-        if not scope:
-            scope = "friday" if shift.get("friday_only") else "all"
-        if scope == "friday":
-            return friday_days
-        if scope == "weekend":
-            return weekend_days
-        if scope == "weekdays":
-            return weekday_days
-        return set(days)  # "all"
+        # Backwards compat: if schedule_on absent or string, normalize to list
+        if not (isinstance(scope, list) or isinstance(scope, tuple)):
+            if not scope:
+                scope = ["friday" if shift.get("friday_only") else "all"]
+            else:
+                scope = [scope]
+
+        if "all" in scope:
+            return set(days)
+
+        res = set()
+        for d in days:
+            override = day_overrides.get(d)
+            if override:
+                if override in scope:
+                    res.add(d)
+                continue
+
+            # Fallback to hardcoded scopes if no override exists for this day
+            if "friday" in scope and d in friday_days:
+                res.add(d)
+            elif "weekend" in scope and d in weekend_days:
+                res.add(d)
+            elif "weekdays" in scope and d in weekday_days:
+                res.add(d)
+
+        return res
 
     # Normalise MongoDB _id → id string
     for emp in employees:
