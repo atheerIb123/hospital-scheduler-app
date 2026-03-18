@@ -63,3 +63,28 @@ export interface ImportResult {
   employees: Employee[];
   column_headers: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Constraints (הסתייגויות)
+// ---------------------------------------------------------------------------
+
+export interface Constraint {
+  id: string;
+  employee_name: string;
+  date: string;       // ISO string: YYYY-MM-DD
+  reason: string;
+  created_at?: string;
+}
+
+export interface ConstraintImportResult {
+  imported: number;
+  skipped: number;
+  errors: string[];
+  constraints: Constraint[];
+}
+
+export interface CreateConstraintPayload {
+  employee_name: string;
+  date: string;
+  reason?: string;
+}
