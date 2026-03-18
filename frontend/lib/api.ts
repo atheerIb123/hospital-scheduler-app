@@ -1,4 +1,4 @@
-import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload } from "./types";
+import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload } from "./types";
 
 const BASE = "/api";
 
@@ -130,3 +130,51 @@ export const updateAssignments = (id: string, assignments: Assignment[]) =>
     method: "PATCH",
     body: JSON.stringify({ assignments }),
   });
+
+// ---------------------------------------------------------------------------
+// Constraints (הסתייגויות)
+// ---------------------------------------------------------------------------
+
+export const getConstraints = (params?: { month?: number; year?: number; employee?: string }) => {
+  const qs = new URLSearchParams();
+  if (params?.month) qs.set("month", String(params.month));
+  if (params?.year) qs.set("year", String(params.year));
+  if (params?.employee) qs.set("employee", params.employee);
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return request<Constraint[]>(`/constraints${query}`);
+};
+
+export const createConstraint = (data: CreateConstraintPayload) =>
+  request<Constraint>("/constraints", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const updateConstraint = (id: string, data: Partial<CreateConstraintPayload>) =>
+  request<Constraint>(`/constraints/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
+export const deleteConstraint = (id: string) =>
+  request<{ ok: boolean }>(`/constraints/${id}`, { method: "DELETE" });
+
+export const clearConstraints = () =>
+  request<{ ok: boolean }>("/constraints", { method: "DELETE" });
+
+export const importConstraintsCsv = async (
+  file: File,
+  mode: "replace" | "append" = "replace"
+): Promise<ConstraintImportResult> => {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE}/constraints/import?mode=${mode}`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<ConstraintImportResult>;
+};

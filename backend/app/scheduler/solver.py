@@ -11,6 +11,7 @@ def generate_schedule(
     rules: List[Dict[str, Any]],
     month: int,
     year: int,
+    constraints: List[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     days_in_month = calendar.monthrange(year, month)[1]
     days = list(range(1, days_in_month + 1))
@@ -44,6 +45,27 @@ def generate_schedule(
 
     eligibility = build_eligibility_matrix(employees, shift_types, rules)
 
+    # Build blocked days per employee from constraints
+    # constraints = [{ employee_name, date "YYYY-MM-DD", ... }]
+    blocked: Dict[str, set] = {emp["id"]: set() for emp in employees}
+    if constraints:
+        name_to_id = {emp["name"]: emp["id"] for emp in employees}
+        for c in constraints:
+            emp_name = c.get("employee_name", "")
+            date_str = c.get("date", "")
+            if not date_str:
+                continue
+            try:
+                cdate = date.fromisoformat(date_str)
+            except ValueError:
+                continue
+            if cdate.year != year or cdate.month != month:
+                continue
+            day_num = cdate.day
+            eid = name_to_id.get(emp_name)
+            if eid:
+                blocked[eid].add(day_num)
+
     # Skip shift types with no eligible employees (e.g. no required_attributes configured yet)
     schedulable = [
         shift for shift in shift_types
@@ -71,6 +93,8 @@ def generate_schedule(
                 for day in days:
                     if day not in app_days:
                         continue
+                    if day in blocked.get(eid, set()):
+                        continue  # employee has a constraint on this day
                     x[(eid, sid, day)] = model.NewBoolVar(f"x_{eid}_{sid}_{day}")
 
     # C2 – exactly one eligible employee covers each shift each applicable day

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 const links = [
   { href: "/employees",   label: "עובדים" },
   { href: "/shift-types", label: "סוגי משמרות" },
+  { href: "/constraints", label: "הסתייגויות" },
   { href: "/schedule",    label: "סידור עבודה" },
 ];
 
