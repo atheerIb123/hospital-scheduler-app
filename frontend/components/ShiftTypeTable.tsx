@@ -67,6 +67,62 @@ export function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange
   );
 }
 
+// Justice points per desirability level (non-linear so each level feels distinct)
+export const DESIRABILITY_POINTS: Record<number, number> = { 1: 10, 2: 7, 3: 4, 4: 2, 5: 1 };
+export const DESIRABILITY_LABELS: Record<number, string> = {
+  1: "לא רצויה בכלל",
+  2: "לא רצויה",
+  3: "ניטרלי",
+  4: "רצויה",
+  5: "רצויה מאוד",
+};
+
+// Each star position has its own fixed color (so 4★ and 5★ look visually distinct)
+const STAR_COLORS_ACTIVE = ["", "text-red-500", "text-orange-400", "text-slate-400", "text-yellow-400", "text-amber-500"];
+const STAR_COLORS_HOVER  = ["", "text-red-300", "text-orange-300", "text-slate-300", "text-yellow-300", "text-amber-300"];
+
+// ── Desirability star rating (1–5) ────────────────────────────────────────────
+export function DesirabilityStars({ value, onChange, readonly }: { value: number; onChange?: (v: number) => void; readonly?: boolean }) {
+  const [hover, setHover] = useState(0);
+  // When a star is clicked: clear hover so the active colour shows immediately
+  const handleClick = (n: number) => {
+    setHover(0);
+    onChange?.(n);
+  };
+
+  return (
+    <div className="inline-flex flex-col gap-1">
+      <div className="flex gap-0.5" onMouseLeave={() => !readonly && setHover(0)}>
+        {[1, 2, 3, 4, 5].map(n => {
+          const previewing = !readonly && hover > 0;
+          const active     = previewing ? n <= hover : n <= value;
+          const colorClass = active
+            ? (previewing ? STAR_COLORS_HOVER[n] : STAR_COLORS_ACTIVE[n])
+            : "text-slate-200";
+          return (
+            <button
+              key={n}
+              type="button"
+              disabled={readonly}
+              onClick={() => handleClick(n)}
+              onMouseEnter={() => !readonly && setHover(n)}
+              className={`text-xl leading-none transition-colors disabled:cursor-default ${colorClass}`}
+              title={readonly ? undefined : `${DESIRABILITY_LABELS[n]} — ${DESIRABILITY_POINTS[n]} נק׳`}
+            >
+              ★
+            </button>
+          );
+        })}
+      </div>
+      {!readonly && (
+        <span className="text-[10px] font-medium" style={{ color: value <= 2 ? "#ef4444" : value >= 4 ? "#d97706" : "#94a3b8" }}>
+          {DESIRABILITY_LABELS[value]} · {DESIRABILITY_POINTS[value]} נק׳
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── Attribute editor dropdown ────────────────────────────────────────────────
 function AttrEditor({
   attrs,
@@ -245,18 +301,16 @@ export default function ShiftTypeTable({
   shiftTypes,
   columnHeaders,
   onUpdate,
-  onToggleDesired,
   onDelete,
   dayTypes,
 }: {
   shiftTypes: ShiftType[];
   columnHeaders: string[];
-  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
-  onToggleDesired: (id: string, value: boolean) => Promise<ShiftType>;
+  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "desirability" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
   onDelete: (id: string) => Promise<void>;
   dayTypes: DayType[];
 }) {
-  const desiredCount = shiftTypes.filter((s) => s.is_desired).length;
+  const desiredCount = shiftTypes.filter((s) => (s.desirability ?? 3) >= 4).length;
 
   if (shiftTypes.length === 0) {
     return (
@@ -270,7 +324,7 @@ export default function ShiftTypeTable({
     <div className="fade-in space-y-4">
       {desiredCount > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
-          <strong>{desiredCount}</strong> משמרות מסומנות כרצויות — הסולבר יחלק אותן באופן שווה
+          <strong>{desiredCount}</strong> משמרות עם ניקוד ≥ 4 (רצויות) — כל המשמרות יחולקו שווה בין העובדים
         </div>
       )}
 
@@ -291,7 +345,7 @@ export default function ShiftTypeTable({
                 <th className="px-4 py-3 font-semibold text-slate-600">שם משמרת</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">תכונות נדרשות</th>
                 <th className="px-4 py-3 font-semibold text-slate-600 text-center w-28">ימי תזמון</th>
-                <th className="px-4 py-3 font-semibold text-amber-600 text-center w-20">רצוי ★</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-center w-36">ניקוד רצוי</th>
                 <th className="px-4 py-3 w-12"></th>
               </tr>
             </thead>
@@ -303,7 +357,6 @@ export default function ShiftTypeTable({
                   idx={idx}
                   columnHeaders={columnHeaders}
                   onUpdate={onUpdate}
-                  onToggleDesired={onToggleDesired}
                   onDelete={onDelete}
                   dayTypes={dayTypes}
                 />
@@ -321,15 +374,13 @@ function ShiftTypeRow({
   idx,
   columnHeaders,
   onUpdate,
-  onToggleDesired,
   onDelete,
   dayTypes,
 }: {
   shiftType: ShiftType;
   idx: number;
   columnHeaders: string[];
-  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
-  onToggleDesired: (id: string, value: boolean) => Promise<ShiftType>;
+  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "desirability" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
   onDelete: (id: string) => Promise<void>;
   dayTypes: DayType[];
 }) {
@@ -338,11 +389,28 @@ function ShiftTypeRow({
   const [attrOpen, setAttrOpen] = useState(false);
   const [localAttrs, setLocalAttrs] = useState<string[]>(shiftType.required_attributes);
   const [savingAttr, setSavingAttr] = useState(false);
+  const [localDes, setLocalDes] = useState(shiftType.desirability ?? 3);
+  const [savingDes, setSavingDes] = useState(false);
+  const [desError, setDesError] = useState(false);
 
-  // Keep local attrs in sync if parent updates (e.g. after load-defaults)
-  useEffect(() => {
-    setLocalAttrs(shiftType.required_attributes);
-  }, [shiftType.required_attributes]);
+  // Keep local state in sync if parent updates (e.g. after load-defaults)
+  useEffect(() => { setLocalAttrs(shiftType.required_attributes); }, [shiftType.required_attributes]);
+  useEffect(() => { setLocalDes(shiftType.desirability ?? 3); }, [shiftType.desirability]);
+
+  const handleDesirabilityChange = async (v: number) => {
+    setLocalDes(v);
+    setDesError(false);
+    setSavingDes(true);
+    try {
+      await onUpdate(shiftType.id, { desirability: v });
+    } catch {
+      setDesError(true);
+      // Revert local state if save failed
+      setLocalDes(shiftType.desirability ?? 3);
+    } finally {
+      setSavingDes(false);
+    }
+  };
 
   const handleNameBlur = async () => {
     const names = editName.split(",").map((n) => n.trim()).filter(Boolean);
@@ -372,8 +440,11 @@ function ShiftTypeRow({
     }
   };
 
-  const rowBg = shiftType.is_desired
+  const des = localDes;
+  const rowBg = des >= 4
     ? "bg-amber-50/60 hover:bg-amber-50"
+    : des <= 2
+    ? "bg-rose-50/40 hover:bg-rose-50/60"
     : idx % 2 === 0
       ? "hover:bg-slate-50"
       : "bg-slate-50/40 hover:bg-slate-50";
@@ -456,12 +527,14 @@ function ShiftTypeRow({
         />
       </td>
 
-      {/* Desired toggle */}
+      {/* Desirability stars */}
       <td className="px-4 py-3 text-center">
-        <ToggleSwitch
-          checked={shiftType.is_desired}
-          onChange={() => onToggleDesired(shiftType.id, !shiftType.is_desired)}
+        <DesirabilityStars
+          value={localDes}
+          onChange={handleDesirabilityChange}
         />
+        {savingDes && <p className="text-[10px] text-slate-400 mt-0.5">שומר...</p>}
+        {desError && <p className="text-[10px] text-red-400 mt-0.5">שגיאה בשמירה</p>}
       </td>
 
       {/* Delete */}

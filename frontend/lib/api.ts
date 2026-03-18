@@ -74,7 +74,7 @@ export const createShiftType = (data: CreateShiftTypePayload) =>
 
 export const updateShiftType = (
   id: string,
-  data: Partial<Pick<ShiftType, "names" | "is_desired" | "schedule_on" | "required_attributes">>
+  data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes">>
 ) =>
   request<ShiftType>(`/shift-types/${id}`, {
     method: "PUT",

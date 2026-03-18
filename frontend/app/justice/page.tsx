@@ -91,7 +91,7 @@ function JusticeSection({ data, view, search }: { data: JusticeEntry[]; view: Vi
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100">
           <h3 className="font-bold text-slate-800">גרף טבלת צדק</h3>
-          <p className="text-xs text-slate-400 mt-0.5">כל עמודה = סכום נקודות הסבל (משמרת 1★ = 5 נק׳, 5★ = 1 נק׳)</p>
+          <p className="text-xs text-slate-400 mt-0.5">כל עמודה = סכום נקודות הסבל (1★ = 10 נק׳, 2★ = 7 נק׳, 3★ = 4 נק׳, 4★ = 2 נק׳, 5★ = 1 נק׳)</p>
         </div>
         <div className="p-6">
           <div className="flex items-end gap-3 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
@@ -127,9 +127,11 @@ function JusticeSection({ data, view, search }: { data: JusticeEntry[]; view: Vi
           <p className="text-xs text-slate-400 mt-0.5">ניקוד לפי משמרות לא רצויות — ככל שהציון גבוה יותר, מגיע לעובד עדיפות</p>
         </div>
         <div className="flex gap-3 text-xs text-slate-500 flex-wrap">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block"/>משמרת 1★ = 5 נק׳</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block"/>משמרת 3★ = 3 נק׳</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"/>משמרת 5★ = 1 נק׳</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block"/>1★ = 10 נק׳</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block"/>2★ = 7 נק׳</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block"/>3★ = 4 נק׳</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block"/>4★ = 2 נק׳</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"/>5★ = 1 נק׳</span>
         </div>
       </div>
       <div className="p-5 space-y-2.5">
