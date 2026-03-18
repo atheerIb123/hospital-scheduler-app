@@ -21,7 +21,7 @@ export default function SchedulePage() {
 
   const { schedule, loading, generating, error, generate } = useSchedule(month, year);
   const { shiftTypes } = useShiftTypes();
-  const { employees } = useEmployees();
+  const { employees, columnHeaders } = useEmployees();
   const { dayTypes } = useDayTypes();
   const { settings: daySettings, setOverride } = useDaySettings(year, month);
 
@@ -247,6 +247,7 @@ export default function SchedulePage() {
               onAssignmentChange={handleAssignmentChange}
               changedCells={changedCells}
               employees={employees}
+              columnHeaders={columnHeaders}
               maxShifts={maxShifts}
               dayTypes={dayTypes}
               daySettings={daySettings}

@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, type JusticeEntry, type Advocate, type Employee } from "@/lib/api";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord } from "@/lib/api";
 
-type Tab = "justice" | "volunteer" | "combined" | "advocates";
+type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking";
 type View = "table" | "chart";
 type RangeType = "week" | "month" | "year";
 
@@ -96,14 +96,13 @@ function JusticeSection({ data, view, search }: { data: JusticeEntry[]; view: Vi
         <div className="p-6">
           <div className="flex items-end gap-3 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
             {sorted.map((e, i) => {
-              const h = max > 0 ? (e.justice_score / max) * 100 : 0;
+              const barH = max > 0 ? Math.max(e.justice_score > 0 ? 4 : 0, Math.round((e.justice_score / max) * 150)) : 0;
               return (
                 <div key={e.employee_id} className="flex flex-col items-center gap-1 min-w-[52px]">
                   <span className="text-xs font-bold text-slate-600">{e.justice_score}</span>
                   <div className="w-10 rounded-t-lg transition-all duration-500"
                     style={{
-                      height: `${h}%`,
-                      minHeight: e.justice_score > 0 ? "4px" : "0",
+                      height: `${barH}px`,
                       background: i === 0 ? "#f59e0b" : i === 1 ? "#94a3b8" : i === 2 ? "#fb923c" : "#60a5fa",
                     }} />
                 </div>
@@ -168,14 +167,13 @@ function VolunteerSection({ data, view, search }: { data: JusticeEntry[]; view: 
         <div className="p-6">
           <div className="flex items-end gap-3 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
             {sorted.map((e, i) => {
-              const h = max > 0 ? (e.volunteer_score / max) * 100 : 0;
+              const barH = max > 0 ? Math.max(e.volunteer_score > 0 ? 4 : 0, Math.round((e.volunteer_score / max) * 150)) : 0;
               return (
                 <div key={e.employee_id} className="flex flex-col items-center gap-1 min-w-[52px]">
                   <span className="text-xs font-bold text-slate-600">{e.volunteer_score}</span>
                   <div className="w-10 rounded-t-lg transition-all duration-500"
                     style={{
-                      height: `${h}%`,
-                      minHeight: e.volunteer_score > 0 ? "4px" : "0",
+                      height: `${barH}px`,
                       background: i === 0 ? "#22c55e" : i === 1 ? "#86efac" : "#bbf7d0",
                     }} />
                 </div>
@@ -232,20 +230,20 @@ function CombinedChart({ data, search }: { data: JusticeEntry[]; search: string 
       <div className="p-6">
         <div className="flex items-end gap-4 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
           {sorted.map((e) => {
-            const hJ = maxJ > 0 ? (e.justice_score / maxJ) * 80 : 0;
-            const hV = maxV > 0 ? (e.volunteer_score / maxV) * 80 : 0;
+            const barJ = maxJ > 0 ? Math.max(e.justice_score > 0 ? 4 : 0, Math.round((e.justice_score / maxJ) * 100)) : 0;
+            const barV = maxV > 0 ? Math.max(e.volunteer_score > 0 ? 4 : 0, Math.round((e.volunteer_score / maxV) * 100)) : 0;
             return (
               <div key={e.employee_id} className="flex flex-col items-center gap-1 min-w-[64px]">
                 <div className="flex items-end gap-1 h-32">
                   <div className="flex flex-col items-center gap-0.5">
                     <span className="text-[10px] text-blue-600 font-bold">{e.justice_score}</span>
                     <div className="w-5 rounded-t-lg bg-blue-400 transition-all duration-500"
-                      style={{ height: `${hJ}%`, minHeight: e.justice_score > 0 ? "4px" : "0" }} />
+                      style={{ height: `${barJ}px` }} />
                   </div>
                   <div className="flex flex-col items-center gap-0.5">
                     <span className="text-[10px] text-green-600 font-bold">{e.volunteer_score}</span>
                     <div className="w-5 rounded-t-lg bg-green-400 transition-all duration-500"
-                      style={{ height: `${hV}%`, minHeight: e.volunteer_score > 0 ? "4px" : "0" }} />
+                      style={{ height: `${barV}px` }} />
                   </div>
                 </div>
               </div>
@@ -490,14 +488,13 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
           <div className="p-6">
             <div className="flex items-end gap-3 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
               {sorted.map(([empId, info], i) => {
-                const h = maxPts > 0 ? (info.points / maxPts) * 100 : 0;
+                const barH = maxPts > 0 ? Math.max(info.points > 0 ? 4 : 0, Math.round((info.points / maxPts) * 150)) : 0;
                 return (
                   <div key={empId} className="flex flex-col items-center gap-1 min-w-[52px]">
                     <span className="text-xs font-bold text-slate-600">{info.points}</span>
                     <div className="w-10 rounded-t-lg transition-all duration-500"
                       style={{
-                        height: `${h}%`,
-                        minHeight: info.points > 0 ? "4px" : "0",
+                        height: `${barH}px`,
                         background: i === 0 ? "#a855f7" : i === 1 ? "#c084fc" : i === 2 ? "#d8b4fe" : "#e9d5ff",
                       }} />
                   </div>
@@ -572,6 +569,203 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
   );
 }
 
+// ── Shirking section ──────────────────────────────────────────────────────────
+function ShirkingSection({ search, volunteerData }: {
+  search: string;
+  volunteerData?: JusticeEntry[];
+}) {
+  const [records, setRecords] = useState<ShirkingRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sideBySide, setSideBySide] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    getShirking()
+      .then(setRecords)
+      .catch(e => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleDelete(id: string) {
+    await removeShirking(id).catch(() => {});
+    setRecords(prev => prev.filter(r => r.id !== id));
+  }
+
+  const q = search.trim().toLowerCase();
+
+  // Aggregate per employee
+  const totals: Record<string, { name: string; count: number }> = {};
+  for (const r of records) {
+    totals[r.employee_id] ??= { name: r.employee_name, count: 0 };
+    totals[r.employee_id].count++;
+  }
+  const sorted = Object.entries(totals)
+    .filter(([, info]) => !q || info.name.toLowerCase().includes(q))
+    .sort((a, b) => b[1].count - a[1].count);
+  const maxCount = sorted[0]?.[1].count ?? 1;
+
+  const filteredRecords = records.filter(r => !q || r.employee_name.toLowerCase().includes(q));
+
+  if (loading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer"/>)}</div>;
+  if (error) return <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>;
+
+  const shirkingBlock = (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-100">
+        <h3 className="font-bold text-slate-800">טבלת הברזות</h3>
+        <p className="text-xs text-slate-400 mt-0.5">כמה פעמים כל עובד הבריז ממשמרת</p>
+      </div>
+      {sorted.length === 0
+        ? <p className="text-center text-slate-400 text-sm py-10">אין הברזות רשומות</p>
+        : (
+          <div className="p-5 space-y-2.5">
+            {sorted.map(([empId, info], rank) => (
+              <div key={empId} className="flex items-center gap-3">
+                <RankBadge rank={rank} />
+                <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{info.name}</div>
+                <div className="flex-1 bg-slate-100 rounded-full h-6 relative overflow-hidden min-w-[80px]">
+                  <div className="h-6 rounded-full bg-rose-400 transition-all duration-500"
+                    style={{ width: `${maxCount > 0 ? (info.count / maxCount) * 100 : 0}%`, minWidth: info.count > 0 ? "1.5rem" : "0" }}/>
+                  <span className="absolute inset-y-0 right-2 flex items-center text-xs font-bold text-slate-700">{info.count}</span>
+                </div>
+                <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{info.count} הברזות</div>
+              </div>
+            ))}
+          </div>
+        )
+      }
+      {/* Detail list */}
+      {filteredRecords.length > 0 && (
+        <div className="border-t border-slate-100">
+          <div className="px-6 py-3 bg-slate-50">
+            <p className="text-xs font-semibold text-slate-500">פירוט הברזות</p>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {filteredRecords.map(r => (
+              <div key={r.id} className="flex items-center gap-3 px-6 py-2.5 hover:bg-slate-50 transition-all">
+                <div className="flex-1">
+                  <span className="text-sm font-semibold text-slate-800">{r.employee_name}</span>
+                  <span className="text-xs text-slate-400 mx-1.5">—</span>
+                  <span className="text-sm text-slate-600">{r.shift_name}</span>
+                  <span className="text-xs text-slate-400 mx-1.5">יום {r.day}/{r.month}/{r.year}</span>
+                  {r.replacement_name && <span className="text-xs text-slate-400">(הוחלף ע״י {r.replacement_name})</span>}
+                </div>
+                <button type="button" onClick={() => handleDelete(r.id)} className="text-slate-300 hover:text-red-400 transition-all shrink-0">
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd"/></svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Build combined balance per employee (volunteer_count − shirking_count)
+  const balanceMap: Record<string, { name: string; volunteerCount: number; shirkingCount: number }> = {};
+  if (volunteerData) {
+    for (const e of volunteerData) {
+      if (!q || e.employee_name.toLowerCase().includes(q)) {
+        balanceMap[e.employee_id] ??= { name: e.employee_name, volunteerCount: 0, shirkingCount: 0 };
+        balanceMap[e.employee_id].volunteerCount = e.volunteer_count;
+      }
+    }
+  }
+  for (const r of records) {
+    if (!q || r.employee_name.toLowerCase().includes(q)) {
+      balanceMap[r.employee_id] ??= { name: r.employee_name, volunteerCount: 0, shirkingCount: 0 };
+      balanceMap[r.employee_id].shirkingCount = totals[r.employee_id]?.count ?? 0;
+    }
+  }
+  const balanceSorted = Object.entries(balanceMap)
+    .map(([id, v]) => ({ id, ...v, net: v.volunteerCount - v.shirkingCount }))
+    .sort((a, b) => b.net - a.net);
+  const maxAbsNet = Math.max(...balanceSorted.map(r => Math.abs(r.net)), 1);
+
+  return (
+    <div className="space-y-5">
+      {/* Toggle button */}
+      {volunteerData && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setSideBySide(v => !v)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
+              sideBySide
+                ? "bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
+                : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"/>
+            </svg>
+            {sideBySide ? "הסתר מאזן" : "הצג מאזן התנדבות − הברזות"}
+          </button>
+        </div>
+      )}
+
+      {/* Balance summary table */}
+      {sideBySide && volunteerData && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h3 className="font-bold text-slate-800">מאזן התנדבות − הברזות</h3>
+            <p className="text-xs text-slate-400 mt-0.5">התנדבויות מינוס הברזות = ניקוד נטו לכל עובד</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 text-xs font-semibold">
+                  <th className="px-4 py-2.5 text-right w-8">#</th>
+                  <th className="px-4 py-2.5 text-right">עובד</th>
+                  <th className="px-4 py-2.5 text-center">🤝 התנדבויות</th>
+                  <th className="px-4 py-2.5 text-center">🚫 הברזות</th>
+                  <th className="px-4 py-2.5 text-center">מאזן</th>
+                  <th className="px-4 py-2.5 text-right w-48">גרף</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {balanceSorted.length === 0 && (
+                  <tr><td colSpan={6} className="text-center text-slate-400 py-8 text-sm">אין נתונים</td></tr>
+                )}
+                {balanceSorted.map((row, i) => {
+                  const barPct = maxAbsNet > 0 ? (Math.abs(row.net) / maxAbsNet) * 100 : 0;
+                  const isPositive = row.net >= 0;
+                  return (
+                    <tr key={row.id} className="hover:bg-slate-50 transition-all">
+                      <td className="px-4 py-3 text-slate-400 text-xs">{i + 1}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-800">{row.name}</td>
+                      <td className="px-4 py-3 text-center text-green-600 font-medium">{row.volunteerCount}</td>
+                      <td className="px-4 py-3 text-center text-rose-500 font-medium">{row.shirkingCount}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`font-bold text-base ${isPositive ? "text-green-600" : "text-rose-500"}`}>
+                          {row.net > 0 ? "+" : ""}{row.net}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center h-5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-5 rounded-full transition-all duration-500 ${isPositive ? "bg-green-400" : "bg-rose-400"}`}
+                            style={{ width: `${barPct}%`, minWidth: row.net !== 0 ? "1rem" : "0" }}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Full shirking table — always visible */}
+      {shirkingBlock}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function JusticePage() {
   const [data, setData] = useState<JusticeEntry[]>([]);
@@ -605,10 +799,11 @@ export default function JusticePage() {
   const [search, setSearch] = useState("");
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "justice",   label: "טבלת צדק",       icon: "⚖️" },
-    { id: "volunteer", label: "טבלת התנדבות",   icon: "🤝" },
-    { id: "combined",  label: "שניהם",           icon: "📊" },
-    { id: "advocates", label: "סנגורים",         icon: "🏆" },
+    { id: "justice",   label: "טבלת צדק",         icon: "⚖️" },
+    { id: "volunteer", label: "טבלת התנדבות",     icon: "🤝" },
+    { id: "combined",  label: "שניהם",             icon: "📊" },
+    { id: "shirking",  label: "הברזות",            icon: "🚫" },
+    { id: "advocates", label: "סנגורים",           icon: "🏆" },
   ];
 
   const rangeTypes: { id: RangeType; label: string }[] = [
@@ -621,7 +816,7 @@ export default function JusticePage() {
     <div className="space-y-6 fade-in">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-slate-800">ניקוד ויושר</h1>
+        <h1 className="text-3xl font-bold text-slate-800">טבלאות ניקוד</h1>
         <p className="text-slate-500 mt-1 text-sm">
           טבלת צדק — מי עשה הכי הרבה משמרות לא רצויות | טבלת התנדבות — מי התנדב הכי הרבה
         </p>
@@ -663,8 +858,8 @@ export default function JusticePage() {
           ))}
         </div>
 
-        {/* View toggle — hidden on advocates tab */}
-        <div className={`flex gap-1 bg-slate-100 rounded-xl p-1 ${tab === "advocates" ? "invisible" : ""}`}>
+        {/* View toggle — hidden on advocates/shirking tabs */}
+        <div className={`flex gap-1 bg-slate-100 rounded-xl p-1 ${(tab === "advocates" || tab === "shirking") ? "invisible" : ""}`}>
           <button type="button" onClick={() => setView("table")}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
               view === "table" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
@@ -688,8 +883,8 @@ export default function JusticePage() {
         </div>
       </div>
 
-      {/* Time range bar — hidden on advocates tab */}
-      <div className={`flex items-center gap-3 flex-wrap ${tab === "advocates" ? "hidden" : ""}`}>
+      {/* Time range bar — hidden on advocates/shirking tabs */}
+      <div className={`flex items-center gap-3 flex-wrap ${(tab === "advocates" || tab === "shirking") ? "hidden" : ""}`}>
         {/* Range type buttons */}
         <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
           {rangeTypes.map(r => (
@@ -731,12 +926,12 @@ export default function JusticePage() {
       </div>
 
       {/* Error */}
-      {tab !== "advocates" && error && (
+      {tab !== "advocates" && tab !== "shirking" && error && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>
       )}
 
       {/* Loading */}
-      {tab !== "advocates" && loading && (
+      {tab !== "advocates" && tab !== "shirking" && loading && (
         <div className="space-y-3">
           {[1, 2, 3].map(i => <div key={i} className="h-14 rounded-2xl shimmer" />)}
         </div>
@@ -745,8 +940,11 @@ export default function JusticePage() {
       {/* Advocates tab — independent of justice loading */}
       {tab === "advocates" && <AdvocatesSection employees={employees} search={search} />}
 
+      {/* Shirking tab — independent of justice loading */}
+      {tab === "shirking" && <ShirkingSection search={search} volunteerData={data} />}
+
       {/* Content for justice/volunteer/combined */}
-      {tab !== "advocates" && !loading && !error && (
+      {tab !== "advocates" && tab !== "shirking" && !loading && !error && (
         <div className="space-y-6">
           {tab === "justice" && <JusticeSection data={data} view={view} search={search} />}
           {tab === "volunteer" && <VolunteerSection data={data} view={view} search={search} />}
