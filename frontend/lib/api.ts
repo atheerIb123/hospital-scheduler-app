@@ -260,6 +260,26 @@ export const removeAdvocate = (id: string) =>
   request<{ ok: boolean }>(`/advocates/${id}`, { method: "DELETE" });
 
 // ---------------------------------------------------------------------------
+// Statistics
+// ---------------------------------------------------------------------------
+
+export interface StatAssignment {
+  employee_name: string;
+  shift_name: string;
+  date: string;
+  day_of_week: number; // 0=Sunday … 6=Saturday
+}
+
+export interface StatsData {
+  assignments: StatAssignment[];
+  employees: string[];
+  shift_names: string[];
+}
+
+export const getStats = (startDate: string, endDate: string) =>
+  request<StatsData>(`/stats?start_date=${startDate}&end_date=${endDate}`);
+
+// ---------------------------------------------------------------------------
 // Justice / Volunteer stats
 // ---------------------------------------------------------------------------
 
