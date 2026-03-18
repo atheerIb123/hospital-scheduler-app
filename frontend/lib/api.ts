@@ -180,6 +180,51 @@ export const importConstraintsCsv = async (
 };
 
 // ---------------------------------------------------------------------------
+// Advocates
+// ---------------------------------------------------------------------------
+
+export interface Advocate {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  description: string;
+  points: number;
+  date: string;
+}
+
+export const getAdvocates = () => request<Advocate[]>("/advocates");
+
+export const addAdvocate = (data: Omit<Advocate, "id">) =>
+  request<Advocate>("/advocates", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const removeAdvocate = (id: string) =>
+  request<{ ok: boolean }>(`/advocates/${id}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
+// Justice / Volunteer stats
+// ---------------------------------------------------------------------------
+
+export interface JusticeEntry {
+  employee_name: string;
+  employee_id: string;
+  justice_score: number;
+  justice_shifts: number;
+  volunteer_score: number;
+  volunteer_count: number;
+}
+
+export const getJustice = (startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams();
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  const qs = params.toString();
+  return request<JusticeEntry[]>(`/justice${qs ? `?${qs}` : ""}`);
+};
+
+// ---------------------------------------------------------------------------
 // Day Types & Settings
 // ---------------------------------------------------------------------------
 
