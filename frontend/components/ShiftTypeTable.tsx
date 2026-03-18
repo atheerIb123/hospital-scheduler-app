@@ -33,7 +33,7 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: () =>
   return (
     <button onClick={onChange} type="button"
       className={`toggle-track border-2 transition-colors ${checked ? "bg-amber-400 border-amber-400" : "bg-slate-200 border-slate-200"}`}>
-      <div className="toggle-thumb" style={{ transform: checked ? "translateX(20px)" : "translateX(3px)" }} />
+      <div className="toggle-thumb" style={{ transform: checked ? "translateX(21px)" : "translateX(1px)" }} />
     </button>
   );
 }
