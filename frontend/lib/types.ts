@@ -4,15 +4,31 @@ export interface Employee {
   attributes: string[]; // e.g. ["col_1", "col_3"] — which CSV columns are ticked
 }
 
+export type ScheduleOn = "all" | "weekdays" | "friday" | "weekend";
+
 export interface ShiftType {
   id: string;
-  shift_id: number;       // stable numeric ID 1–14
+  shift_id?: number;       // only present on legacy seeded records
   names: string[];
   required_attributes: string[]; // e.g. ["col_1"]
-  csv_column: number;     // 1-based attribute column index (1–9)
+  csv_column?: number;     // only present on legacy seeded records
   is_desired: boolean;
-  friday_only?: boolean;
+  schedule_on: ScheduleOn;
+  friday_only?: boolean;   // legacy — superseded by schedule_on
   skip?: boolean;
+}
+
+export interface ShiftTypeImportResult {
+  imported: number;
+  shift_types: ShiftType[];
+  warnings: string[];
+}
+
+export interface CreateShiftTypePayload {
+  names: string[];
+  required_attributes: string[];
+  schedule_on: ScheduleOn;
+  is_desired: boolean;
 }
 
 export interface Assignment {

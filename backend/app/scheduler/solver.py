@@ -15,8 +15,24 @@ def generate_schedule(
     days_in_month = calendar.monthrange(year, month)[1]
     days = list(range(1, days_in_month + 1))
 
-    # Determine which days are Fridays (weekday() == 4)
-    friday_days = {d for d in days if date(year, month, d).weekday() == 4}
+    friday_days   = {d for d in days if date(year, month, d).weekday() == 4}
+    saturday_days = {d for d in days if date(year, month, d).weekday() == 5}
+    weekend_days  = friday_days | saturday_days
+    weekday_days  = set(days) - weekend_days
+
+    def applicable_days(shift: dict) -> set:
+        """Return the set of days this shift should be scheduled on."""
+        scope = shift.get("schedule_on")
+        # Backwards compat: if schedule_on absent, fall back to friday_only flag
+        if not scope:
+            scope = "friday" if shift.get("friday_only") else "all"
+        if scope == "friday":
+            return friday_days
+        if scope == "weekend":
+            return weekend_days
+        if scope == "weekdays":
+            return weekday_days
+        return set(days)  # "all"
 
     # Normalise MongoDB _id → id string
     for emp in employees:
@@ -28,38 +44,39 @@ def generate_schedule(
 
     eligibility = build_eligibility_matrix(employees, shift_types, rules)
 
-    # Pre-feasibility check: every shift type must have at least one eligible employee
-    for shift in shift_types:
-        sid = shift["id"]
-        if not any(eligibility[e["id"]][sid] for e in employees):
-            names = ", ".join(shift.get("names", [sid]))
-            return {
-                "status": "failed",
-                "reason": f"אין עובדים זכאים למשמרת '{names}'. בדוק הרשאות עובדים.",
-            }
+    # Skip shift types with no eligible employees (e.g. no required_attributes configured yet)
+    schedulable = [
+        shift for shift in shift_types
+        if any(eligibility[e["id"]][shift["id"]] for e in employees)
+    ]
+
+    if not schedulable:
+        return {
+            "status": "failed",
+            "reason": "אין סוגי משמרות עם עובדים זכאים. בדוק שהוגדרו תכונות נדרשות לכל משמרת.",
+        }
+
+    shift_types = schedulable
 
     model = cp_model.CpModel()
 
     # Decision variables: x[(emp_id, shift_id, day)] = 1 iff that employee works that shift that day
-    # Friday-only shifts only get variables for Friday days.
     x: Dict = {}
     for emp in employees:
         eid = emp["id"]
         for shift in shift_types:
             sid = shift["id"]
-            is_friday_only = shift.get("friday_only", False)
+            app_days = applicable_days(shift)
             if eligibility[eid][sid]:
                 for day in days:
-                    if is_friday_only and day not in friday_days:
+                    if day not in app_days:
                         continue
                     x[(eid, sid, day)] = model.NewBoolVar(f"x_{eid}_{sid}_{day}")
 
     # C2 – exactly one eligible employee covers each shift each applicable day
     for shift in shift_types:
         sid = shift["id"]
-        is_friday_only = shift.get("friday_only", False)
-        applicable_days = friday_days if is_friday_only else days
-        for day in applicable_days:
+        for day in applicable_days(shift):
             covering = [x[(e["id"], sid, day)] for e in employees if (e["id"], sid, day) in x]
             model.AddExactlyOne(covering)
 
@@ -91,29 +108,29 @@ def generate_schedule(
 
     objective_vars: List[Any] = [range_total]
 
-    # Friday-only shift fairness – computed per shift, only among eligible employees (weighted 3×)
-    friday_only_types = [s for s in shift_types if s.get("friday_only", False)]
-    max_fridays = len(friday_days)
-    for fs in friday_only_types:
+    # Fairness for scoped shifts (non-"all") — weighted 3× because slots are scarce
+    scoped_types = [s for s in shift_types if s.get("schedule_on", "friday" if s.get("friday_only") else "all") != "all"]
+    for fs in scoped_types:
         fsid = fs["id"]
-        eligible = [e for e in employees if any((e["id"], fsid, d) in x for d in friday_days)]
+        app = applicable_days(fs)
+        eligible = [e for e in employees if any((e["id"], fsid, d) in x for d in app)]
         if len(eligible) < 2:
             continue
-        emp_fri: Dict[str, Any] = {}
+        max_app = len(app)
+        emp_scoped: Dict[str, Any] = {}
         for emp in eligible:
             eid = emp["id"]
-            fri_vars = [x[(eid, fsid, d)] for d in friday_days if (eid, fsid, d) in x]
-            v = model.NewIntVar(0, max_fridays, f"fri_{fsid}_{eid}")
-            model.Add(v == cp_model.LinearExpr.Sum(fri_vars))
-            emp_fri[eid] = v
-        max_fri = model.NewIntVar(0, max_fridays, f"max_fri_{fsid}")
-        min_fri = model.NewIntVar(0, max_fridays, f"min_fri_{fsid}")
-        model.AddMaxEquality(max_fri, list(emp_fri.values()))
-        model.AddMinEquality(min_fri, list(emp_fri.values()))
-        range_fri = model.NewIntVar(0, max_fridays, f"range_fri_{fsid}")
-        model.Add(range_fri == max_fri - min_fri)
-        # Weight 3× — Friday slots are scarce so fairness here needs stronger pull
-        objective_vars += [range_fri, range_fri, range_fri]
+            scoped_vars = [x[(eid, fsid, d)] for d in app if (eid, fsid, d) in x]
+            v = model.NewIntVar(0, max_app, f"scoped_{fsid}_{eid}")
+            model.Add(v == cp_model.LinearExpr.Sum(scoped_vars))
+            emp_scoped[eid] = v
+        max_s = model.NewIntVar(0, max_app, f"max_s_{fsid}")
+        min_s = model.NewIntVar(0, max_app, f"min_s_{fsid}")
+        model.AddMaxEquality(max_s, list(emp_scoped.values()))
+        model.AddMinEquality(min_s, list(emp_scoped.values()))
+        range_s = model.NewIntVar(0, max_app, f"range_s_{fsid}")
+        model.Add(range_s == max_s - min_s)
+        objective_vars += [range_s, range_s, range_s]
 
     # Desired shift fairness (weighted 2×)
     desired_types = [s for s in shift_types if s.get("is_desired", False)]

@@ -32,7 +32,7 @@ def build_eligibility_matrix(
 
     An employee is eligible for a shift type if their expanded attributes
     contain ALL of the shift type's required_attributes.
-    If a shift type has no required_attributes, all employees are eligible.
+    If a shift type has no required_attributes, no employees are eligible (shift is unassignable).
     """
     eligibility: Dict[str, Dict[str, bool]] = {}
     for emp in employees:
@@ -42,5 +42,5 @@ def build_eligibility_matrix(
         for shift in shift_types:
             shift_id = str(shift["_id"]) if "_id" in shift else shift["id"]
             required = set(shift.get("required_attributes", []))
-            eligibility[emp_id][shift_id] = required.issubset(expanded)
+            eligibility[emp_id][shift_id] = bool(required) and required.issubset(expanded)
     return eligibility

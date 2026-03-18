@@ -3,7 +3,7 @@ from flask_cors import CORS
 from .config import Config
 from .db import init_db, get_db
 from .routes import register_routes
-from .seed import seed_shift_types, seed_attribute_rules
+from .seed import seed_attribute_rules
 
 
 def create_app():
@@ -16,7 +16,6 @@ def create_app():
 
     with app.app_context():
         db = get_db()
-        seed_shift_types(db)
         seed_attribute_rules(db)
 
     register_routes(app)

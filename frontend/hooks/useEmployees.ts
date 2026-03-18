@@ -34,10 +34,40 @@ export function useEmployees() {
     return result;
   };
 
+  const updateEmployee = async (id: string, data: { name?: string; attributes?: string[] }) => {
+    const emp = await api.updateEmployee(id, data);
+    setEmployees((prev) => prev.map((e) => (e.id === id ? emp : e)));
+    return emp;
+  };
+
   const removeEmployee = async (id: string) => {
     await api.deleteEmployee(id);
     setEmployees((prev) => prev.filter((e) => e.id !== id));
   };
 
-  return { employees, columnHeaders, loading, error, reload, importCsv, removeEmployee };
+  const renameColumnHeader = async (index: number, name: string) => {
+    const headers = await api.renameColumnHeader(index, name);
+    setColumnHeaders(headers);
+    return headers;
+  };
+
+  const addColumnHeader = async (name: string) => {
+    const headers = await api.addColumnHeader(name);
+    setColumnHeaders(headers);
+    return headers;
+  };
+
+  const deleteColumnHeader = async (index: number) => {
+    const headers = await api.deleteColumnHeader(index);
+    setColumnHeaders(headers);
+    // Reload employees so their attributes reflect the shifted col_N values
+    await reload();
+    return headers;
+  };
+
+  return {
+    employees, columnHeaders, loading, error, reload,
+    importCsv, updateEmployee, removeEmployee,
+    renameColumnHeader, addColumnHeader, deleteColumnHeader,
+  };
 }
