@@ -44,7 +44,16 @@ def get_stats():
                 "day_of_week": d.isoweekday() % 7,
             })
 
-    employees = [e["name"] for e in db.employees.find()]
+    role = request.args.get("role")
+    emp_query = {}
+    if role in ("doctor", "nursing"):
+        emp_query["role"] = role
+    employees = [e["name"] for e in db.employees.find(emp_query)]
+
+    # Filter assignments to only this role's employees
+    if role in ("doctor", "nursing"):
+        emp_set = set(employees)
+        assignments = [a for a in assignments if a["employee_name"] in emp_set]
 
     return jsonify({
         "assignments": assignments,

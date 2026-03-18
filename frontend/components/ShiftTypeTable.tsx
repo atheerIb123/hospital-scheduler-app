@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import type { ShiftType, ScheduleOn } from "@/lib/types";
+import type { ShiftType, ScheduleOn, StaffType } from "@/lib/types";
 
 const SCHEDULE_ON_OPTIONS: { value: ScheduleOn; label: string; color: string }[] = [
   { value: "all",      label: "כל הימים",  color: "bg-slate-100 text-slate-600 border-slate-200" },
@@ -60,6 +60,12 @@ export function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange
     </button>
   );
 }
+
+export const STAFF_TYPE_LABELS: Record<string, string> = {
+  doctor: "רופאים",
+  nursing: "סיעוד",
+  both: "שניהם",
+};
 
 // Justice points per desirability level (non-linear so each level feels distinct)
 export const DESIRABILITY_POINTS: Record<number, number> = { 1: 10, 2: 7, 3: 4, 4: 2, 5: 1 };
@@ -238,6 +244,58 @@ function DayTypeSelector({ value, onChange }: { value: ScheduleOn; onChange: (v:
   );
 }
 
+// ── Staff type selector ──────────────────────────────────────────────────────
+const STAFF_TYPE_OPTIONS: { value: StaffType; label: string; color: string; active: string }[] = [
+  { value: "doctor",  label: "רופאים",  color: "bg-blue-50 text-blue-500 border-blue-200",    active: "bg-blue-100 text-blue-700 border-blue-300" },
+  { value: "nursing", label: "סיעוד",   color: "bg-teal-50 text-teal-500 border-teal-200",    active: "bg-teal-100 text-teal-700 border-teal-300" },
+  { value: "both",    label: "שניהם",   color: "bg-slate-50 text-slate-500 border-slate-200", active: "bg-slate-100 text-slate-700 border-slate-300" },
+];
+
+function StaffTypeSelector({ value, onChange }: { value: StaffType; onChange: (v: StaffType) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const current = STAFF_TYPE_OPTIONS.find(o => o.value === (value ?? "both")) ?? STAFF_TYPE_OPTIONS[2];
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all hover:shadow-sm ${current.active} ${open ? "ring-2 ring-offset-1 ring-teal-300" : ""}`}
+      >
+        {current.label}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60">
+          <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 flex flex-col gap-0.5 w-28">
+          {STAFF_TYPE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full text-center px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                value === opt.value ? `${opt.active} shadow-sm` : "text-slate-500 border-transparent hover:bg-slate-50"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Table ────────────────────────────────────────────────────────────────────
 export default function ShiftTypeTable({
   shiftTypes,
@@ -247,7 +305,7 @@ export default function ShiftTypeTable({
 }: {
   shiftTypes: ShiftType[];
   columnHeaders: string[];
-  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "desirability" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
+  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "desirability" | "schedule_on" | "required_attributes" | "staff_type">>) => Promise<ShiftType>;
   onDelete: (id: string) => Promise<void>;
 }) {
   const desiredCount = shiftTypes.filter((s) => (s.desirability ?? 3) >= 4).length;
@@ -285,6 +343,7 @@ export default function ShiftTypeTable({
                 <th className="px-4 py-3 font-semibold text-slate-600">שם משמרת</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">תכונות נדרשות</th>
                 <th className="px-4 py-3 font-semibold text-slate-600 text-center w-28">ימי תזמון</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-center w-28">מיועד ל</th>
                 <th className="px-4 py-3 font-semibold text-slate-600 text-center w-36">ניקוד רצוי</th>
                 <th className="px-4 py-3 w-12"></th>
               </tr>
@@ -319,7 +378,7 @@ function ShiftTypeRow({
   shiftType: ShiftType;
   idx: number;
   columnHeaders: string[];
-  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "desirability" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
+  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "desirability" | "schedule_on" | "required_attributes" | "staff_type">>) => Promise<ShiftType>;
   onDelete: (id: string) => Promise<void>;
 }) {
   const [editName, setEditName] = useState(shiftType.names.join(", "));
@@ -462,6 +521,14 @@ function ShiftTypeRow({
         <DayTypeSelector
           value={shiftType.schedule_on ?? (shiftType.friday_only ? "friday" : "all")}
           onChange={(v) => onUpdate(shiftType.id, { schedule_on: v })}
+        />
+      </td>
+
+      {/* Staff type selector */}
+      <td className="px-4 py-3 text-center">
+        <StaffTypeSelector
+          value={shiftType.staff_type ?? "both"}
+          onChange={(v) => onUpdate(shiftType.id, { staff_type: v })}
         />
       </td>
 

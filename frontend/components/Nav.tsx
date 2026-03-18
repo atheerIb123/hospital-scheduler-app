@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRole } from "@/contexts/RoleContext";
+import type { Role } from "@/contexts/RoleContext";
 
 const links = [
   { href: "/employees",   label: "עובדים" },
@@ -11,8 +13,15 @@ const links = [
   { href: "/stats",       label: "סטטיסטיקות" },
 ];
 
+const ROLE_OPTIONS: { value: Role; label: string }[] = [
+  { value: "all",     label: "הכל" },
+  { value: "doctor",  label: "רופאים" },
+  { value: "nursing", label: "סיעוד" },
+];
+
 export default function Nav() {
   const pathname = usePathname();
+  const { role, setRole } = useRole();
   return (
     <nav className="sticky top-0 z-50 border-b border-blue-800/30"
       style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 100%)" }}>
@@ -28,6 +37,24 @@ export default function Nav() {
             <p className="text-white font-bold text-base leading-tight tracking-wide">מתזמן משמרות</p>
             <p className="text-blue-200 text-xs leading-tight">Hospital Scheduler</p>
           </div>
+        </div>
+
+        {/* Role toggle */}
+        <div className="flex items-center gap-0.5 bg-white/10 rounded-xl p-0.5">
+          {ROLE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setRole(opt.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                role === opt.value
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-blue-100 hover:bg-white/10"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
 
         {/* Links */}

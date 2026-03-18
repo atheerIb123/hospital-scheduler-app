@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Heebo } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
+import { ClientProviders } from "@/components/ClientProviders";
 
 const heebo = Heebo({
   subsets: ["hebrew", "latin"],
@@ -19,8 +20,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="he">
       <body className={`${heebo.variable} font-[family-name:var(--font-heebo)] antialiased min-h-screen`} dir="rtl"
         style={{ background: "var(--background)", color: "var(--foreground)" }}>
-        <Nav />
-        <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
+        <ClientProviders>
+          <Nav />
+          <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
+        </ClientProviders>
       </body>
     </html>
   );

@@ -88,6 +88,7 @@ def _parse_shift_types_csv(text: str, header_to_attr: dict) -> tuple[list[dict],
             "required_attributes": required_attrs,
             "schedule_on": schedule_on,
             "is_desired": False,
+            "staff_type": "both",
             "skip": False,
             "created_at": datetime.datetime.utcnow(),
         })
@@ -129,12 +130,16 @@ def create_shift_type():
         schedule_on = "all"
     desirability = int(data.get("desirability", 3))
     desirability = max(1, min(5, desirability))
+    staff_type = data.get("staff_type", "both")
+    if staff_type not in ("doctor", "nursing", "both"):
+        staff_type = "both"
     doc = {
         "names": names,
         "required_attributes": required_attributes,
         "schedule_on": schedule_on,
         "desirability": desirability,
         "is_desired": desirability >= 4,
+        "staff_type": staff_type,
         "skip": False,
         "created_at": datetime.datetime.utcnow(),
     }
@@ -190,6 +195,9 @@ def update_shift_type(shift_id):
     if "schedule_on" in data:
         val = data["schedule_on"]
         update["schedule_on"] = val if val in ("all", "weekdays", "friday", "weekend") else "all"
+    if "staff_type" in data:
+        val = data["staff_type"]
+        update["staff_type"] = val if val in ("doctor", "nursing", "both") else "both"
     db.shift_types.update_one({"_id": ObjectId(shift_id)}, {"$set": update})
     shift = db.shift_types.find_one({"_id": ObjectId(shift_id)})
     return jsonify(_serialize(shift))

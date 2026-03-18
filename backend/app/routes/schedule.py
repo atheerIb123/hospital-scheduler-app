@@ -176,7 +176,10 @@ def get_justice():
         volunteer[emp]["score"] += pts
         volunteer[emp]["count"] += 1
 
+    role = request.args.get("role")
     employees = list(db.employees.find())
+    if role in ("doctor", "nursing"):
+        employees = [e for e in employees if e.get("role", "doctor") == role]
     result = []
     for emp in employees:
         name = emp["name"]

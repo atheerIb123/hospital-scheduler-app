@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord } from "@/lib/api";
+import { useRole } from "@/contexts/RoleContext";
 
 type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking";
 type View = "table" | "chart";
@@ -770,6 +771,7 @@ function ShirkingSection({ search, volunteerData }: {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function JusticePage() {
+  const { role } = useRole();
   const [data, setData] = useState<JusticeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -792,11 +794,11 @@ export default function JusticePage() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    getJustice(startISO, endISO)
+    getJustice(startISO, endISO, role)
       .then(setData)
       .catch(e => setError((e as Error).message))
       .finally(() => setLoading(false));
-  }, [startISO, endISO]);
+  }, [startISO, endISO, role]);
 
   const [search, setSearch] = useState("");
 

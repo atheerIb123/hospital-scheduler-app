@@ -1,7 +1,11 @@
+export type StaffRole = "doctor" | "nursing";
+export type StaffType = "doctor" | "nursing" | "both";
+
 export interface Employee {
   id: string;
   name: string;
   attributes: string[]; // e.g. ["col_1", "col_3"] — which CSV columns are ticked
+  role: StaffRole;       // "doctor" | "nursing"
 }
 
 export type ScheduleOn = "all" | "weekdays" | "friday" | "weekend";
@@ -15,6 +19,7 @@ export interface ShiftType {
   is_desired: boolean;
   desirability: number;    // 1–5: 1=very undesirable (5 justice pts), 5=very desired (1 justice pt)
   schedule_on: ScheduleOn;
+  staff_type: StaffType;   // who can work this shift: "doctor" | "nursing" | "both"
   friday_only?: boolean;   // legacy — superseded by schedule_on
   skip?: boolean;
 }
@@ -30,6 +35,7 @@ export interface CreateShiftTypePayload {
   required_attributes: string[];
   schedule_on: ScheduleOn;
   desirability: number;   // 1–5
+  staff_type: StaffType;
 }
 
 export interface Assignment {

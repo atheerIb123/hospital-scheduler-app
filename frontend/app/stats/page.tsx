@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { getStats } from "@/lib/api";
 import type { StatsData } from "@/lib/api";
+import { useRole } from "@/contexts/RoleContext";
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,7 @@ function EmptyState({ msg }: { msg: string }) {
 // ── main page ────────────────────────────────────────────────────────────────
 
 export default function StatsPage() {
+  const { role } = useRole();
   const [rangeIdx, setRangeIdx] = useState(1);
   const [tab, setTab] = useState<"general" | "byFilter" | "byEmployee">("general");
   const [data, setData] = useState<StatsData | null>(null);
@@ -114,11 +116,11 @@ export default function StatsPage() {
     const { startDate, endDate } = getRangeDates(RANGES[rangeIdx].days);
     setLoading(true);
     setError(null);
-    getStats(startDate, endDate)
+    getStats(startDate, endDate, role)
       .then((d) => { setData(d); })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
-  }, [rangeIdx]);
+  }, [rangeIdx, role]);
 
   // ── aggregations ──────────────────────────────────────────────────────────
 

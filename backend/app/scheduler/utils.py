@@ -37,10 +37,16 @@ def build_eligibility_matrix(
     eligibility: Dict[str, Dict[str, bool]] = {}
     for emp in employees:
         emp_id = str(emp["_id"]) if "_id" in emp else emp["id"]
+        emp_role = emp.get("role", "doctor")
         expanded = set(expand_attributes(emp.get("attributes", []), rules))
         eligibility[emp_id] = {}
         for shift in shift_types:
             shift_id = str(shift["_id"]) if "_id" in shift else shift["id"]
+            staff_type = shift.get("staff_type", "both")
+            # Role gate: employee must match the shift's staff_type
+            if staff_type != "both" and emp_role != staff_type:
+                eligibility[emp_id][shift_id] = False
+                continue
             required = set(shift.get("required_attributes", []))
             eligibility[emp_id][shift_id] = bool(required) and required.issubset(expanded)
     return eligibility

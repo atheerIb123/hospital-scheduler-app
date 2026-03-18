@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
-import ShiftTypeTable, { attrToBadgeColor, DesirabilityStars, DESIRABILITY_LABELS, DESIRABILITY_POINTS } from "@/components/ShiftTypeTable";
-import type { ScheduleOn } from "@/lib/types";
+import ShiftTypeTable, { attrToBadgeColor, DesirabilityStars, DESIRABILITY_LABELS, DESIRABILITY_POINTS, STAFF_TYPE_LABELS } from "@/components/ShiftTypeTable";
+import type { ScheduleOn, StaffType } from "@/lib/types";
 import { useShiftTypes } from "@/hooks/useShiftTypes";
 
 export default function ShiftTypesPage() {
@@ -35,6 +35,7 @@ export default function ShiftTypesPage() {
   const [selectedAttrs, setSelectedAttrs] = useState<Set<string>>(new Set());
   const [newScheduleOn, setNewScheduleOn] = useState<ScheduleOn>("all");
   const [newDesirability, setNewDesirability] = useState(3);
+  const [newStaffType, setNewStaffType] = useState<StaffType>("both");
   const [addError, setAddError] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
 
@@ -57,11 +58,13 @@ export default function ShiftTypesPage() {
         required_attributes: Array.from(selectedAttrs),
         schedule_on: newScheduleOn,
         desirability: newDesirability,
+        staff_type: newStaffType,
       });
       setNewNames("");
       setSelectedAttrs(new Set());
       setNewScheduleOn("all");
       setNewDesirability(3);
+      setNewStaffType("both");
     } catch (e) {
       setAddError((e as Error).message);
     } finally {
@@ -163,8 +166,25 @@ export default function ShiftTypesPage() {
             )}
           </div>
 
-          {/* Day scope + desirability row */}
+          {/* Staff type + day scope + desirability row */}
           <div className="flex items-center gap-6 flex-wrap">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-2">מיועד ל</label>
+              <div className="flex gap-1.5">
+                {(["doctor", "nursing", "both"] as StaffType[]).map((v) => (
+                  <button key={v} type="button" onClick={() => setNewStaffType(v)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                      newStaffType === v
+                        ? v === "doctor" ? "bg-blue-100 text-blue-700 border-blue-300 shadow-sm"
+                          : v === "nursing" ? "bg-teal-100 text-teal-700 border-teal-300 shadow-sm"
+                          : "bg-slate-200 text-slate-800 border-slate-300 shadow-sm"
+                        : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300"
+                    }`}>
+                    {STAFF_TYPE_LABELS[v]}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-2">ימי תזמון</label>
               <div className="flex gap-1.5 flex-wrap">

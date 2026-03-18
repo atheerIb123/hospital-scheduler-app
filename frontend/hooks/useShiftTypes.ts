@@ -29,7 +29,7 @@ export function useShiftTypes() {
 
   const updateShiftType = async (
     id: string,
-    data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes">>
+    data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes" | "staff_type">>
   ) => {
     const st = await api.updateShiftType(id, data);
     setShiftTypes((prev) => prev.map((s) => (s.id === id ? st : s)));

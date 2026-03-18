@@ -18,28 +18,31 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 // Employees
 // ---------------------------------------------------------------------------
 
-export const getEmployees = () => request<Employee[]>("/employees");
+export const getEmployees = (role?: string) => {
+  const qs = role && role !== "all" ? `?role=${role}` : "";
+  return request<Employee[]>(`/employees${qs}`);
+};
 
-export const updateEmployee = (id: string, data: { name?: string; attributes?: string[] }) =>
+export const updateEmployee = (id: string, data: { name?: string; attributes?: string[]; role?: string }) =>
   request<Employee>(`/employees/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 
-export const renameColumnHeader = (index: number, name: string) =>
-  request<string[]>("/employees/column-headers", {
+export const renameColumnHeader = (index: number, name: string, role?: string) =>
+  request<string[]>(`/employees/column-headers${role ? `?role=${role}` : ""}`, {
     method: "PATCH",
     body: JSON.stringify({ index, name }),
   });
 
-export const addColumnHeader = (name: string) =>
-  request<string[]>("/employees/column-headers", {
+export const addColumnHeader = (name: string, role?: string) =>
+  request<string[]>(`/employees/column-headers${role ? `?role=${role}` : ""}`, {
     method: "POST",
     body: JSON.stringify({ name }),
   });
 
-export const deleteColumnHeader = (index: number) =>
-  request<string[]>(`/employees/column-headers/${index}`, { method: "DELETE" });
+export const deleteColumnHeader = (index: number, role?: string) =>
+  request<string[]>(`/employees/column-headers/${index}${role ? `?role=${role}` : ""}`, { method: "DELETE" });
 
 export const deleteEmployee = (id: string) =>
   request<{ ok: boolean }>(`/employees/${id}`, { method: "DELETE" });
@@ -47,10 +50,10 @@ export const deleteEmployee = (id: string) =>
 export const clearEmployees = () =>
   request<{ ok: boolean }>("/employees", { method: "DELETE" });
 
-export const importEmployeesCsv = async (file: File): Promise<ImportResult> => {
+export const importEmployeesCsv = async (file: File, role = "doctor"): Promise<ImportResult> => {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/employees/import`, { method: "POST", body: form });
+  const res = await fetch(`${BASE}/employees/import?role=${role}`, { method: "POST", body: form });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
@@ -58,7 +61,10 @@ export const importEmployeesCsv = async (file: File): Promise<ImportResult> => {
   return res.json() as Promise<ImportResult>;
 };
 
-export const getColumnHeaders = () => request<string[]>("/employees/column-headers");
+export const getColumnHeaders = (role?: string) => {
+  const qs = role && role !== "all" ? `?role=${role}` : "";
+  return request<string[]>(`/employees/column-headers${qs}`);
+};
 
 // ---------------------------------------------------------------------------
 // Shift Types
@@ -74,7 +80,7 @@ export const createShiftType = (data: CreateShiftTypePayload) =>
 
 export const updateShiftType = (
   id: string,
-  data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes">>
+  data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes" | "staff_type">>
 ) =>
   request<ShiftType>(`/shift-types/${id}`, {
     method: "PUT",
@@ -276,8 +282,11 @@ export interface StatsData {
   shift_names: string[];
 }
 
-export const getStats = (startDate: string, endDate: string) =>
-  request<StatsData>(`/stats?start_date=${startDate}&end_date=${endDate}`);
+export const getStats = (startDate: string, endDate: string, role?: string) => {
+  const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+  if (role && role !== "all") params.set("role", role);
+  return request<StatsData>(`/stats?${params.toString()}`);
+};
 
 // ---------------------------------------------------------------------------
 // Justice / Volunteer stats
@@ -292,10 +301,11 @@ export interface JusticeEntry {
   volunteer_count: number;
 }
 
-export const getJustice = (startDate?: string, endDate?: string) => {
+export const getJustice = (startDate?: string, endDate?: string, role?: string) => {
   const params = new URLSearchParams();
   if (startDate) params.set("start_date", startDate);
   if (endDate) params.set("end_date", endDate);
+  if (role && role !== "all") params.set("role", role);
   const qs = params.toString();
   return request<JusticeEntry[]>(`/justice${qs ? `?${qs}` : ""}`);
 };

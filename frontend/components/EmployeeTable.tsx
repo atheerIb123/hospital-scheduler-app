@@ -1,6 +1,8 @@
 "use client";
 import { useRef, useState, useEffect } from "react";
 import { useEmployees } from "@/hooks/useEmployees";
+import { useRole } from "@/contexts/RoleContext";
+import type { StaffRole } from "@/lib/types";
 
 const COL_COLORS = [
   { bg: "bg-violet-100", text: "text-violet-700", ring: "ring-violet-300" },
@@ -152,33 +154,69 @@ function AddColumnHeader({ onAdd }: { onAdd: (name: string) => Promise<void> }) 
   );
 }
 
+// ── Role badge ────────────────────────────────────────────────────────────────
+function RoleBadge({ role, onClick }: { role: StaffRole; onClick?: () => void }) {
+  const isDoctor = role === "doctor";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={onClick ? (isDoctor ? "לחץ לשינוי לסיעוד" : "לחץ לשינוי לרופא") : undefined}
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border transition-all ${
+        onClick ? "cursor-pointer hover:opacity-80" : "cursor-default"
+      } ${
+        isDoctor
+          ? "bg-blue-100 text-blue-700 border-blue-200"
+          : "bg-teal-100 text-teal-700 border-teal-200"
+      }`}
+    >
+      {isDoctor ? "רופא" : "סיעוד"}
+    </button>
+  );
+}
+
 // ── Main table ────────────────────────────────────────────────────────────────
 export default function EmployeeTable() {
+  const { role: globalRole } = useRole();
   const {
     employees, columnHeaders, loading, error,
     importCsv, updateEmployee, removeEmployee,
     renameColumnHeader, addColumnHeader, deleteColumnHeader,
-  } = useEmployees();
+  } = useEmployees(globalRole === "all" ? undefined : globalRole);
 
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [savingCell, setSavingCell] = useState<string | null>(null);
+  // Import role: when global is "all", ask which role to import as (default: doctor)
+  const [importRole, setImportRole] = useState<StaffRole>("doctor");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Keep importRole in sync with the global role filter
+  useEffect(() => {
+    if (globalRole !== "all") setImportRole(globalRole as StaffRole);
+  }, [globalRole]);
 
   const handleFile = async (file: File | null) => {
     if (!file) return;
     setImporting(true); setImportError(null); setImportSuccess(null);
+    const effectiveRole = globalRole !== "all" ? globalRole : importRole;
     try {
-      const result = await importCsv(file);
-      setImportSuccess(`יובאו ${result.imported} עובדים בהצלחה`);
+      const result = await importCsv(file, effectiveRole);
+      const roleLabel = effectiveRole === "doctor" ? "רופאים" : "סיעוד";
+      setImportSuccess(`יובאו ${result.imported} ${roleLabel} בהצלחה`);
     } catch (e) {
       setImportError((e as Error).message);
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const handleToggleRole = async (empId: string, currentRole: StaffRole) => {
+    const nextRole: StaffRole = currentRole === "doctor" ? "nursing" : "doctor";
+    await updateEmployee(empId, { role: nextRole });
   };
 
   const handleToggleAttr = async (empId: string, currentAttrs: string[], colIdx: number) => {
@@ -205,6 +243,7 @@ export default function EmployeeTable() {
   );
 
   const numCols = columnHeaders.length;
+  const showAttrs = globalRole !== "all"; // attribute columns only when a specific role is selected
 
   return (
     <div className="space-y-6 fade-in">
@@ -237,6 +276,26 @@ export default function EmployeeTable() {
               או לחץ לבחירת קובץ · שורה 1 = כותרות · עמודה 1 = שם · עמודות 2+ = V להרשאה
             </p>
           </div>
+          {/* Role selector when in "all" mode */}
+          {globalRole === "all" && !importing && (
+            <div className="flex gap-1.5 items-center" onClick={(e) => e.stopPropagation()}>
+              <span className="text-xs text-slate-500">ייבא כ:</span>
+              {(["doctor", "nursing"] as StaffRole[]).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setImportRole(r)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                    importRole === r
+                      ? r === "doctor" ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-teal-100 text-teal-700 border-teal-300"
+                      : "bg-white text-slate-500 border-slate-200"
+                  }`}
+                >
+                  {r === "doctor" ? "רופאים" : "סיעוד"}
+                </button>
+              ))}
+            </div>
+          )}
           {!importing && (
             <span className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg font-medium hover:bg-blue-700 transition-colors">
               בחר קובץ
@@ -258,7 +317,10 @@ export default function EmployeeTable() {
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
             <h3 className="font-semibold text-slate-800">רשימת עובדים</h3>
             <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-400">לחץ על שם או כותרת לעריכה</span>
+              {!showAttrs && (
+                <span className="text-xs text-slate-400">בחר תפקיד ספציפי לעריכת תכונות</span>
+              )}
+              {showAttrs && <span className="text-xs text-slate-400">לחץ על שם או כותרת לעריכה</span>}
               <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full">
                 {employees.length} עובדים
               </span>
@@ -271,7 +333,10 @@ export default function EmployeeTable() {
                   <th className="px-5 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">
                     שם עובד
                   </th>
-                  {Array.from({ length: numCols }, (_, i) => (
+                  <th className="px-3 py-3 text-center font-semibold text-slate-600 sticky top-0 bg-slate-50 z-10 w-24">
+                    תפקיד
+                  </th>
+                  {showAttrs && Array.from({ length: numCols }, (_, i) => (
                     <th key={i} className="px-2 py-3 text-center sticky top-0 bg-slate-50 z-10 min-w-[100px]">
                       <EditableHeader
                         value={columnHeaders[i]}
@@ -281,7 +346,7 @@ export default function EmployeeTable() {
                       />
                     </th>
                   ))}
-                  <AddColumnHeader onAdd={addColumnHeader} />
+                  {showAttrs && <AddColumnHeader onAdd={addColumnHeader} />}
                   <th className="px-3 py-3 sticky top-0 bg-slate-50 z-10 w-10"></th>
                 </tr>
               </thead>
@@ -300,8 +365,16 @@ export default function EmployeeTable() {
                       />
                     </td>
 
+                    {/* Role badge */}
+                    <td className="px-3 py-2.5 text-center">
+                      <RoleBadge
+                        role={emp.role ?? "doctor"}
+                        onClick={() => handleToggleRole(emp.id, emp.role ?? "doctor")}
+                      />
+                    </td>
+
                     {/* Attribute toggle cells */}
-                    {Array.from({ length: numCols }, (_, i) => {
+                    {showAttrs && Array.from({ length: numCols }, (_, i) => {
                       const colIdx = i + 1;
                       const attr = colAttr(colIdx);
                       const checked = emp.attributes.includes(attr);
@@ -339,7 +412,7 @@ export default function EmployeeTable() {
                     })}
 
                     {/* Empty cell under the + column */}
-                    <td />
+                    {showAttrs && <td />}
 
                     {/* Delete */}
                     <td className="px-3 py-2.5 text-center">
