@@ -1,4 +1,4 @@
-import type { Employee, ShiftType, Schedule, Assignment, ImportResult } from "./types";
+import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload } from "./types";
 
 const BASE = "/api";
 
@@ -19,6 +19,27 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export const getEmployees = () => request<Employee[]>("/employees");
+
+export const updateEmployee = (id: string, data: { name?: string; attributes?: string[] }) =>
+  request<Employee>(`/employees/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
+export const renameColumnHeader = (index: number, name: string) =>
+  request<string[]>("/employees/column-headers", {
+    method: "PATCH",
+    body: JSON.stringify({ index, name }),
+  });
+
+export const addColumnHeader = (name: string) =>
+  request<string[]>("/employees/column-headers", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+
+export const deleteColumnHeader = (index: number) =>
+  request<string[]>(`/employees/column-headers/${index}`, { method: "DELETE" });
 
 export const deleteEmployee = (id: string) =>
   request<{ ok: boolean }>(`/employees/${id}`, { method: "DELETE" });
@@ -45,20 +66,49 @@ export const getColumnHeaders = () => request<string[]>("/employees/column-heade
 
 export const getShiftTypes = () => request<ShiftType[]>("/shift-types");
 
+export const createShiftType = (data: CreateShiftTypePayload) =>
+  request<ShiftType>("/shift-types", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
 export const updateShiftType = (
   id: string,
-  data: Partial<Pick<ShiftType, "names" | "is_desired">>
+  data: Partial<Pick<ShiftType, "names" | "is_desired" | "schedule_on" | "required_attributes">>
 ) =>
   request<ShiftType>(`/shift-types/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 
+export const deleteShiftType = (id: string) =>
+  request<{ ok: boolean }>(`/shift-types/${id}`, { method: "DELETE" });
+
 export const toggleDesired = (id: string, is_desired: boolean) =>
   request<ShiftType>(`/shift-types/${id}/desired`, {
     method: "PATCH",
     body: JSON.stringify({ is_desired }),
   });
+
+export const importShiftTypesCsv = async (
+  file: File,
+  mode: "replace" | "append" = "replace"
+): Promise<ShiftTypeImportResult> => {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE}/shift-types/import?mode=${mode}`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<ShiftTypeImportResult>;
+};
+
+export const loadDefaultShiftTypes = () =>
+  request<ShiftTypeImportResult>("/shift-types/load-defaults", { method: "POST" });
 
 // ---------------------------------------------------------------------------
 // Schedule
