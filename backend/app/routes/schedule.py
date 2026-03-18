@@ -39,7 +39,13 @@ def generate():
             "status": result["status"],
         }
         if result["status"] == "generated":
-            doc["assignments"] = result["assignments"]
+            assignments = result["assignments"]
+            # Initialize actual attendance fields to planned values
+            for a in assignments:
+                a["actual_employee_id"] = a["employee_id"]
+                a["actual_employee_name"] = a["employee_name"]
+
+            doc["assignments"] = assignments
             doc["summary"] = result["summary"]
         else:
             doc["reason"] = result.get("reason", "שגיאה לא ידועה")

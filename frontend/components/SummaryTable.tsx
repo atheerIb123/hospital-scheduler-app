@@ -9,9 +9,9 @@ const SHIFT_COLORS = [
   "bg-red-100 text-red-700","bg-blue-100 text-blue-700",
 ];
 
-interface Props { schedule: Schedule; shiftTypes: ShiftType[]; assignments: Assignment[]; }
+interface Props { schedule: Schedule; shiftTypes: ShiftType[]; assignments: Assignment[]; viewMode: "planned" | "actual"; }
 
-export default function SummaryTable({ schedule, shiftTypes, assignments }: Props) {
+export default function SummaryTable({ schedule, shiftTypes, assignments, viewMode }: Props) {
   if (!schedule.summary) return null;
 
   const sorted = [...shiftTypes]
@@ -21,8 +21,9 @@ export default function SummaryTable({ schedule, shiftTypes, assignments }: Prop
   // Compute summary live from current assignments
   const empMap: Record<string, Record<string, number>> = {};
   for (const a of assignments) {
-    if (!empMap[a.employee_name]) empMap[a.employee_name] = {};
-    empMap[a.employee_name][a.shift_name] = (empMap[a.employee_name][a.shift_name] ?? 0) + 1;
+    const name = viewMode === "actual" ? (a.actual_employee_name ?? a.employee_name) : a.employee_name;
+    if (!empMap[name]) empMap[name] = {};
+    empMap[name][a.shift_name] = (empMap[name][a.shift_name] ?? 0) + 1;
   }
   // Preserve original employee order from schedule.summary
   const empNames = schedule.summary.map(s => s.employee_name);

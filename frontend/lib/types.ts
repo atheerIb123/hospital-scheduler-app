@@ -37,6 +37,8 @@ export interface Assignment {
   shift_name: string;
   employee_id: string;
   employee_name: string;
+  actual_employee_id?: string;
+  actual_employee_name?: string;
 }
 
 export interface EmployeeSummary {

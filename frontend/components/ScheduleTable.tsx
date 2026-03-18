@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import type { Schedule, ShiftType, Assignment } from "@/lib/types";
+import type { Schedule, ShiftType, Assignment, Employee } from "@/lib/types";
 
 const SHIFT_COLORS = [
   "bg-violet-50 text-violet-800","bg-sky-50 text-sky-800","bg-emerald-50 text-emerald-800",
@@ -25,9 +25,12 @@ interface Props {
   assignments: Assignment[];
   onAssignmentChange: (day: number, shiftName: string, newEmpName: string) => void;
   changedCells: Set<string>;
+  viewMode: "planned" | "actual";
+  allEmployees: Employee[];
+  showDifferences: boolean;
 }
 
-export default function ScheduleTable({ schedule, shiftTypes, assignments, onAssignmentChange, changedCells }: Props) {
+export default function ScheduleTable({ schedule, shiftTypes, assignments, onAssignmentChange, changedCells, viewMode, allEmployees: employees, showDifferences }: Props) {
   const [dragSrc, setDragSrc] = useState<{ day: number; shiftName: string; emp: string } | null>(null);
   const [editCell, setEditCell] = useState<{ day: number; shiftName: string } | null>(null);
 
@@ -41,11 +44,12 @@ export default function ScheduleTable({ schedule, shiftTypes, assignments, onAss
   const lookup: Record<number, Record<string, string>> = {};
   for (const a of assignments) {
     if (!lookup[a.day]) lookup[a.day] = {};
-    lookup[a.day][a.shift_name] = a.employee_name;
+    const name = viewMode === "actual" ? (a.actual_employee_name ?? a.employee_name) : a.employee_name;
+    lookup[a.day][a.shift_name] = name;
   }
 
-  // Sorted unique employee names from assignments
-  const allEmployees = Array.from(new Set(assignments.map(a => a.employee_name))).sort();
+  // Sorted unique employee names for the dropdown
+  const employeeNames = Array.from(new Set(employees.map(e => e.name))).sort();
 
   const daysInMonth = new Date(schedule.year, schedule.month, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -95,6 +99,9 @@ export default function ScheduleTable({ schedule, shiftTypes, assignments, onAss
                     const isEditing = editCell?.day === day && editCell?.shiftName === shiftName;
                     const isDragSrc = dragSrc?.day === day && dragSrc?.shiftName === shiftName;
 
+                    const assignment = assignments.find(a => a.day === day && a.shift_name === shiftName);
+                    const isDifferent = assignment && assignment.actual_employee_name && assignment.actual_employee_name !== assignment.employee_name;
+
                     if (isInactive) {
                       return (
                         <td key={st.id} className="px-3 py-2.5 text-center bg-slate-50/80">
@@ -107,6 +114,7 @@ export default function ScheduleTable({ schedule, shiftTypes, assignments, onAss
                       return (
                         <td key={st.id} className={`px-3 py-2.5 text-center ${
                           isChanged ? "bg-amber-50 ring-1 ring-inset ring-amber-300" :
+                          showDifferences && isDifferent ? "bg-rose-50 ring-1 ring-inset ring-rose-200" :
                           desiredSet.has(shiftName) ? "bg-amber-50/60" : ""
                         }`}>
                           <select
@@ -120,7 +128,7 @@ export default function ScheduleTable({ schedule, shiftTypes, assignments, onAss
                             onBlur={() => setEditCell(null)}
                           >
                             <option value="">—</option>
-                            {allEmployees.map(emp => (
+                            {employeeNames.map(emp => (
                               <option key={emp} value={emp}>{emp}</option>
                             ))}
                           </select>
@@ -134,6 +142,8 @@ export default function ScheduleTable({ schedule, shiftTypes, assignments, onAss
                         className={`px-3 py-2.5 text-center cursor-pointer transition-all ${
                           isChanged
                             ? "bg-amber-50 ring-1 ring-inset ring-amber-300"
+                            : showDifferences && isDifferent
+                            ? "bg-rose-50 ring-1 ring-inset ring-rose-200 shadow-inner"
                             : desiredSet.has(shiftName)
                             ? "bg-amber-50/60"
                             : ""
