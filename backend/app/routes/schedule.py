@@ -120,12 +120,16 @@ def get_justice():
         except ValueError:
             pass
 
-    # Build desirability map: shift_name → score (1–5)
+    # Non-linear justice points per desirability level (mirrors frontend DESIRABILITY_POINTS)
+    JUSTICE_PTS = {1: 10, 2: 7, 3: 4, 4: 2, 5: 1}
+
+    # Build desirability map: shift_name → justice points
     des_map: dict = {}
     for st in db.shift_types.find():
         des = st.get("desirability", 3)
+        pts = JUSTICE_PTS.get(int(des), 4)
         for name in st.get("names", []):
-            des_map[name] = des
+            des_map[name] = pts
 
     # For each (month, year) pair keep only the most recently generated schedule
     latest_schedules: dict = {}
@@ -149,9 +153,9 @@ def get_justice():
                 if end_date and a_date > end_date:
                     continue
             emp = a["employee_name"]
-            des = des_map.get(a["shift_name"], 3)
+            pts = des_map.get(a["shift_name"], 4)
             justice.setdefault(emp, {"score": 0, "shifts": 0})
-            justice[emp]["score"] += 6 - des
+            justice[emp]["score"] += pts
             justice[emp]["shifts"] += 1
 
     # Aggregate volunteer scores
@@ -167,9 +171,9 @@ def get_justice():
             if end_date and v_date > end_date:
                 continue
         emp = vol["employee_name"]
-        des = des_map.get(vol["shift_name"], 3)
+        pts = des_map.get(vol["shift_name"], 4)
         volunteer.setdefault(emp, {"score": 0, "count": 0})
-        volunteer[emp]["score"] += 6 - des
+        volunteer[emp]["score"] += pts
         volunteer[emp]["count"] += 1
 
     employees = list(db.employees.find())

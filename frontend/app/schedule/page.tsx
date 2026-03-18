@@ -119,7 +119,7 @@ export default function SchedulePage() {
         <h1 className="text-3xl font-bold text-slate-800">סידור עבודה</h1>
         <p className="text-slate-500 mt-1 text-sm">
           הסולבר יצור סידור חודשי הוגן תוך שמירה על אילוצי זכאות.
-          משמרות <span className="text-amber-600 font-semibold">רצויות ★</span> מקבלות משקל כפול בפיזור.
+          כל המשמרות מחולקות שווה בין העובדים לפי זכאות.
         </p>
       </div>
 

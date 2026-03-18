@@ -13,6 +13,7 @@ export interface ShiftType {
   required_attributes: string[]; // e.g. ["col_1"]
   csv_column?: number;     // only present on legacy seeded records
   is_desired: boolean;
+  desirability: number;    // 1–5: 1=very undesirable (5 justice pts), 5=very desired (1 justice pt)
   schedule_on: ScheduleOn;
   friday_only?: boolean;   // legacy — superseded by schedule_on
   skip?: boolean;
@@ -28,7 +29,7 @@ export interface CreateShiftTypePayload {
   names: string[];
   required_attributes: string[];
   schedule_on: ScheduleOn;
-  is_desired: boolean;
+  desirability: number;   // 1–5
 }
 
 export interface Assignment {
