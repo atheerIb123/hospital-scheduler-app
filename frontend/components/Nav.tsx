@@ -7,7 +7,7 @@ const links = [
   { href: "/shift-types", label: "סוגי משמרות" },
   { href: "/constraints", label: "הסתייגויות" },
   { href: "/schedule",    label: "סידור עבודה" },
-  { href: "/justice",     label: "ניקוד ויושר" },
+  { href: "/justice",     label: "טבלאות ניקוד" },
 ];
 
 export default function Nav() {

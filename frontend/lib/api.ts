@@ -180,6 +180,62 @@ export const importConstraintsCsv = async (
 };
 
 // ---------------------------------------------------------------------------
+// Volunteers
+// ---------------------------------------------------------------------------
+
+export interface Volunteer {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  shift_type_id: string;
+  shift_name: string;
+  day: number;
+  month: number;
+  year: number;
+}
+
+export const getVolunteers = (month: number, year: number) =>
+  request<Volunteer[]>(`/volunteers?month=${month}&year=${year}`);
+
+export const addVolunteer = (data: Omit<Volunteer, "id">) =>
+  request<Volunteer>("/volunteers", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const removeVolunteer = (id: string) =>
+  request<{ ok: boolean }>(`/volunteers/${id}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
+// Shirking (הברזות)
+// ---------------------------------------------------------------------------
+
+export interface ShirkingRecord {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  shift_name: string;
+  day: number;
+  month: number;
+  year: number;
+  replacement_name: string;
+}
+
+export const getShirking = (month?: number, year?: number) => {
+  const qs = month && year ? `?month=${month}&year=${year}` : "";
+  return request<ShirkingRecord[]>(`/shirking${qs}`);
+};
+
+export const addShirking = (data: Omit<ShirkingRecord, "id">) =>
+  request<ShirkingRecord>("/shirking", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const removeShirking = (id: string) =>
+  request<{ ok: boolean }>(`/shirking/${id}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
 // Advocates
 // ---------------------------------------------------------------------------
 

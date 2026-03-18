@@ -18,7 +18,7 @@ export default function SchedulePage() {
 
   const { schedule, loading, generating, error, generate } = useSchedule(month, year);
   const { shiftTypes } = useShiftTypes();
-  const { employees } = useEmployees();
+  const { employees, columnHeaders } = useEmployees();
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 1 + i);
 
@@ -242,6 +242,7 @@ export default function SchedulePage() {
               onAssignmentChange={handleAssignmentChange}
               changedCells={changedCells}
               employees={employees}
+              columnHeaders={columnHeaders}
               maxShifts={maxShifts}
             />
           </div>
