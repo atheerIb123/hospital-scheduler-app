@@ -239,16 +239,97 @@ function ConstraintRow({ constraint, onUpdate, onDelete }: {
 }
 
 // ---------------------------------------------------------------------------
+// Day detail panel (shown when a day is clicked)
+// ---------------------------------------------------------------------------
+
+function DayDetailPanel({ iso, list, colorFor, onClose }: {
+  iso: string;
+  list: Constraint[];
+  colorFor: (name: string) => string;
+  onClose: () => void;
+}) {
+  const label = formatDateHebrew(iso);
+  const dayName = HEB_DAYS[new Date(iso).getDay()];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 bg-slate-50 border-b border-slate-200">
+          <div>
+            <p className="text-xs text-slate-400 font-medium">{dayName}</p>
+            <h3 className="text-lg font-bold text-slate-800">{label}</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            {list.length > 0 && (
+              <span className="px-2.5 py-1 bg-red-100 text-red-700 rounded-full text-xs font-semibold">
+                {list.length} נעדרים
+              </span>
+            )}
+            <button onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-500 transition-colors text-lg leading-none">
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
+          {list.length === 0 ? (
+            <div className="py-8 text-center">
+              <span className="text-3xl">✅</span>
+              <p className="mt-2 text-sm text-slate-500">אין הסתייגויות ביום זה</p>
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {list.map(c => (
+                <li key={c.id}
+                  className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${colorFor(c.employee_name).replace("text-","bg-").split(" ")[0]}`} />
+                    <span className="text-sm font-medium text-slate-800 truncate">{c.employee_name}</span>
+                  </div>
+                  {c.reason ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 flex-shrink-0">
+                      {c.reason}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-300 flex-shrink-0">ללא סיבה</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50">
+          <button onClick={onClose}
+            className="w-full py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">
+            סגור
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Calendar view
 // ---------------------------------------------------------------------------
 
 function CalendarView({ constraints }: { constraints: Constraint[] }) {
   const now = new Date();
-  const [calYear,  setCalYear]  = useState(now.getFullYear());
-  const [calMonth, setCalMonth] = useState(now.getMonth() + 1); // 1-based
+  const [calYear,    setCalYear]    = useState(now.getFullYear());
+  const [calMonth,   setCalMonth]   = useState(now.getMonth() + 1); // 1-based
+  const [selectedIso, setSelectedIso] = useState<string | null>(null);
 
-  const totalDays  = daysInMonth(calYear, calMonth);
-  const startDay   = firstDayOfWeek(calYear, calMonth); // 0=Sun
+  const totalDays = daysInMonth(calYear, calMonth);
+  const startDay  = firstDayOfWeek(calYear, calMonth); // 0=Sun
 
   // Build map: "YYYY-MM-DD" → Constraint[]
   const byDate: Record<string, Constraint[]> = {};
@@ -260,15 +341,13 @@ function CalendarView({ constraints }: { constraints: Constraint[] }) {
     }
   }
 
-  const prevMonth = () => { if (calMonth===1){setCalMonth(12);setCalYear(y=>y-1);}else setCalMonth(m=>m-1); };
-  const nextMonth = () => { if (calMonth===12){setCalMonth(1);setCalYear(y=>y+1);}else setCalMonth(m=>m+1); };
+  const prevMonth = () => { setSelectedIso(null); if (calMonth===1){setCalMonth(12);setCalYear(y=>y-1);}else setCalMonth(m=>m-1); };
+  const nextMonth = () => { setSelectedIso(null); if (calMonth===12){setCalMonth(1);setCalYear(y=>y+1);}else setCalMonth(m=>m+1); };
 
-  // Cells: leading blanks + day cells
   const cells: (number|null)[] = [
     ...Array(startDay).fill(null),
     ...Array.from({length: totalDays}, (_,i)=>i+1),
   ];
-  // Pad to complete last row
   while (cells.length % 7 !== 0) cells.push(null);
 
   const isToday = (day: number) => {
@@ -279,7 +358,7 @@ function CalendarView({ constraints }: { constraints: Constraint[] }) {
   const isoFor = (day: number) =>
     `${calYear.toString().padStart(4,"0")}-${calMonth.toString().padStart(2,"0")}-${day.toString().padStart(2,"0")}`;
 
-  // Colour palette cycling for employee names
+  // Colour palette
   const empColors: Record<string,string> = {};
   const palette = [
     "bg-red-100 text-red-700","bg-orange-100 text-orange-700",
@@ -292,18 +371,30 @@ function CalendarView({ constraints }: { constraints: Constraint[] }) {
     if (!empColors[name]) empColors[name] = palette[colorIdx++ % palette.length];
     return empColors[name];
   };
-  // Pre-assign colours in sorted order for consistency
   const allNames = [...new Set(constraints.map(c=>c.employee_name))].sort();
   allNames.forEach(n => colorFor(n));
 
   return (
     <div dir="rtl" className="space-y-4">
+      {/* Day detail modal */}
+      {selectedIso && (
+        <DayDetailPanel
+          iso={selectedIso}
+          list={byDate[selectedIso] ?? []}
+          colorFor={colorFor}
+          onClose={() => setSelectedIso(null)}
+        />
+      )}
+
       {/* Month navigation */}
       <div className="flex items-center justify-between">
         <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors text-slate-600">→</button>
         <h2 className="text-lg font-bold text-slate-800">{HEB_MONTHS[calMonth-1]} {calYear}</h2>
         <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors text-slate-600">←</button>
       </div>
+
+      {/* Hint */}
+      <p className="text-xs text-slate-400 text-center">לחץ על יום לפרטים</p>
 
       {/* Day-of-week header */}
       <div className="grid grid-cols-7 gap-1">
@@ -316,18 +407,22 @@ function CalendarView({ constraints }: { constraints: Constraint[] }) {
       <div className="grid grid-cols-7 gap-1">
         {cells.map((day, idx) => {
           if (!day) return <div key={`blank-${idx}`} />;
-          const iso  = isoFor(day);
-          const list = byDate[iso] ?? [];
-          const isSat = (startDay + day - 1) % 7 === 6;
-          const today = isToday(day);
+          const iso    = isoFor(day);
+          const list   = byDate[iso] ?? [];
+          const isSat  = (startDay + day - 1) % 7 === 6;
+          const today  = isToday(day);
+          const selected = selectedIso === iso;
 
           return (
-            <div key={iso}
-              className={`min-h-[80px] rounded-xl border p-1.5 flex flex-col gap-1 text-right transition-colors
-                ${today  ? "border-blue-400 bg-blue-50"
-                : list.length > 0 ? "border-red-200 bg-red-50"
-                : isSat  ? "border-purple-100 bg-purple-50/40"
-                :          "border-slate-100 bg-white hover:bg-slate-50"}`}>
+            <button
+              key={iso}
+              onClick={() => setSelectedIso(iso)}
+              className={`min-h-[80px] rounded-xl border p-1.5 flex flex-col gap-1 text-right w-full transition-all
+                ${selected   ? "border-blue-500 ring-2 ring-blue-300 bg-blue-50"
+                : today      ? "border-blue-400 bg-blue-50 hover:border-blue-500"
+                : list.length > 0 ? "border-red-200 bg-red-50 hover:border-red-400 hover:shadow-sm cursor-pointer"
+                : isSat      ? "border-purple-100 bg-purple-50/40 hover:bg-purple-50"
+                :              "border-slate-100 bg-white hover:bg-slate-50 hover:border-slate-300"}`}>
 
               {/* Day number */}
               <span className={`text-xs font-bold self-end leading-none px-1
@@ -338,8 +433,7 @@ function CalendarView({ constraints }: { constraints: Constraint[] }) {
               {/* Absent employees */}
               <div className="flex flex-col gap-0.5 overflow-hidden">
                 {list.slice(0,3).map(c => (
-                  <span key={c.id} className={`text-[10px] leading-tight rounded px-1 py-0.5 truncate ${colorFor(c.employee_name)}`}
-                    title={c.reason ? `${c.employee_name} — ${c.reason}` : c.employee_name}>
+                  <span key={c.id} className={`text-[10px] leading-tight rounded px-1 py-0.5 truncate ${colorFor(c.employee_name)}`}>
                     {c.employee_name}
                   </span>
                 ))}
@@ -347,7 +441,7 @@ function CalendarView({ constraints }: { constraints: Constraint[] }) {
                   <span className="text-[10px] text-slate-400 px-1">+{list.length-3} עוד</span>
                 )}
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
