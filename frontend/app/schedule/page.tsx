@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import * as api from "@/lib/api";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useShiftTypes } from "@/hooks/useShiftTypes";
+import { useEmployees } from "@/hooks/useEmployees";
 import ScheduleTable from "@/components/ScheduleTable";
 import SummaryTable from "@/components/SummaryTable";
 import type { Assignment } from "@/lib/types";
@@ -17,6 +18,7 @@ export default function SchedulePage() {
 
   const { schedule, loading, generating, error, generate } = useSchedule(month, year);
   const { shiftTypes } = useShiftTypes();
+  const { employees } = useEmployees();
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 1 + i);
 
@@ -24,6 +26,19 @@ export default function SchedulePage() {
   const [changedCells, setChangedCells] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const [maxShifts, setMaxShifts] = useState(0);
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("maxShiftsPerMonth");
+      if (stored) setMaxShifts(Number(stored));
+    } catch {}
+  }, []);
+  function handleMaxShiftsChange(val: number) {
+    const v = Math.max(0, val);
+    setMaxShifts(v);
+    try { localStorage.setItem("maxShiftsPerMonth", String(v)); } catch {}
+  }
 
   useEffect(() => {
     if (schedule?.assignments) {
@@ -127,6 +142,22 @@ export default function SchedulePage() {
               {years.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">מקסימום משמרות לחודש</label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0}
+                value={maxShifts === 0 ? "" : maxShifts}
+                placeholder="ללא הגבלה"
+                onChange={(e) => handleMaxShiftsChange(e.target.value === "" ? 0 : Number(e.target.value))}
+                className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition-all w-32"
+              />
+              {maxShifts > 0 && (
+                <span className="text-xs text-slate-400">{maxShifts} משמרות</span>
+              )}
+            </div>
+          </div>
           <button
             onClick={() => generate()}
             disabled={generating}
@@ -141,15 +172,9 @@ export default function SchedulePage() {
                 <span>מחשב סידור…</span>
               </>
             ) : (
-              <span>צור סידור עבודה</span>
+                <span>צור סידור עבודה</span>
             )}
           </button>
-
-          {schedule?.status === "generated" && (
-            <div className="mr-auto flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-sm text-emerald-700 font-medium">
-              <span>{MONTH_NAMES[schedule.month-1]} {schedule.year}</span>
-            </div>
-          )}
 
           {changedCells.size > 0 && (
             <button onClick={handleSave} disabled={saving}
@@ -172,7 +197,7 @@ export default function SchedulePage() {
           )}
           {schedule?.status === "generated" && (
             <button onClick={handleDownloadExcel}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 shadow-sm hover:shadow-md active:scale-95 border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">
+              className="mr-auto flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 shadow-sm hover:shadow-md active:scale-95 border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-emerald-600">
                 <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
               </svg>
@@ -216,6 +241,8 @@ export default function SchedulePage() {
               assignments={localAssignments}
               onAssignmentChange={handleAssignmentChange}
               changedCells={changedCells}
+              employees={employees}
+              maxShifts={maxShifts}
             />
           </div>
 
