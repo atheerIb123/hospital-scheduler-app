@@ -38,14 +38,14 @@ export default function SummaryTable({ schedule, shiftTypes, assignments }: Prop
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-auto max-h-[500px]">
         <table className="min-w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-5 py-3.5 text-right font-semibold text-slate-600 whitespace-nowrap">עובד</th>
+              <th className="px-5 py-3.5 text-right font-semibold text-slate-600 whitespace-nowrap bg-slate-50">עובד</th>
               {sorted.map((st, i) => (
                 <th key={st.id} className={`px-3 py-3.5 text-center font-semibold whitespace-nowrap ${
-                  desiredSet.has(st.names[0]) ? "bg-amber-50" : ""
+                  desiredSet.has(st.names[0]) ? "bg-amber-50" : "bg-slate-50"
                 }`}>
                   <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${SHIFT_COLORS[i % SHIFT_COLORS.length]}`}>
                     <span>#{st.shift_id}</span>
@@ -54,7 +54,7 @@ export default function SummaryTable({ schedule, shiftTypes, assignments }: Prop
                   </div>
                 </th>
               ))}
-              <th className="px-5 py-3.5 text-center font-bold text-slate-700 whitespace-nowrap">סה״כ</th>
+              <th className="px-5 py-3.5 text-center font-bold text-slate-700 whitespace-nowrap bg-slate-50">סה״כ</th>
             </tr>
           </thead>
           <tbody>
