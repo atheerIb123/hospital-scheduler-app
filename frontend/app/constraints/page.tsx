@@ -496,7 +496,7 @@ export default function ConstraintsPage() {
   };
 
   const tabs = [
-    { id:"table",    label:`📋 רשימה (${constraints.length})` },
+    { id:"table",    label:"📋 רשימה" },
     { id:"calendar", label:"📅 לוח שנה" },
     { id:"add",      label:"➕ הוסף ידנית" },
     { id:"import",   label:"📂 ייבוא מקובץ" },
@@ -530,6 +530,11 @@ export default function ConstraintsPage() {
                   ? "border-blue-600 text-blue-700 bg-blue-50"
                   : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}>
               {tab.label}
+              {tab.id === "table" && (
+                <span suppressHydrationWarning className="mr-1">
+                  ({constraints.length})
+                </span>
+              )}
             </button>
           ))}
         </nav>
