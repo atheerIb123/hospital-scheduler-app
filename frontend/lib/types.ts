@@ -4,7 +4,7 @@ export interface Employee {
   attributes: string[]; // e.g. ["col_1", "col_3"] — which CSV columns are ticked
 }
 
-export type ScheduleOn = "all" | "weekdays" | "friday" | "weekend";
+export type ScheduleOn = string[];
 
 export interface ShiftType {
   id: string;
@@ -87,4 +87,20 @@ export interface CreateConstraintPayload {
   employee_name: string;
   date: string;
   reason?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Day Types & Settings
+// ---------------------------------------------------------------------------
+
+export interface DayType {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface DaySetting {
+  id: string;
+  date: string;
+  day_type_id: string;
 }

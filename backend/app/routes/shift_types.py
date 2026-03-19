@@ -125,8 +125,6 @@ def create_shift_type():
         return jsonify({"error": "at least one name is required"}), 400
     required_attributes = [a.strip() for a in data.get("required_attributes", []) if a.strip()]
     schedule_on = data.get("schedule_on", "all")
-    if schedule_on not in ("all", "weekdays", "friday", "weekend"):
-        schedule_on = "all"
     doc = {
         "names": names,
         "required_attributes": required_attributes,
@@ -181,8 +179,7 @@ def update_shift_type(shift_id):
     if "is_desired" in data:
         update["is_desired"] = bool(data["is_desired"])
     if "schedule_on" in data:
-        val = data["schedule_on"]
-        update["schedule_on"] = val if val in ("all", "weekdays", "friday", "weekend") else "all"
+        update["schedule_on"] = data["schedule_on"]
     db.shift_types.update_one({"_id": ObjectId(shift_id)}, {"$set": update})
     shift = db.shift_types.find_one({"_id": ObjectId(shift_id)})
     return jsonify(_serialize(shift))

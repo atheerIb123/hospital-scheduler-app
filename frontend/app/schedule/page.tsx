@@ -5,20 +5,25 @@ import * as api from "@/lib/api";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useShiftTypes } from "@/hooks/useShiftTypes";
 import { useEmployees } from "@/hooks/useEmployees";
+import { useDayTypes } from "@/hooks/useDayTypes";
+import { useDaySettings } from "@/hooks/useDaySettings";
 import ScheduleTable from "@/components/ScheduleTable";
 import SummaryTable from "@/components/SummaryTable";
+import CalendarConfigurator from "@/components/CalendarConfigurator";
 import type { Assignment } from "@/lib/types";
 
-const MONTH_NAMES = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+const MONTH_NAMES = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
 
 export default function SchedulePage() {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear]   = useState(now.getFullYear());
+  const [year, setYear] = useState(now.getFullYear());
 
   const { schedule, loading, generating, error, generate } = useSchedule(month, year);
   const { shiftTypes } = useShiftTypes();
   const { employees } = useEmployees();
+  const { dayTypes } = useDayTypes();
+  const { settings: daySettings, setOverride } = useDaySettings(year, month);
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 1 + i);
 
@@ -32,12 +37,12 @@ export default function SchedulePage() {
     try {
       const stored = localStorage.getItem("maxShiftsPerMonth");
       if (stored) setMaxShifts(Number(stored));
-    } catch {}
+    } catch { }
   }, []);
   function handleMaxShiftsChange(val: number) {
     const v = Math.max(0, val);
     setMaxShifts(v);
-    try { localStorage.setItem("maxShiftsPerMonth", String(v)); } catch {}
+    try { localStorage.setItem("maxShiftsPerMonth", String(v)); } catch { }
   }
 
   useEffect(() => {
@@ -131,7 +136,7 @@ export default function SchedulePage() {
             <select
               className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition-all"
               value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-              {MONTH_NAMES.map((n, i) => <option key={i+1} value={i+1}>{n}</option>)}
+              {MONTH_NAMES.map((n, i) => <option key={i + 1} value={i + 1}>{n}</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
@@ -166,13 +171,13 @@ export default function SchedulePage() {
             {generating ? (
               <>
                 <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                 </svg>
                 <span>מחשב סידור…</span>
               </>
             ) : (
-                <span>צור סידור עבודה</span>
+              <span>צור סידור עבודה</span>
             )}
           </button>
 
@@ -181,12 +186,12 @@ export default function SchedulePage() {
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-50 shadow-sm hover:shadow-md active:scale-95 border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
               {saving ? (
                 <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                 </svg>
               ) : (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                  <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+                  <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" />
                 </svg>
               )}
               <span>{saving ? "שומר…" : `שמור שינויים (${changedCells.size})`}</span>
@@ -199,7 +204,7 @@ export default function SchedulePage() {
             <button onClick={handleDownloadExcel}
               className="mr-auto flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 shadow-sm hover:shadow-md active:scale-95 border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-emerald-600">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="12" y1="18" x2="12" y2="12" /><line x1="9" y1="15" x2="15" y2="15" />
               </svg>
               <span>הורד Excel</span>
             </button>
@@ -221,7 +226,7 @@ export default function SchedulePage() {
       {/* Loading */}
       {loading && (
         <div className="space-y-3">
-          {[1,2,3].map(i => <div key={i} className="h-16 rounded-2xl shimmer" />)}
+          {[1, 2, 3].map(i => <div key={i} className="h-16 rounded-2xl shimmer" />)}
         </div>
       )}
 
@@ -232,7 +237,7 @@ export default function SchedulePage() {
             <div className="flex items-center gap-3 mb-4">
               <h2 className="text-xl font-bold text-slate-800">לוח משמרות</h2>
               <span className="text-xs bg-slate-100 text-slate-500 px-3 py-1 rounded-full font-medium">
-                {MONTH_NAMES[schedule.month-1]} {schedule.year}
+                {MONTH_NAMES[schedule.month - 1]} {schedule.year}
               </span>
             </div>
             <ScheduleTable
@@ -243,6 +248,9 @@ export default function SchedulePage() {
               changedCells={changedCells}
               employees={employees}
               maxShifts={maxShifts}
+              dayTypes={dayTypes}
+              daySettings={daySettings}
+              onDayTypeChange={setOverride}
             />
           </div>
 
@@ -259,14 +267,24 @@ export default function SchedulePage() {
       )}
 
       {!loading && !schedule && !generating && !error && (
-        <div className="text-center py-24 bg-white rounded-2xl border border-slate-100 shadow-sm">
-          <div className="w-16 h-16 bg-slate-100 rounded-2xl mx-auto mb-4 flex items-center justify-center">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-            </svg>
+        <div className="space-y-6">
+          <div className="text-center py-16 bg-white rounded-2xl border border-slate-100 shadow-sm">
+            <div className="w-16 h-16 bg-slate-100 rounded-2xl mx-auto mb-4 flex items-center justify-center">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+            </div>
+            <p className="text-slate-600 font-semibold text-lg">אין סידור ל{MONTH_NAMES[month - 1]} {year} עדיין</p>
+            <p className="text-slate-400 text-sm mt-2 mb-6">לחץ &#34;צור סידור עבודה&#34; כדי להתחיל.</p>
+            <div className="max-w-md mx-auto p-4 bg-amber-50 rounded-xl border border-amber-100 text-amber-800 text-sm">
+              <p>טיפ: ניתן להגדיר חגים וימים מיוחדים בסידור תחת דף <strong>סוגי משמרות</strong> לפני היצירה.</p>
+            </div>
           </div>
-          <p className="text-slate-600 font-semibold text-lg">אין סידור עדיין</p>
-          <p className="text-slate-400 text-sm mt-2">הגדר עובדים וסוגי משמרות, ולחץ &#34;צור סידור עבודה&#34;</p>
+
+          <div className="opacity-60 grayscale pointer-events-none">
+            <h2 className="text-xl font-bold text-slate-800 mb-4">תצוגה מקדימה של לוח השנה</h2>
+            <CalendarConfigurator dayTypes={dayTypes} />
+          </div>
         </div>
       )}
     </div>
