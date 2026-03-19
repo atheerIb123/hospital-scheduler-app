@@ -7,6 +7,85 @@ from bson import ObjectId
 from ..db import get_db
 from ..constants import col_attr
 
+ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".ods"}
+
+
+def _file_extension(filename: str) -> str:
+    return os.path.splitext(filename.lower())[1]
+
+
+def _rows_from_xlsx(file_bytes: bytes) -> list[list[str]]:
+    """Parse .xlsx using openpyxl."""
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    ws = wb.active
+    rows = []
+    for row in ws.iter_rows(values_only=True):
+        cells = [str(c).strip() if c is not None else "" for c in row]
+        if any(c for c in cells):
+            rows.append(cells)
+    return rows
+
+
+def _rows_from_xls(file_bytes: bytes) -> list[list[str]]:
+    """Parse legacy .xls using xlrd."""
+    import xlrd
+    wb = xlrd.open_workbook(file_contents=file_bytes)
+    ws = wb.sheet_by_index(0)
+    rows = []
+    for i in range(ws.nrows):
+        cells = [str(ws.cell_value(i, j)).strip() for j in range(ws.ncols)]
+        # xlrd returns floats for numeric cells; strip trailing .0
+        cells = [c[:-2] if c.endswith(".0") else c for c in cells]
+        if any(c for c in cells):
+            rows.append(cells)
+    return rows
+
+
+def _rows_from_ods(file_bytes: bytes) -> list[list[str]]:
+    """Parse .ods (LibreOffice Calc) using odfpy."""
+    from odf.opendocument import load as ods_load
+    from odf.table import Table, TableRow, TableCell
+    from odf.text import P
+
+    doc = ods_load(io.BytesIO(file_bytes))
+    spreadsheet = doc.spreadsheet
+    rows = []
+    for sheet in spreadsheet.getElementsByType(Table):
+        for row_el in sheet.getElementsByType(TableRow):
+            cells = []
+            for cell in row_el.getElementsByType(TableCell):
+                paragraphs = cell.getElementsByType(P)
+                text = " ".join(str(p) for p in paragraphs).strip() if paragraphs else ""
+                repeat = int(cell.getAttribute("numbercolumnsrepeated") or 1)
+                cells.extend([text] * repeat)
+            # Trim trailing empty cells
+            while cells and not cells[-1]:
+                cells.pop()
+            if any(c for c in cells):
+                rows.append(cells)
+        break  # first sheet only
+    return rows
+
+
+def _rows_from_csv(file_bytes: bytes) -> list[list[str]]:
+    """Parse .csv (handles BOM from Excel)."""
+    text = file_bytes.decode("utf-8-sig")
+    reader = csv.reader(io.StringIO(text))
+    return [r for r in reader if any(cell.strip() for cell in r)]
+
+
+def _get_rows(file_bytes: bytes, ext: str) -> list[list[str]]:
+    """Dispatch to the correct parser based on file extension."""
+    if ext == ".xlsx":
+        return _rows_from_xlsx(file_bytes)
+    elif ext == ".xls":
+        return _rows_from_xls(file_bytes)
+    elif ext == ".ods":
+        return _rows_from_ods(file_bytes)
+    else:
+        return _rows_from_csv(file_bytes)
+
 _DEFAULTS_CSV = os.path.join(os.path.dirname(__file__), "..", "..", "data", "default_shift_types.csv")
 
 employees_bp = Blueprint("employees", __name__)
@@ -17,23 +96,23 @@ def _serialize(doc):
     return doc
 
 
-def _parse_csv(file_bytes: bytes) -> tuple[list[str], list[dict]]:
+TICKED_VALUES = {"v", "✓", "✔", "x", "yes", "כן", "1", "true"}
+
+
+def _parse_rows(rows: list[list[str]]) -> tuple[list[str], list[dict]]:
     """
-    Parse an employee CSV file.
+    Parse pre-extracted rows into employees and column headers.
+
     Row 0  = headers (column names).
-    Rows 1+ = employees: col 0 = name, cols 1–N = attribute columns (V = ticked).
-    The number of attribute columns is inferred dynamically from the header row.
+    Rows 1+ = employees: col 0 = name, cols 1–N = attribute columns.
+    A cell is considered "ticked" when its value (case-insensitive) is one of:
+      V, v, ✓, ✔, X, x, yes, כן, 1, true
     Returns (column_headers, employees_list).
     """
-    text = file_bytes.decode("utf-8-sig")  # handle BOM from Excel exports
-    reader = csv.reader(io.StringIO(text))
-    rows = [r for r in reader if any(cell.strip() for cell in r)]
-
     if not rows:
         return [], []
 
     headers = [h.strip() for h in rows[0]]
-    # Attribute columns are everything after the name column (index 0)
     num_attr_cols = len(headers) - 1
 
     col_headers = {
@@ -49,7 +128,7 @@ def _parse_csv(file_bytes: bytes) -> tuple[list[str], list[dict]]:
         ticked_attributes = []
         for col_idx in range(1, num_attr_cols + 1):
             cell = row[col_idx].strip() if col_idx < len(row) else ""
-            if cell == "V":
+            if cell.lower() in TICKED_VALUES:
                 ticked_attributes.append(col_attr(col_idx))
         employees.append(
             {
@@ -125,10 +204,19 @@ def import_employees():
         return jsonify({"error": "No file provided"}), 400
 
     file = request.files["file"]
-    if not file.filename or not file.filename.endswith(".csv"):
-        return jsonify({"error": "File must be a .csv"}), 400
+    ext = _file_extension(file.filename or "")
+    if not file.filename or ext not in ALLOWED_EXTENSIONS:
+        return jsonify({
+            "error": f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+        }), 400
 
-    col_headers, parsed = _parse_csv(file.read())
+    file_bytes = file.read()
+    try:
+        rows = _get_rows(file_bytes, ext)
+    except Exception as e:
+        return jsonify({"error": f"Could not read file: {e}"}), 400
+
+    col_headers, parsed = _parse_rows(rows)
     if not parsed:
         return jsonify({"error": "CSV is empty or could not be parsed"}), 400
 

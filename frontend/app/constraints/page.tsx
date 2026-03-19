@@ -127,8 +127,15 @@ function CsvImportPanel({ onImport }: { onImport: (file: File, mode: "replace"|"
   const [status,   setStatus]   = useState<{type:"success"|"error";msg:string}|null>(null);
   const [importing,setImporting]= useState(false);
 
+  const ACCEPTED = [".csv", ".xlsx", ".xls", ".ods"];
+  const isAccepted = (f: File) => ACCEPTED.some(ext => f.name.toLowerCase().endsWith(ext));
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
+    if (!isAccepted(file)) {
+      setStatus({ type: "error", msg: `סוג קובץ לא נתמך. יש להשתמש ב: ${ACCEPTED.join(", ")}` });
+      return;
+    }
     setImporting(true); setStatus(null);
     try {
       await onImport(file, mode);
@@ -140,7 +147,7 @@ function CsvImportPanel({ onImport }: { onImport: (file: File, mode: "replace"|"
   return (
     <div className="space-y-4" dir="rtl">
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
-        <p className="font-medium text-slate-700 mb-2">📋 פורמט קובץ CSV נדרש:</p>
+        <p className="font-medium text-slate-700 mb-2">📋 פורמט קובץ נדרש (CSV / XLSX / XLS / ODS):</p>
         <div className="overflow-x-auto">
           <table className="text-xs border-collapse">
             <thead><tr className="bg-slate-200">
@@ -178,8 +185,8 @@ function CsvImportPanel({ onImport }: { onImport: (file: File, mode: "replace"|"
       <div className="flex items-center gap-3">
         <label className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors ${
           importing ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}>
-          {importing ? "מייבא..." : "📂 בחר קובץ CSV"}
-          <input ref={fileRef} type="file" accept=".csv" className="hidden" disabled={importing} onChange={handleFile} />
+          {importing ? "מייבא..." : "📂 בחר קובץ (CSV / XLSX / XLS / ODS)"}
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden" disabled={importing} onChange={handleFile} />
         </label>
         {mode==="replace" && <span className="text-xs text-amber-600 font-medium">⚠️ יחליף את כל ההסתייגויות הקיימות</span>}
       </div>
@@ -550,7 +557,7 @@ export default function ConstraintsPage() {
         {/* IMPORT */}
         {activeTab==="import" && (
           <div className="p-6">
-            <h2 className="text-base font-semibold text-slate-700 mb-4">ייבוא הסתייגויות מקובץ CSV</h2>
+            <h2 className="text-base font-semibold text-slate-700 mb-4">ייבוא הסתייגויות מקובץ (CSV / XLSX / XLS / ODS)</h2>
             <CsvImportPanel onImport={handleImport} />
           </div>
         )}

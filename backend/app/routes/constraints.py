@@ -1,6 +1,7 @@
 import csv
 import io
 import datetime
+import os
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
 from ..db import get_db
@@ -60,10 +61,17 @@ def _expand_date_expression(raw: str) -> list:
 
 
 # ---------------------------------------------------------------------------
-# CSV parsing
+# Multi-format file parsing
 # ---------------------------------------------------------------------------
 
-def _parse_csv(file_bytes):
+ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".ods"}
+
+
+def _ext(filename: str) -> str:
+    return os.path.splitext(filename.lower())[1]
+
+
+def _rows_from_csv(file_bytes: bytes) -> list[list[str]]:
     for encoding in ("utf-8-sig", "windows-1255", "utf-16", "iso-8859-8"):
         try:
             text = file_bytes.decode(encoding)
@@ -71,14 +79,78 @@ def _parse_csv(file_bytes):
         except (UnicodeDecodeError, LookupError):
             continue
     else:
-        return [], ["לא ניתן לקרוא את הקובץ. יש לשמור אותו בפורמט UTF-8 או Windows-1255"]
+        raise ValueError("לא ניתן לקרוא את הקובץ. יש לשמור אותו בפורמט UTF-8 או Windows-1255")
+    reader = csv.reader(io.StringIO(text))
+    return [r for r in reader if any(cell.strip() for cell in r)]
 
-    reader = csv.DictReader(io.StringIO(text))
 
-    if reader.fieldnames is None:
+def _rows_from_xlsx(file_bytes: bytes) -> list[list[str]]:
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    ws = wb.active
+    rows = []
+    for row in ws.iter_rows(values_only=True):
+        cells = [str(c).strip() if c is not None else "" for c in row]
+        if any(c for c in cells):
+            rows.append(cells)
+    return rows
+
+
+def _rows_from_xls(file_bytes: bytes) -> list[list[str]]:
+    import xlrd
+    wb = xlrd.open_workbook(file_contents=file_bytes)
+    ws = wb.sheet_by_index(0)
+    rows = []
+    for i in range(ws.nrows):
+        cells = [str(ws.cell_value(i, j)).strip() for j in range(ws.ncols)]
+        cells = [c[:-2] if c.endswith(".0") else c for c in cells]
+        if any(c for c in cells):
+            rows.append(cells)
+    return rows
+
+
+def _rows_from_ods(file_bytes: bytes) -> list[list[str]]:
+    from odf.opendocument import load as ods_load
+    from odf.table import Table, TableRow, TableCell
+    from odf.text import P
+    doc = ods_load(io.BytesIO(file_bytes))
+    rows = []
+    for sheet in doc.spreadsheet.getElementsByType(Table):
+        for row_el in sheet.getElementsByType(TableRow):
+            cells = []
+            for cell in row_el.getElementsByType(TableCell):
+                paragraphs = cell.getElementsByType(P)
+                text = " ".join(str(p) for p in paragraphs).strip() if paragraphs else ""
+                repeat = int(cell.getAttribute("numbercolumnsrepeated") or 1)
+                cells.extend([text] * repeat)
+            while cells and not cells[-1]:
+                cells.pop()
+            if any(c for c in cells):
+                rows.append(cells)
+        break
+    return rows
+
+
+def _get_rows(file_bytes: bytes, extension: str) -> list[list[str]]:
+    if extension == ".xlsx":
+        return _rows_from_xlsx(file_bytes)
+    elif extension == ".xls":
+        return _rows_from_xls(file_bytes)
+    elif extension == ".ods":
+        return _rows_from_ods(file_bytes)
+    else:
+        return _rows_from_csv(file_bytes)
+
+
+def _parse_rows(rows: list[list[str]]):
+    """
+    Convert raw rows (first row = headers) into constraint records.
+    Looks for columns containing 'שם' (name), 'תאריך' (date), 'סיבה' (reason).
+    """
+    if not rows:
         return [], ["הקובץ ריק או חסר שורת כותרות"]
 
-    fieldnames = [f.strip() for f in reader.fieldnames]
+    fieldnames = [f.strip() for f in rows[0]]
     name_col   = next((f for f in fieldnames if "שם"    in f), None)
     date_col   = next((f for f in fieldnames if "תאריך" in f), None)
     reason_col = next((f for f in fieldnames if "סיבה"  in f), None)
@@ -92,11 +164,11 @@ def _parse_csv(file_bytes):
     parsed = []
     errors = []
 
-    for i, row in enumerate(reader, start=2):
-        row = {k.strip(): v for k, v in row.items() if k}
-        employee_name = row.get(name_col, "").strip()
-        date_raw      = row.get(date_col, "").strip()
-        reason        = row.get(reason_col, "").strip() if reason_col else ""
+    for i, row in enumerate(rows[1:], start=2):
+        row_dict = {fieldnames[j]: row[j] if j < len(row) else "" for j in range(len(fieldnames))}
+        employee_name = row_dict.get(name_col, "").strip()
+        date_raw      = row_dict.get(date_col, "").strip()
+        reason        = row_dict.get(reason_col, "").strip() if reason_col else ""
 
         if not employee_name and not date_raw:
             continue
@@ -254,11 +326,20 @@ def import_constraints():
         return jsonify({"error": "לא סופק קובץ"}), 400
 
     file = request.files["file"]
-    if not file.filename or not file.filename.endswith(".csv"):
-        return jsonify({"error": "הקובץ חייב להיות בפורמט .csv"}), 400
+    extension = _ext(file.filename or "")
+    if not file.filename or extension not in ALLOWED_EXTENSIONS:
+        return jsonify({
+            "error": f"סוג קובץ לא נתמך '{extension}'. מותר: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+        }), 400
 
     mode = request.args.get("mode", "replace")
-    parsed, errors = _parse_csv(file.read())
+
+    try:
+        rows = _get_rows(file.read(), extension)
+    except Exception as e:
+        return jsonify({"error": f"לא ניתן לקרוא את הקובץ: {e}"}), 400
+
+    parsed, errors = _parse_rows(rows)
 
     if not parsed and errors:
         return jsonify({"error": errors[0], "all_errors": errors}), 400

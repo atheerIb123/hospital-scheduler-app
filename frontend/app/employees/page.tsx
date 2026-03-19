@@ -6,7 +6,7 @@ export default function EmployeesPage() {
       <div>
         <h1 className="text-3xl font-bold text-slate-800">עובדים</h1>
         <p className="text-slate-500 mt-1 text-sm">
-          ייבא קובץ CSV עם שמות העובדים. כל עמודה מייצגת קבוצת הרשאה לסוגי משמרות.
+          ייבא קובץ עם שמות העובדים (CSV, XLSX, XLS, ODS). כל עמודה מייצגת קבוצת הרשאה לסוגי משמרות.
         </p>
       </div>
       <EmployeeTable />
