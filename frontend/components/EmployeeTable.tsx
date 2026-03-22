@@ -167,8 +167,16 @@ export default function EmployeeTable() {
   const [savingCell, setSavingCell] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const ACCEPTED_EXTENSIONS = [".csv", ".xlsx", ".xls", ".ods"];
+  const isAccepted = (f: File) =>
+    ACCEPTED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext));
+
   const handleFile = async (file: File | null) => {
     if (!file) return;
+    if (!isAccepted(file)) {
+      setImportError(`סוג קובץ לא נתמך. יש להשתמש ב: ${ACCEPTED_EXTENSIONS.join(", ")}`);
+      return;
+    }
     setImporting(true); setImportError(null); setImportSuccess(null);
     try {
       const result = await importCsv(file);
@@ -215,10 +223,10 @@ export default function EmployeeTable() {
         }`}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f?.name.endsWith(".csv")) handleFile(f); }}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f && isAccepted(f)) handleFile(f); }}
         onClick={() => fileInputRef.current?.click()}
       >
-        <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
+        <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
           onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
         <div className="flex flex-col items-center gap-3">
           <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center shadow-inner">
@@ -231,10 +239,10 @@ export default function EmployeeTable() {
           </div>
           <div>
             <p className="text-slate-700 font-semibold text-base">
-              {importing ? "מייבא נתונים…" : "גרור קובץ CSV לכאן"}
+              {importing ? "מייבא נתונים…" : "גרור קובץ לכאן"}
             </p>
             <p className="text-slate-400 text-sm mt-1">
-              או לחץ לבחירת קובץ · שורה 1 = כותרות · עמודה 1 = שם · עמודות 2+ = V להרשאה
+              CSV · XLSX · XLS · ODS · שורה 1 = כותרות · עמודה 1 = שם · עמודות 2+ = V להרשאה
             </p>
           </div>
           {!importing && (
@@ -371,7 +379,7 @@ export default function EmployeeTable() {
             </svg>
           </div>
           <p className="font-medium">אין עובדים עדיין</p>
-          <p className="text-sm mt-1">ייבא קובץ CSV להתחלה</p>
+          <p className="text-sm mt-1">ייבא קובץ להתחלה</p>
         </div>
       )}
     </div>
