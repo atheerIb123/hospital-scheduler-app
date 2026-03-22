@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown } from "@/lib/api";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown } from "@/lib/api";
 
 type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype";
 type View = "table" | "chart";
@@ -184,6 +184,172 @@ function BreakdownModal({ employee, startDate, endDate, onClose }: {
   );
 }
 
+// ── Volunteer Breakdown modal ──────────────────────────────────────────────────
+function VolunteerBreakdownModal({ employee, startDate, endDate, onClose }: {
+  employee: string;
+  startDate?: string;
+  endDate?: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<VolunteerBreakdown | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getVolunteerBreakdown(employee, startDate, endDate)
+      .then(setData).catch(() => setData(null)).finally(() => setLoading(false));
+  }, [employee, startDate, endDate]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="font-bold text-slate-800 text-lg">{employee}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">פירוט חישוב ניקוד התנדבות</p>
+          </div>
+          {data && <div className="text-2xl font-bold text-green-600 ml-4">{data.total} נק׳</div>}
+          <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1">
+          {loading ? (
+            <div className="p-8 text-center text-slate-400 text-sm">טוען...</div>
+          ) : !data || data.rows.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">אין נתוני התנדבויות בטווח הנבחר</div>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+                <tr>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">תאריך</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">יום</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">משמרת</th>
+                  <th className="px-4 py-3 text-center font-semibold text-slate-600 whitespace-nowrap">רצויות</th>
+                  <th className="px-4 py-3 text-center font-bold text-slate-700 whitespace-nowrap">נק׳</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((row, i) => (
+                  <tr key={i} className={`border-b border-slate-50 hover:bg-green-50/30 ${i % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                    <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">{row.date}</td>
+                    <td className="px-4 py-2.5 text-slate-700 font-medium whitespace-nowrap">{row.day_of_week}</td>
+                    <td className="px-4 py-2.5 text-slate-800 font-semibold whitespace-nowrap">{row.shift_name}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${DES_COLORS[row.desirability] ?? "bg-slate-100 text-slate-600"}`}>
+                        {"★".repeat(row.desirability)}{"☆".repeat(5 - row.desirability)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-center font-bold text-green-600">{row.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="sticky bottom-0 bg-white border-t-2 border-slate-200">
+                <tr>
+                  <td colSpan={4} className="px-4 py-3 text-right font-bold text-slate-700">סה״כ</td>
+                  <td className="px-4 py-3 text-center font-bold text-green-600 text-base">{data.total}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── DayType Breakdown modal ────────────────────────────────────────────────────
+function DayTypeBreakdownModal({ employee, startDate, endDate, onClose }: {
+  employee: string;
+  startDate?: string;
+  endDate?: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<DayTypeBreakdown | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getDayTypeBreakdown(employee, startDate, endDate)
+      .then(setData).catch(() => setData(null)).finally(() => setLoading(false));
+  }, [employee, startDate, endDate]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="font-bold text-slate-800 text-lg">{employee}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">פירוט חישוב ניקוד שבתות וחגים</p>
+          </div>
+          {data && <div className="text-2xl font-bold text-purple-600 ml-4">{data.total} נק׳</div>}
+          <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1">
+          {loading ? (
+            <div className="p-8 text-center text-slate-400 text-sm">טוען...</div>
+          ) : !data || data.rows.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">אין נתוני שבתות / חגים בטווח הנבחר</div>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+                <tr>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">תאריך</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">יום</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">משמרת</th>
+                  <th className="px-4 py-3 text-center font-semibold text-slate-600 whitespace-nowrap">שבת נק׳</th>
+                  <th className="px-4 py-3 text-center font-semibold text-slate-600 whitespace-nowrap">חג</th>
+                  <th className="px-4 py-3 text-center font-bold text-slate-700 whitespace-nowrap">סה״כ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((row, i) => (
+                  <tr key={i} className={`border-b border-slate-50 hover:bg-purple-50/30 ${i % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                    <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">{row.date}</td>
+                    <td className="px-4 py-2.5 text-slate-700 font-medium whitespace-nowrap">{row.day_of_week}</td>
+                    <td className="px-4 py-2.5 text-slate-800 font-semibold whitespace-nowrap">{row.shift_name}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      {row.is_shabbat
+                        ? <span className="font-semibold text-purple-600">{row.shabbat_score}</span>
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      {row.day_type
+                        ? <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${row.day_type_color ?? "bg-slate-100 text-slate-600"}`}>{row.day_type} +{row.day_type_score}</span>
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-center font-bold text-purple-700">{row.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="sticky bottom-0 bg-white border-t-2 border-slate-200">
+                <tr>
+                  <td colSpan={5} className="px-4 py-3 text-right font-bold text-slate-700">סה״כ</td>
+                  <td className="px-4 py-3 text-center font-bold text-purple-600 text-base">{data.total}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Justice section ───────────────────────────────────────────────────────────
 function JusticeSection({ data, view, search, getDayScore, onEmployeeClick }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (name: string) => void }) {
   const q = search.trim().toLowerCase();
@@ -279,7 +445,7 @@ function JusticeSection({ data, view, search, getDayScore, onEmployeeClick }: { 
 }
 
 // ── Volunteer section ─────────────────────────────────────────────────────────
-function VolunteerSection({ data, view, search, getDayScore }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number }) {
+function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (name: string) => void }) {
   const q = search.trim().toLowerCase();
   const sorted = [...data]
     .filter(e => !q || e.employee_name.toLowerCase().includes(q))
@@ -327,7 +493,12 @@ function VolunteerSection({ data, view, search, getDayScore }: { data: JusticeEn
       </div>
       <div className="p-5 space-y-2.5">
         {sorted.map((e, rank) => (
-          <div key={e.employee_id} className="flex items-center gap-3">
+          <div
+            key={e.employee_id}
+            className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick ? "cursor-pointer hover:bg-green-50" : ""}`}
+            onClick={() => onEmployeeClick?.(e.employee_name)}
+            title={onEmployeeClick ? "לחץ לפירוט" : undefined}
+          >
             <RankBadge rank={rank} />
             <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
             <Bar value={e.volunteer_score} max={max} color={rank === 0 ? "bg-green-500" : rank === 1 ? "bg-green-300" : "bg-green-200"} />
@@ -913,12 +1084,13 @@ function ShirkingSection({ search, volunteerData }: {
 
 // ── Day Type Justice section ──────────────────────────────────────────────────
 function DayTypeJusticeSection({
-  data, view, onViewChange, search,
+  data, view, onViewChange, search, onEmployeeClick,
 }: {
   data: DayTypeJusticeData;
   view: "total" | "breakdown";
   onViewChange: (v: "total" | "breakdown") => void;
   search: string;
+  onEmployeeClick?: (name: string) => void;
 }) {
   const q = search.trim();
   const employees = data.employees.filter(e => !q || e.name.includes(q));
@@ -961,7 +1133,12 @@ function DayTypeJusticeSection({
           </div>
           <div className="p-5 space-y-2.5">
             {employees.map((e, rank) => (
-              <div key={e.name} className="flex items-center gap-3">
+              <div
+                key={e.name}
+                className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick ? "cursor-pointer hover:bg-purple-50" : ""}`}
+                onClick={() => onEmployeeClick?.(e.name)}
+                title={onEmployeeClick ? "לחץ לפירוט" : undefined}
+              >
                 <RankBadge rank={rank} />
                 <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.name}</div>
                 <Bar value={e.total_score} max={maxTotal}
@@ -1009,7 +1186,11 @@ function DayTypeJusticeSection({
                   const totalMin = Math.min(...totalVals);
                   const totalMax = Math.max(...totalVals);
                   return (
-                    <tr key={row.name} className={`border-b border-slate-50 hover:bg-purple-50/20 ${idx % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                    <tr
+                      key={row.name}
+                      className={`border-b border-slate-50 hover:bg-purple-50/20 ${idx % 2 === 0 ? "" : "bg-slate-50/40"} ${onEmployeeClick ? "cursor-pointer" : ""}`}
+                      onClick={() => onEmployeeClick?.(row.name)}
+                    >
                       <td className="px-4 py-3 text-slate-400 text-xs font-medium">{idx + 1}</td>
                       <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{row.name}</td>
                       {hasShabbat && (() => {
@@ -1112,6 +1293,8 @@ export default function JusticePage() {
   const [showDayScores, setShowDayScores] = useState(false);
   const [dayScoreData, setDayScoreData] = useState<DayTypeJusticeData | null>(null);
   const [breakdownEmployee, setBreakdownEmployee] = useState<string | null>(null);
+  const [volunteerBreakdownEmployee, setVolunteerBreakdownEmployee] = useState<string | null>(null);
+  const [daytypeBreakdownEmployee, setDaytypeBreakdownEmployee] = useState<string | null>(null);
 
   useEffect(() => {
     if (!showDayScores) return;
@@ -1288,7 +1471,7 @@ export default function JusticePage() {
         ) : daytypeError ? (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{daytypeError}</div>
         ) : daytypeData ? (
-          <DayTypeJusticeSection data={daytypeData} view={daytypeView} onViewChange={setDaytypeView} search={search} />
+          <DayTypeJusticeSection data={daytypeData} view={daytypeView} onViewChange={setDaytypeView} search={search} onEmployeeClick={setDaytypeBreakdownEmployee} />
         ) : null
       )}
 
@@ -1299,6 +1482,22 @@ export default function JusticePage() {
           startDate={startISO}
           endDate={endISO}
           onClose={() => setBreakdownEmployee(null)}
+        />
+      )}
+      {volunteerBreakdownEmployee && (
+        <VolunteerBreakdownModal
+          employee={volunteerBreakdownEmployee}
+          startDate={startISO}
+          endDate={endISO}
+          onClose={() => setVolunteerBreakdownEmployee(null)}
+        />
+      )}
+      {daytypeBreakdownEmployee && (
+        <DayTypeBreakdownModal
+          employee={daytypeBreakdownEmployee}
+          startDate={startISO}
+          endDate={endISO}
+          onClose={() => setDaytypeBreakdownEmployee(null)}
         />
       )}
 
@@ -1327,6 +1526,7 @@ export default function JusticePage() {
                     view={view}
                     search={search}
                     getDayScore={showDayScores ? getDayScoreForEmployee : undefined}
+                    onEmployeeClick={view === "table" ? setVolunteerBreakdownEmployee : undefined}
                   />
                 )}
                 {tab === "combined" && (

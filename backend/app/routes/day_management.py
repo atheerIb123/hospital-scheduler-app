@@ -235,3 +235,85 @@ def day_type_justice():
         "weekday_scores": weekday_scores,
         "employees": employees,
     })
+
+
+@day_mgmt_bp.route("/day-type-justice/breakdown", methods=["GET"])
+def day_type_justice_breakdown():
+    import datetime as dt_mod
+    employee_name = request.args.get("employee", "")
+    start_str = request.args.get("start_date")
+    end_str = request.args.get("end_date")
+    db = get_db()
+
+    weekday_scores = _get_weekday_scores(db)
+
+    day_types_list = list(db.day_types.find())
+    day_types_map = {
+        str(d["_id"]): {"name": d["name"], "color": d.get("color", ""), "score": d.get("score", 0)}
+        for d in day_types_list
+    }
+
+    day_settings = {}
+    date_score_map: dict = {}
+    if start_str and end_str:
+        settings = list(db.day_settings.find({"date": {"$gte": start_str, "$lte": end_str}}))
+        for s in settings:
+            day_settings[s["date"]] = s.get("day_type_id")
+            if s.get("score") is not None:
+                date_score_map[s["date"]] = s["score"]
+
+    latest_map: dict = {}
+    for s in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+        latest_map[(s.get("year"), s.get("month"))] = s
+
+    HE_DAYS = {0: "שני", 1: "שלישי", 2: "רביעי", 3: "חמישי", 4: "שישי", 5: "שבת", 6: "ראשון"}
+
+    rows = []
+    for sched in latest_map.values():
+        year = sched.get("year")
+        month = sched.get("month")
+        for a in sched.get("assignments", []):
+            if a.get("employee_name") != employee_name:
+                continue
+            try:
+                date_obj = dt_mod.date(year, month, int(a["day"]))
+                date_str = date_obj.isoformat()
+            except Exception:
+                continue
+            if start_str and date_str < start_str:
+                continue
+            if end_str and date_str > end_str:
+                continue
+
+            wd = date_obj.weekday()
+            is_shabbat = wd in (4, 5)
+            dt_id = day_settings.get(date_str)
+            dt_info = day_types_map.get(dt_id) if dt_id else None
+
+            if not is_shabbat and not dt_id:
+                continue
+
+            shabbat_score = 0
+            if is_shabbat:
+                default = weekday_scores.get(str(wd), 0)
+                shabbat_score = date_score_map.get(date_str, default)
+
+            day_type_score = 0
+            if dt_id and dt_info:
+                default = dt_info["score"]
+                day_type_score = date_score_map.get(date_str, default)
+
+            rows.append({
+                "date": date_str,
+                "day_of_week": HE_DAYS.get(wd, ""),
+                "shift_name": a.get("shift_name", ""),
+                "is_shabbat": is_shabbat,
+                "shabbat_score": shabbat_score,
+                "day_type": dt_info["name"] if dt_info else None,
+                "day_type_color": dt_info["color"] if dt_info else None,
+                "day_type_score": day_type_score,
+                "total": shabbat_score + day_type_score,
+            })
+
+    rows.sort(key=lambda r: r["date"])
+    return jsonify({"employee": employee_name, "rows": rows, "total": sum(r["total"] for r in rows)})

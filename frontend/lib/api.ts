@@ -383,6 +383,53 @@ export const getJusticeBreakdown = (employee: string, startDate?: string, endDat
   return request<JusticeBreakdown>(`/justice/breakdown?${params}`);
 };
 
+export interface VolunteerBreakdownRow {
+  date: string;
+  day_of_week: string;
+  shift_name: string;
+  desirability: number;
+  desirability_points: number;
+  total: number;
+}
+
+export interface VolunteerBreakdown {
+  employee: string;
+  rows: VolunteerBreakdownRow[];
+  total: number;
+}
+
+export const getVolunteerBreakdown = (employee: string, startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({ employee });
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return request<VolunteerBreakdown>(`/justice/volunteer-breakdown?${params}`);
+};
+
+export interface DayTypeBreakdownRow {
+  date: string;
+  day_of_week: string;
+  shift_name: string;
+  is_shabbat: boolean;
+  shabbat_score: number;
+  day_type: string | null;
+  day_type_color: string | null;
+  day_type_score: number;
+  total: number;
+}
+
+export interface DayTypeBreakdown {
+  employee: string;
+  rows: DayTypeBreakdownRow[];
+  total: number;
+}
+
+export const getDayTypeBreakdown = (employee: string, startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({ employee });
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return request<DayTypeBreakdown>(`/day-type-justice/breakdown?${params}`);
+};
+
 export const getWeekdayScores = () => request<Record<string, number>>("/config/weekday-scores");
 
 export const setWeekdayScores = (scores: Record<string, number>) =>

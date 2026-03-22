@@ -269,6 +269,61 @@ def get_justice_breakdown():
     return jsonify({"employee": employee_name, "rows": rows, "total": sum(r["total"] for r in rows)})
 
 
+@schedule_bp.get("/justice/volunteer-breakdown")
+def get_volunteer_breakdown():
+    db = get_db()
+    employee_name = request.args.get("employee", "")
+    start_str = request.args.get("start_date")
+    end_str = request.args.get("end_date")
+
+    start_date = None
+    end_date = None
+    if start_str:
+        try: start_date = date_type.fromisoformat(start_str)
+        except ValueError: pass
+    if end_str:
+        try: end_date = date_type.fromisoformat(end_str)
+        except ValueError: pass
+
+    JUSTICE_PTS = {1: 10, 2: 7, 3: 4, 4: 2, 5: 1}
+    des_map: dict = {}
+    des_level_map: dict = {}
+    for st in db.shift_types.find():
+        des = int(st.get("desirability", 3))
+        pts = JUSTICE_PTS.get(des, 4)
+        for name in st.get("names", []):
+            des_map[name] = pts
+            des_level_map[name] = des
+
+    HE_DAYS = {0: "שני", 1: "שלישי", 2: "רביעי", 3: "חמישי", 4: "שישי", 5: "שבת", 6: "ראשון"}
+
+    rows = []
+    for vol in db.volunteers.find({"employee_name": employee_name}):
+        try:
+            v_date = date_type(int(vol["year"]), int(vol["month"]), int(vol["day"]))
+        except Exception:
+            continue
+        if start_date and v_date < start_date:
+            continue
+        if end_date and v_date > end_date:
+            continue
+        shift = vol.get("shift_name", "")
+        des_pts = des_map.get(shift, 4)
+        des_lvl = des_level_map.get(shift, 3)
+        wd = v_date.weekday()
+        rows.append({
+            "date": v_date.isoformat(),
+            "day_of_week": HE_DAYS.get(wd, ""),
+            "shift_name": shift,
+            "desirability": des_lvl,
+            "desirability_points": des_pts,
+            "total": des_pts,
+        })
+
+    rows.sort(key=lambda r: r["date"])
+    return jsonify({"employee": employee_name, "rows": rows, "total": sum(r["total"] for r in rows)})
+
+
 @schedule_bp.get("/schedules/<schedule_id>")
 def get_schedule(schedule_id):
     db = get_db()
