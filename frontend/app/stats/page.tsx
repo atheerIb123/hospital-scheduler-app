@@ -279,7 +279,7 @@ export default function StatsPage() {
       ) : !data ? null : (
 
         <>
-          {/* ── Tab 1: General — full breakdown table ──────────────────────── */}
+          {/* ── Tab 1: General ─────────────────────────────────────────────── */}
           {tab === "general" && (() => {
             if (generalRows.length === 0) return <EmptyState msg="אין נתונים בטווח הזמן הנבחר" />;
 
@@ -316,6 +316,24 @@ export default function StatsPage() {
             ];
 
             return (
+              <div className="space-y-6">
+              {/* Total shifts bar chart */}
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100">
+                  <h2 className="font-semibold text-slate-800">סה״כ משמרות לעובד</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">{data.assignments.length} משמרות בטווח הנבחר</p>
+                </div>
+                <div className="p-6">
+                  {(() => {
+                    const max = generalRows[0]?.count ?? 0;
+                    return generalRows.map((row, i) => (
+                      <BarRow key={row.name} name={row.name} count={row.count} max={max || 1} rank={i + 1} />
+                    ));
+                  })()}
+                </div>
+              </div>
+
+              {/* Per-shift breakdown table */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                   <div>
@@ -375,6 +393,7 @@ export default function StatsPage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
               </div>
             );
           })()}
