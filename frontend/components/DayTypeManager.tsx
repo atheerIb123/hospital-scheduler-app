@@ -1,6 +1,63 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DayType } from "@/lib/types";
 import { getShabbatScore, setShabbatScore as saveShabbatScore } from "@/lib/api";
+
+// ── Controlled score input cell ───────────────────────────────────────────────
+function ScoreCell({
+  value,
+  onSave,
+}: {
+  value: number;
+  onSave: (v: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+
+  // keep in sync if parent updates
+  useEffect(() => { setDraft(String(value)); }, [value]);
+
+  const commit = async () => {
+    const v = Math.max(0, Number(draft) || 0);
+    setDraft(String(v));
+    if (v === value) return;
+    setSaving(true);
+    try {
+      await onSave(v);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="relative flex items-center">
+      <input
+        ref={ref}
+        type="number"
+        min={0}
+        value={draft}
+        onChange={(e) => { setDraft(e.target.value); setSaved(false); }}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") ref.current?.blur(); }}
+        disabled={saving}
+        className={`w-14 text-center text-xs font-semibold border rounded-lg px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300 transition-all ${
+          saved ? "bg-emerald-50 border-emerald-300 text-emerald-700" :
+          "bg-slate-50 border-slate-200 text-slate-600"
+        } disabled:opacity-50`}
+        title="ציון"
+      />
+      {saving && (
+        <svg className="absolute -left-4 w-3 h-3 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+        </svg>
+      )}
+    </div>
+  );
+}
 
 const COLOR_OPTIONS = [
   "bg-slate-100 text-slate-700 border-slate-200",
@@ -166,16 +223,9 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
                       onBlur={(e) => e.target.value !== dt.name && updateDayType(dt.id, { name: e.target.value })}
                       className="flex-1 text-xs font-semibold text-slate-700 bg-transparent border-none focus:ring-0 p-0"
                     />
-                    <input
-                      type="number"
-                      min={0}
-                      defaultValue={dt.score ?? 0}
-                      onBlur={(e) => {
-                        const v = Math.max(0, Number(e.target.value));
-                        if (v !== (dt.score ?? 0)) updateDayType(dt.id, { score: v });
-                      }}
-                      className="w-14 text-center text-xs font-semibold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300"
-                      title="ציון"
+                    <ScoreCell
+                      value={dt.score ?? 0}
+                      onSave={(v) => updateDayType(dt.id, { score: v })}
                     />
                     <button
                       onClick={() => deleteDayType(dt.id)}
