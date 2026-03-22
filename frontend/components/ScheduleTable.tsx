@@ -175,9 +175,11 @@ export default function ScheduleTable({
   // Apply filters
   const q = searchName.trim();
   const visibleSorted = filterShifts.size > 0 ? sorted.filter(st => filterShifts.has(st.names[0])) : sorted;
-  const visibleDays   = filterDays.size > 0
-    ? days.filter(d => filterDays.has(new Date(schedule.year, schedule.month - 1, d).getDay()))
-    : days;
+  const visibleDays   = days.filter(d => {
+    if (filterDays.size > 0 && !filterDays.has(new Date(schedule.year, schedule.month - 1, d).getDay())) return false;
+    if (hasNameFilter && !sorted.some(st => nameMatch(lookup[d]?.[st.names[0]] ?? ""))) return false;
+    return true;
+  });
   const nameMatch = (name: string) => q && name.toLowerCase().includes(q.toLowerCase());
   const hasNameFilter = !!q;
   const hasAnyFilter = hasNameFilter || filterShifts.size > 0 || filterDays.size > 0;
