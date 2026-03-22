@@ -50,6 +50,100 @@ function Alert({ type, children, onClose }: {
 }
 
 // ---------------------------------------------------------------------------
+// Date picker input
+// ---------------------------------------------------------------------------
+
+function DatePickerInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const now = new Date();
+  const [calYear, setCalYear] = useState(now.getFullYear());
+  const [calMonth, setCalMonth] = useState(now.getMonth() + 1);
+
+  const handleOpen = () => {
+    const match = value.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (match) { setCalMonth(parseInt(match[2])); setCalYear(parseInt(match[3])); }
+    setOpen(prev => !prev);
+  };
+
+  const handleDateClick = (day: number) => {
+    const d = String(day).padStart(2, "0");
+    const m = String(calMonth).padStart(2, "0");
+    const dateStr = `${d}/${m}/${calYear}`;
+    onChange(value.trim() ? value.trim() + ", " + dateStr : dateStr);
+    setOpen(false);
+  };
+
+  const prevMonth = () => { if (calMonth === 1) { setCalMonth(12); setCalYear(y => y - 1); } else setCalMonth(m => m - 1); };
+  const nextMonth = () => { if (calMonth === 12) { setCalMonth(1); setCalYear(y => y + 1); } else setCalMonth(m => m + 1); };
+
+  const totalDays = new Date(calYear, calMonth, 0).getDate();
+  const startDay  = new Date(calYear, calMonth - 1, 1).getDay();
+  const cells: (number | null)[] = [...Array(startDay).fill(null), ...Array.from({ length: totalDays }, (_, i) => i + 1)];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return (
+    <div className="relative">
+      <div className="flex gap-1">
+        <input
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="01/10/2026"
+          className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          type="button"
+          onClick={handleOpen}
+          title="בחר מלוח שנה"
+          className={`px-2.5 py-2 border rounded-lg transition-colors ${open ? "bg-blue-50 text-blue-600 border-blue-300" : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"}`}
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd"/>
+          </svg>
+        </button>
+      </div>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute z-50 top-full mt-2 right-0 bg-white rounded-xl shadow-xl border border-slate-200 p-3 w-64" dir="rtl">
+            {/* Month nav */}
+            <div className="flex items-center justify-between mb-2">
+              <button type="button" onClick={nextMonth} className="p-1 rounded hover:bg-slate-100 text-slate-500 transition-colors text-base leading-none">→</button>
+              <span className="text-sm font-bold text-slate-700">{HEB_MONTHS[calMonth - 1]} {calYear}</span>
+              <button type="button" onClick={prevMonth} className="p-1 rounded hover:bg-slate-100 text-slate-500 transition-colors text-base leading-none">←</button>
+            </div>
+            {/* Day-of-week headers */}
+            <div className="grid grid-cols-7 mb-1">
+              {HEB_DAYS.map(d => (
+                <div key={d} className={`text-center text-[10px] font-bold py-0.5 ${d === "שבת" ? "text-purple-400" : "text-slate-400"}`}>{d}</div>
+              ))}
+            </div>
+            {/* Day cells */}
+            <div className="grid grid-cols-7 gap-0.5">
+              {cells.map((day, idx) =>
+                day ? (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleDateClick(day)}
+                    className={`text-center text-xs py-1.5 rounded hover:bg-blue-500 hover:text-white font-medium transition-colors ${
+                      (startDay + day - 1) % 7 === 6 ? "text-purple-500" : "text-slate-700"
+                    }`}
+                  >
+                    {day}
+                  </button>
+                ) : <div key={idx} />
+              )}
+            </div>
+            <p className="text-[10px] text-slate-400 text-center mt-2 pt-2 border-t border-slate-100">לחץ על תאריך להוספה לשדה</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Manual add form — now accepts free-text date expression
 // ---------------------------------------------------------------------------
 
@@ -89,11 +183,14 @@ function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף" 
         <div className="sm:col-span-1">
           <label className="block text-xs font-medium text-slate-600 mb-1">
             תאריך / טווח *
-            <span className="font-normal text-slate-400 mr-1">— תאריך בודד, טווח, או כמה בפסיק</span>
           </label>
-          <input value={date} onChange={e=>setDate(e.target.value)}
-            placeholder="01/10/2026 - 05/10/2026, 10/10/2026"
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <DatePickerInput value={date} onChange={setDate} />
+          <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+            <span className="font-semibold text-slate-500">דוגמאות: </span>
+            תאריך בודד: <code className="bg-slate-100 px-1 rounded">01/10/2026</code>
+            {" · "}טווח: <code className="bg-slate-100 px-1 rounded">01/10/2026 - 05/10/2026</code>
+            {" · "}כמה: <code className="bg-slate-100 px-1 rounded">01/10/2026, 15/10/2026</code>
+          </p>
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">סיבה (אופציונלי)</label>
