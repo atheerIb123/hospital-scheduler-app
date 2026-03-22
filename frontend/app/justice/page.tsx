@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData } from "@/lib/api";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown } from "@/lib/api";
 
 type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype";
 type View = "table" | "chart";
@@ -78,8 +78,114 @@ function Bar({ value, max, color }: { value: number; max: number; color: string 
   );
 }
 
+// ── Breakdown modal ───────────────────────────────────────────────────────────
+const DES_COLORS: Record<number, string> = {
+  1: "bg-red-100 text-red-700",
+  2: "bg-orange-100 text-orange-700",
+  3: "bg-slate-100 text-slate-600",
+  4: "bg-yellow-100 text-yellow-700",
+  5: "bg-emerald-100 text-emerald-700",
+};
+
+function BreakdownModal({ employee, startDate, endDate, onClose }: {
+  employee: string;
+  startDate?: string;
+  endDate?: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<JusticeBreakdown | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getJusticeBreakdown(employee, startDate, endDate)
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [employee, startDate, endDate]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="font-bold text-slate-800 text-lg">{employee}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">פירוט חישוב ניקוד צדק</p>
+          </div>
+          {data && (
+            <div className="text-2xl font-bold text-blue-600 ml-4">{data.total} נק׳</div>
+          )}
+          <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1">
+          {loading ? (
+            <div className="p-8 text-center text-slate-400 text-sm">טוען...</div>
+          ) : !data || data.rows.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">אין נתוני משמרות בטווח הנבחר</div>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+                <tr>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">תאריך</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">יום</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">משמרת</th>
+                  <th className="px-4 py-3 text-center font-semibold text-slate-600 whitespace-nowrap">רצויות</th>
+                  <th className="px-4 py-3 text-center font-semibold text-slate-600 whitespace-nowrap">נק׳ משמרת</th>
+                  <th className="px-4 py-3 text-center font-semibold text-slate-600 whitespace-nowrap">נק׳ יום</th>
+                  <th className="px-4 py-3 text-center font-bold text-slate-700 whitespace-nowrap">סה״כ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((row, i) => (
+                  <tr key={i} className={`border-b border-slate-50 hover:bg-blue-50/30 ${i % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                    <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">{row.date}</td>
+                    <td className="px-4 py-2.5 text-slate-700 font-medium whitespace-nowrap">{row.day_of_week}</td>
+                    <td className="px-4 py-2.5 text-slate-800 font-semibold whitespace-nowrap">{row.shift_name}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${DES_COLORS[row.desirability] ?? "bg-slate-100 text-slate-600"}`}>
+                        {"★".repeat(row.desirability)}{"☆".repeat(5 - row.desirability)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-center font-semibold text-blue-600">{row.desirability_points}</td>
+                    <td className="px-4 py-2.5 text-center font-semibold text-slate-500">
+                      {row.weekday_score > 0 ? <span className="text-amber-600">+{row.weekday_score}</span> : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-center font-bold text-slate-800">{row.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="sticky bottom-0 bg-white border-t-2 border-slate-200">
+                <tr>
+                  <td colSpan={6} className="px-4 py-3 text-right font-bold text-slate-700">סה״כ</td>
+                  <td className="px-4 py-3 text-center font-bold text-blue-600 text-base">{data.total}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Justice section ───────────────────────────────────────────────────────────
-function JusticeSection({ data, view, search, getDayScore }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number }) {
+function JusticeSection({ data, view, search, getDayScore, onEmployeeClick }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (name: string) => void }) {
   const q = search.trim().toLowerCase();
   const sorted = [...data]
     .filter(e => !q || e.employee_name.toLowerCase().includes(q))
@@ -136,7 +242,12 @@ function JusticeSection({ data, view, search, getDayScore }: { data: JusticeEntr
       </div>
       <div className="p-5 space-y-2.5">
         {sorted.map((e, rank) => (
-          <div key={e.employee_id} className="flex items-center gap-3">
+          <div
+            key={e.employee_id}
+            className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick ? "cursor-pointer hover:bg-blue-50" : ""}`}
+            onClick={() => onEmployeeClick?.(e.employee_name)}
+            title={onEmployeeClick ? "לחץ לפירוט" : undefined}
+          >
             <RankBadge rank={rank} />
             <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
             <Bar value={e.justice_score} max={max} color={rank === 0 ? "bg-amber-400" : rank === 1 ? "bg-slate-300" : rank === 2 ? "bg-orange-300" : "bg-blue-400"} />
@@ -1000,6 +1111,7 @@ export default function JusticePage() {
 
   const [showDayScores, setShowDayScores] = useState(false);
   const [dayScoreData, setDayScoreData] = useState<DayTypeJusticeData | null>(null);
+  const [breakdownEmployee, setBreakdownEmployee] = useState<string | null>(null);
 
   useEffect(() => {
     if (!showDayScores) return;
@@ -1180,6 +1292,16 @@ export default function JusticePage() {
         ) : null
       )}
 
+      {/* Breakdown modal */}
+      {breakdownEmployee && (
+        <BreakdownModal
+          employee={breakdownEmployee}
+          startDate={startISO}
+          endDate={endISO}
+          onClose={() => setBreakdownEmployee(null)}
+        />
+      )}
+
       {/* Content for justice/volunteer/combined */}
       {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && !loading && !error && (
         <div className="space-y-6">
@@ -1196,6 +1318,7 @@ export default function JusticePage() {
                     view={view}
                     search={search}
                     getDayScore={showDayScores ? getDayScoreForEmployee : undefined}
+                    onEmployeeClick={view === "table" ? setBreakdownEmployee : undefined}
                   />
                 )}
                 {tab === "volunteer" && (

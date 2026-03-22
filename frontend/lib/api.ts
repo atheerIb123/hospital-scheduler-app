@@ -360,6 +360,29 @@ export const getDayTypeJustice = (startDate: string, endDate: string) =>
 // Weekday Scores
 // ---------------------------------------------------------------------------
 
+export interface BreakdownRow {
+  date: string;
+  day_of_week: string;
+  shift_name: string;
+  desirability: number;
+  desirability_points: number;
+  weekday_score: number;
+  total: number;
+}
+
+export interface JusticeBreakdown {
+  employee: string;
+  rows: BreakdownRow[];
+  total: number;
+}
+
+export const getJusticeBreakdown = (employee: string, startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({ employee });
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return request<JusticeBreakdown>(`/justice/breakdown?${params}`);
+};
+
 export const getWeekdayScores = () => request<Record<string, number>>("/config/weekday-scores");
 
 export const setWeekdayScores = (scores: Record<string, number>) =>
