@@ -55,6 +55,8 @@ function Alert({ type, children, onClose }: {
 
 function DatePickerInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({});
+  const btnRef = useRef<HTMLButtonElement>(null);
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth() + 1);
@@ -62,6 +64,14 @@ function DatePickerInput({ value, onChange }: { value: string; onChange: (v: str
   const handleOpen = () => {
     const match = value.match(/(\d{2})\/(\d{2})\/(\d{4})/);
     if (match) { setCalMonth(parseInt(match[2])); setCalYear(parseInt(match[3])); }
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPopupStyle({
+        position: "fixed",
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      });
+    }
     setOpen(prev => !prev);
   };
 
@@ -93,6 +103,7 @@ function DatePickerInput({ value, onChange }: { value: string; onChange: (v: str
         <button
           type="button"
           onClick={handleOpen}
+          ref={btnRef}
           title="בחר מלוח שנה"
           className={`px-2.5 py-2 border rounded-lg transition-colors ${open ? "bg-blue-50 text-blue-600 border-blue-300" : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"}`}
         >
@@ -105,7 +116,7 @@ function DatePickerInput({ value, onChange }: { value: string; onChange: (v: str
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 top-full mt-2 right-0 bg-white rounded-xl shadow-xl border border-slate-200 p-3 w-64" dir="rtl">
+          <div style={popupStyle} className="z-[9999] bg-white rounded-xl shadow-xl border border-slate-200 p-3 w-64" dir="rtl">
             {/* Month nav */}
             <div className="flex items-center justify-between mb-2">
               <button type="button" onClick={nextMonth} className="p-1 rounded hover:bg-slate-100 text-slate-500 transition-colors text-base leading-none">→</button>
