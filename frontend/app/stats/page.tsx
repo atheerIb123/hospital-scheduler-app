@@ -2,6 +2,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { getStats } from "@/lib/api";
 import type { StatsData } from "@/lib/api";
+import { Button, Alert, TabButton, TabsContainer, SearchDropdown, Badge, Select, Input } from "@/components/ui";
+import { SHIFT_COLORS } from "@/lib/colors";
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -31,7 +33,6 @@ function toLocalISO(d: Date) {
 
 function getRangeBounds(type: "week" | "month" | "year" | "all", ref: Date): { start: string; end: string; label: string } {
   const d = new Date(ref);
-  const now = new Date();
 
   if (type === "all") {
     return { start: "2000-01-01", end: "2100-01-01", label: "כל הזמנים" };
@@ -41,9 +42,9 @@ function getRangeBounds(type: "week" | "month" | "year" | "all", ref: Date): { s
     const day = d.getDay(); // 0=Sun
     const start = new Date(d); start.setDate(d.getDate() - day);
     const end = new Date(start); end.setDate(start.getDate() + 6);
-    return { 
-      start: toLocalISO(start), 
-      end: toLocalISO(end), 
+    return {
+      start: toLocalISO(start),
+      end: toLocalISO(end),
       label: `${start.getDate()}/${start.getMonth()+1} – ${end.getDate()}/${end.getMonth()+1} ${end.getFullYear()}`
     };
   }
@@ -57,9 +58,9 @@ function getRangeBounds(type: "week" | "month" | "year" | "all", ref: Date): { s
   const start = new Date(d.getFullYear(), 0, 1);
   const end = new Date(d.getFullYear(), 11, 31);
   return {
-    start: toLocalISO(start), 
-    end: toLocalISO(end), 
-    label: `${start.getFullYear()}` 
+    start: toLocalISO(start),
+    end: toLocalISO(end),
+    label: `${start.getFullYear()}`
   };
 }
 
@@ -120,29 +121,27 @@ export default function StatsPage() {
   const [refDate, setRefDate] = useState(new Date());
   const [customRange, setCustomRange] = useState({ start: "", end: "" });
 
-  const [tab, setTab] = useState<"general" | "byFilter" | "byEmployee">("general");
+  const [tab, setTab] = useState<"general" | "pointsSummary" | "byShift" | "byDay" | "byEmployee">("general");
   const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // tab 2 state
-  const [filterMode, setFilterMode] = useState<"shift" | "day">("shift");
+  // tab 2/3 state
   const [selectedShift, setSelectedShift] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
   // tab 3 state
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
-
   // global employee search (applies to all tabs)
   const [search, setSearch] = useState("");
 
   // Calculate actual dates based on state
   const { start: activeStart, end: activeEnd, label: dateLabel } = useMemo(() => {
     if (rangeType === "custom") {
-      return { 
-        start: customRange.start, 
-        end: customRange.end, 
-        label: "טווח מותאם אישית" 
+      return {
+        start: customRange.start,
+        end: customRange.end,
+        label: "טווח מותאם אישית"
       };
     }
     return getRangeBounds(rangeType, refDate);
@@ -206,50 +205,81 @@ export default function StatsPage() {
       .sort((a, b) => b.count - a.count);
   }, [data, selectedDay, search]);
 
+  // always resolve to a valid employee when on byEmployee tab
+  const effectiveEmployee = tab === "byEmployee"
+    ? (selectedEmployee ?? data?.employees[0] ?? null)
+    : selectedEmployee;
+
   const empShiftRows = useMemo(() => {
-    if (!data || !selectedEmployee) return [];
+    if (!data || !effectiveEmployee) return [];
     const counts: Record<string, number> = {};
     data.shift_names.forEach((s) => { counts[s] = 0; });
     data.assignments
-      .filter((a) => a.employee_name === selectedEmployee)
+      .filter((a) => a.employee_name === effectiveEmployee)
       .forEach((a) => { counts[a.shift_name] = (counts[a.shift_name] ?? 0) + 1; });
     return Object.entries(counts)
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
-  }, [data, selectedEmployee]);
+  }, [data, effectiveEmployee]);
 
   const empDayRows = useMemo(() => {
-    if (!data || !selectedEmployee) return [];
+    if (!data || !effectiveEmployee) return [];
     const counts: Record<number, number> = {};
     DOW_LABELS.forEach((_, i) => { counts[i] = 0; });
     data.assignments
-      .filter((a) => a.employee_name === selectedEmployee)
+      .filter((a) => a.employee_name === effectiveEmployee)
       .forEach((a) => { counts[a.day_of_week] = (counts[a.day_of_week] ?? 0) + 1; });
     return DOW_LABELS.map((label, i) => ({ label, count: counts[i], dow: i }));
-  }, [data, selectedEmployee]);
+  }, [data, effectiveEmployee]);
 
   const empAssignments = useMemo(() => {
-    if (!data || !selectedEmployee) return [];
+    if (!data || !effectiveEmployee) return [];
     return data.assignments
-      .filter((a) => a.employee_name === selectedEmployee)
+      .filter((a) => a.employee_name === effectiveEmployee)
       .sort((a, b) => {
         const da = a.date ? a.date : "";
         const db = b.date ? b.date : "";
         return da.localeCompare(db);
       });
-  }, [data, selectedEmployee]);
+  }, [data, effectiveEmployee]);
 
   const filteredEmployees = useMemo(
     () => (data?.employees ?? []).filter((e) => !search || e.includes(search)),
     [data, search]
   );
 
+  const shiftSummary = useMemo(() => {
+    if (!data) return null;
+    const shiftNames = data.shift_names;
+    const empMap: Record<string, Record<string, number>> = {};
+    data.employees.forEach(e => { empMap[e] = {}; });
+    data.assignments.forEach(a => {
+      if (!empMap[a.employee_name]) empMap[a.employee_name] = {};
+      empMap[a.employee_name][a.shift_name] = (empMap[a.employee_name][a.shift_name] ?? 0) + 1;
+    });
+    const rows = data.employees
+      .filter(e => !search || e.includes(search))
+      .map(e => ({ name: e, counts: empMap[e] ?? {}, total: Object.values(empMap[e] ?? {}).reduce((s, v) => s + v, 0) }))
+      .sort((a, b) => b.total - a.total);
+    const colStats: Record<string, { min: number; max: number }> = {};
+    shiftNames.forEach(s => {
+      const vals = rows.map(r => r.counts[s] ?? 0);
+      colStats[s] = { min: Math.min(...vals), max: Math.max(...vals) };
+    });
+    const totals = rows.map(r => r.total);
+    const totalStats = { min: Math.min(...totals), max: Math.max(...totals) };
+    const maxTotal = Math.max(...totals, 1);
+    return { shiftNames, rows, colStats, totalStats, maxTotal };
+  }, [data, search]);
+
   // ── render ────────────────────────────────────────────────────────────────
 
   const tabs = [
-    { id: "general",     label: "כללי" },
-    { id: "byFilter",    label: "לפי משמרת / יום" },
-    { id: "byEmployee",  label: "לפי עובד" },
+    { id: "general",        label: "כללי" },
+    { id: "pointsSummary",  label: "סיכום נקודות" },
+    { id: "byShift",        label: "לפי משמרת" },
+    { id: "byDay",          label: "לפי יום" },
+    { id: "byEmployee",     label: "לפי עובד" },
   ] as const;
 
   const rangeOptions: { id: typeof rangeType; label: string }[] = [
@@ -260,8 +290,20 @@ export default function StatsPage() {
     { id: "custom", label: "מותאם אישית" },
   ];
 
+  function handleTabChange(id: "general" | "pointsSummary" | "byShift" | "byDay" | "byEmployee") {
+    setTab(id);
+    if (id === "byShift") setSelectedShift(data?.shift_names[0] ?? null);
+    if (id === "byDay") setSelectedDay(0);
+    if (id === "byEmployee") {
+      setSearch("");
+      setSelectedEmployee(filteredEmployees[0] ?? null);
+    } else {
+      setSelectedEmployee(null);
+    }
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 h-[calc(100vh-4rem)]">
       {/* Header */}
       <div className="space-y-4">
         <div>
@@ -269,159 +311,145 @@ export default function StatsPage() {
           <p className="text-slate-500 mt-1 text-sm">נתוני משמרות לפי טווח זמן</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
-          {/* Range Type Toggles */}
-          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-            {rangeOptions.map((opt) => (
-              <button
-                key={opt.id}
-                onClick={() => { setRangeType(opt.id); setRefDate(new Date()); }}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                  rangeType === opt.id
-                    ? "bg-white text-blue-600 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
 
-          <div className="h-6 w-px bg-slate-200 hidden sm:block" />
-
-          {/* Date Controls */}
-          {rangeType === "custom" ? (
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-slate-500">מ:</span>
-                <input 
-                  type="date" 
-                  value={customRange.start}
-                  onChange={e => setCustomRange(p => ({ ...p, start: e.target.value }))}
-                  className="border border-slate-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-                />
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-slate-500">עד:</span>
-                <input 
-                  type="date" 
-                  value={customRange.end}
-                  onChange={e => setCustomRange(p => ({ ...p, end: e.target.value }))}
-                  className="border border-slate-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-                />
-              </div>
-            </div>
-          ) : rangeType !== "all" ? (
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={() => shiftDate(-1)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors"
-              >
-                ←
-              </button>
-              
-              {rangeType === "month" ? (
-                <div className="flex items-center gap-1 bg-slate-50 rounded-lg px-2 py-1 border border-transparent hover:border-slate-200 transition-colors">
-                  <select
-                    value={refDate.getMonth()}
-                    onChange={(e) => {
-                      const d = new Date(refDate);
-                      d.setDate(1); // Prevent month overflow
-                      d.setMonth(parseInt(e.target.value));
-                      setRefDate(d);
-                    }}
-                    className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer hover:text-blue-600 py-0.5"
-                    dir="rtl"
-                  >
-                    {HE_MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
-                  </select>
-                  <input
-                    type="number"
-                    value={refDate.getFullYear()}
-                    onChange={(e) => { const d = new Date(refDate); d.setFullYear(parseInt(e.target.value)); setRefDate(d); }}
-                    className="w-14 bg-transparent text-sm font-bold text-slate-700 text-center outline-none hover:text-blue-600 focus:ring-0 p-0"
-                  />
-                </div>
-              ) : rangeType === "year" ? (
-                <div className="bg-slate-50 rounded-lg px-2 py-1 border border-transparent hover:border-slate-200 transition-colors">
-                  <input
-                    type="number"
-                    value={refDate.getFullYear()}
-                    onChange={(e) => { const d = new Date(refDate); d.setFullYear(parseInt(e.target.value)); setRefDate(d); }}
-                    className="w-16 bg-transparent text-sm font-bold text-slate-700 text-center outline-none hover:text-blue-600 focus:ring-0 p-0"
-                  />
-                </div>
-              ) : (
-                <span className="text-sm font-bold text-slate-700 min-w-[140px] text-center px-2">
-                  {dateLabel}
-                </span>
-              )}
-
-              <button 
-                onClick={() => shiftDate(1)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors"
-              >
-                →
-              </button>
-              <button 
-                onClick={() => setRefDate(new Date())}
-                className="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded-lg hover:bg-blue-100 transition-colors"
-              >
-                היום
-              </button>
-            </div>
-          ) : (
-            <span className="text-sm font-medium text-slate-500 px-2">מציג את כל הנתונים</span>
-          )}
-        </div>
       </div>
 
-      {/* Search + Tabs row */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+      {/* Tabs + Search row */}
+      <TabsContainer>
         {tabs.map((t) => (
-          <button
+          <TabButton
             key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-              tab === t.id
-                ? "bg-white text-slate-800 shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
-            }`}
+            onClick={() => handleTabChange(t.id)}
+            active={tab === t.id}
+            className="px-5 py-2"
           >
             {t.label}
-          </button>
+          </TabButton>
         ))}
-        </div>
+      </TabsContainer>
 
-        {/* Global employee search */}
-        <div className="relative">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
-            className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-            <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd" />
-          </svg>
-          <input
-            type="text"
+      {/* Search and Date Controls */}
+      <div className="flex items-center gap-2">
+        {tab === "byEmployee" ? (
+          <SearchDropdown
+            value={effectiveEmployee ?? ""}
+            onChange={() => {}}
+            onSelect={setSelectedEmployee}
+            selectMode
+            options={data?.employees ?? []}
+            placeholder="בחר עובד..."
             dir="rtl"
-            placeholder="חיפוש עובד..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pr-9 pl-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 w-48 bg-white"
+            className="w-48"
+            renderOption={(emp, isSel) => {
+              const total = data?.assignments.filter(a => a.employee_name === emp).length ?? 0;
+              return (
+                <span className="flex items-center justify-between w-full">
+                  <span>{emp}</span>
+                  <Badge className={isSel ? "bg-blue-200 text-blue-700 border-blue-300" : "bg-slate-100 text-slate-500 border-slate-200"}>{total}</Badge>
+                </span>
+              );
+            }}
           />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch("")}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500"
+        ) : (
+          <SearchDropdown
+            value={search}
+            onChange={setSearch}
+            options={data?.employees ?? []}
+            placeholder="חיפוש עובד..."
+            dir="rtl"
+            className="w-48"
+          />
+        )}
+        {/* Range Type Dropdown */}
+        <Select
+          optionPrefix="סוג טווח:"
+          value={rangeType}
+          onChange={e => { setRangeType(e.target.value as typeof rangeType); setRefDate(new Date()); }}
+        >
+          {rangeOptions.map(opt => (
+            <option key={opt.id} value={opt.id}>{opt.label}</option>
+          ))}
+        </Select>
+
+        <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+
+        {/* Date Controls */}
+        {rangeType === "custom" ? (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-slate-500">מ:</span>
+              <input
+                type="date"
+                value={customRange.start}
+                onChange={e => setCustomRange(p => ({ ...p, start: e.target.value }))}
+                className="border border-slate-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-slate-500">עד:</span>
+              <input
+                type="date"
+                value={customRange.end}
+                onChange={e => setCustomRange(p => ({ ...p, end: e.target.value }))}
+                className="border border-slate-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+          </div>
+        ) : rangeType !== "all" ? (
+          <div className="flex items-center gap-2">
+            {rangeType === "month" ? (
+              <div className="flex items-center gap-1">
+                <Select
+                  optionPrefix="חודש:"
+                  variant="default"
+                  value={refDate.getMonth()}
+                  onChange={(e) => {
+                    const d = new Date(refDate);
+                    d.setDate(1); // Prevent month overflow
+                    d.setMonth(parseInt(e.target.value));
+                    setRefDate(d);
+                  }}
+                  className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer hover:text-blue-600 py-0.5"
+                  dir="rtl"
+                >
+                  {HE_MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                </Select>
+                <Input
+                  inputPrefix="שנה:"
+                  type="number"
+                  value={refDate.getFullYear()}
+                  onChange={(e) => { const d = new Date(refDate); d.setFullYear(parseInt(e.target.value)); setRefDate(d); }}
+                  className="w-14 bg-transparent text-sm font-bold text-slate-700 text-center outline-none hover:text-blue-600 focus:ring-0 p-0"
+                />
+              </div>
+            ) : rangeType === "year" ? (
+              <div className="bg-slate-50 rounded-lg px-2 py-1 border border-transparent hover:border-slate-200 transition-colors">
+                <input
+                  type="number"
+                  value={refDate.getFullYear()}
+                  onChange={(e) => { const d = new Date(refDate); d.setFullYear(parseInt(e.target.value)); setRefDate(d); }}
+                  className="w-16 bg-transparent text-sm font-bold text-slate-700 text-center outline-none hover:text-blue-600 focus:ring-0 p-0"
+                />
+              </div>
+            ) : (
+              <span className="text-sm font-bold text-slate-700 min-w-[140px] text-center px-2">
+                {dateLabel}
+              </span>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() => setRefDate(new Date())}
             >
-              ✕
-            </button>
-          )}
-        </div>
+              קפוץ להיום
+            </Button>
+          </div>
+        ) : (
+          <span className="text-sm font-medium text-slate-500 px-2">מציג את כל הנתונים</span>
+        )}
       </div>
 
       {/* Content */}
+      <div className="flex-1 min-h-0 flex flex-col">
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -429,55 +457,19 @@ export default function StatsPage() {
           ))}
         </div>
       ) : error ? (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>
+        <Alert type="error">{error}</Alert>
       ) : !data ? null : (
 
-        <>
+        <div className="flex flex-col flex-1 min-h-0">
           {/* ── Tab 1: General ─────────────────────────────────────────────── */}
-          {tab === "general" && (() => {
-            if (generalRows.length === 0) return <EmptyState msg="אין נתונים בטווח הזמן הנבחר" />;
-
-            const shiftNames = data.shift_names;
-            // per-employee per-shift counts
-            const empMap: Record<string, Record<string, number>> = {};
-            data.employees.forEach(e => { empMap[e] = {}; });
-            data.assignments.forEach(a => {
-              if (!empMap[a.employee_name]) empMap[a.employee_name] = {};
-              empMap[a.employee_name][a.shift_name] = (empMap[a.employee_name][a.shift_name] ?? 0) + 1;
-            });
-            // filtered + sorted by total desc
-            const rows = data.employees
-              .filter(e => !search || e.includes(search))
-              .map(e => ({ name: e, counts: empMap[e] ?? {}, total: Object.values(empMap[e] ?? {}).reduce((s, v) => s + v, 0) }))
-              .sort((a, b) => b.total - a.total);
-
-            // col stats for high/low highlighting
-            const colStats: Record<string, { min: number; max: number }> = {};
-            shiftNames.forEach(s => {
-              const vals = rows.map(r => r.counts[s] ?? 0);
-              colStats[s] = { min: Math.min(...vals), max: Math.max(...vals) };
-            });
-            const totals = rows.map(r => r.total);
-            const totalStats = { min: Math.min(...totals), max: Math.max(...totals) };
-            const maxTotal = Math.max(...totals, 1);
-
-            const SHIFT_COLORS = [
-              "bg-violet-100 text-violet-700","bg-sky-100 text-sky-700","bg-emerald-100 text-emerald-700",
-              "bg-rose-100 text-rose-700","bg-amber-100 text-amber-700","bg-cyan-100 text-cyan-700",
-              "bg-pink-100 text-pink-700","bg-indigo-100 text-indigo-700","bg-teal-100 text-teal-700",
-              "bg-orange-100 text-orange-700","bg-lime-100 text-lime-700","bg-fuchsia-100 text-fuchsia-700",
-              "bg-red-100 text-red-700","bg-blue-100 text-blue-700",
-            ];
-
-            return (
-              <div className="space-y-6">
-              {/* Total shifts bar chart */}
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100">
+          {tab === "general" && (
+            generalRows.length === 0 ? <EmptyState msg="אין נתונים בטווח הזמן הנבחר" /> : (
+              <div className="flex flex-col flex-1 min-h-0 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 shrink-0">
                   <h2 className="font-semibold text-slate-800">סה״כ משמרות לעובד</h2>
                   <p className="text-xs text-slate-400 mt-0.5">{data.assignments.length} משמרות בטווח הנבחר</p>
                 </div>
-                <div className="p-6">
+                <div className="flex-1 overflow-y-auto p-6">
                   {(() => {
                     const max = generalRows[0]?.count ?? 0;
                     return generalRows.map((row, i) => (
@@ -486,23 +478,27 @@ export default function StatsPage() {
                   })()}
                 </div>
               </div>
+            )
+          )}
 
-              {/* Per-shift breakdown table */}
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden fade-in">
-                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          {/* ── Tab 2: Points Summary ───────────────────────────────────────── */}
+          {tab === "pointsSummary" && (
+            !shiftSummary || shiftSummary.rows.length === 0 ? <EmptyState msg="אין נתונים בטווח הזמן הנבחר" /> : (
+              <div className="flex flex-col flex-1 min-h-0 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden fade-in">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
                   <div>
                     <h2 className="font-semibold text-slate-800">סיכום משמרות לעובד</h2>
                     <p className="text-xs text-slate-400 mt-0.5">{data.assignments.length} משמרות בטווח הנבחר</p>
                   </div>
                   <span className="text-xs bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full font-medium">גבוה / נמוך</span>
                 </div>
-                <div className="overflow-x-auto" style={{ maxHeight: "560px", overflowY: "auto" }}>
+                <div className="flex-1 min-h-0 overflow-auto">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <th className="px-5 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">#</th>
                         <th className="px-5 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">עובד</th>
-                        {shiftNames.map((s, i) => (
+                        {shiftSummary.shiftNames.map((s, i) => (
                           <th key={s} className="px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-50 z-10">
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${SHIFT_COLORS[i % SHIFT_COLORS.length]}`}>{s}</span>
                           </th>
@@ -511,13 +507,13 @@ export default function StatsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((row, idx) => (
+                      {shiftSummary.rows.map((row, idx) => (
                         <tr key={row.name} className={`border-b border-slate-50 hover:bg-blue-50/30 ${idx % 2 === 0 ? "" : "bg-slate-50/40"}`}>
                           <td className="px-5 py-3 text-slate-400 text-xs font-medium">{idx + 1}</td>
                           <td className="px-5 py-3 font-semibold text-slate-800 whitespace-nowrap">{row.name}</td>
-                          {shiftNames.map(s => {
+                          {shiftSummary.shiftNames.map(s => {
                             const val = row.counts[s] ?? 0;
-                            const { min, max } = colStats[s];
+                            const { min, max } = shiftSummary.colStats[s];
                             const isHigh = val === max && min !== max;
                             const isLow  = val === min && min !== max;
                             return (
@@ -533,12 +529,12 @@ export default function StatsPage() {
                           <td className="px-5 py-3 text-center">
                             <div className="flex flex-col items-center gap-1">
                               <span className={`text-sm font-bold ${
-                                row.total === totalStats.max && totalStats.min !== totalStats.max ? "text-emerald-600" :
-                                row.total === totalStats.min && totalStats.min !== totalStats.max ? "text-red-500" :
+                                row.total === shiftSummary.totalStats.max && shiftSummary.totalStats.min !== shiftSummary.totalStats.max ? "text-emerald-600" :
+                                row.total === shiftSummary.totalStats.min && shiftSummary.totalStats.min !== shiftSummary.totalStats.max ? "text-red-500" :
                                 "text-slate-700"
                               }`}>{row.total}</span>
                               <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-blue-400 rounded-full" style={{ width: `${(row.total / maxTotal) * 100}%` }} />
+                                <div className="h-full bg-blue-400 rounded-full" style={{ width: `${(row.total / shiftSummary.maxTotal) * 100}%` }} />
                               </div>
                             </div>
                           </td>
@@ -548,183 +544,96 @@ export default function StatsPage() {
                   </table>
                 </div>
               </div>
-              </div>
-            );
-          })()}
+            )
+          )}
 
-          {/* ── Tab 2: By shift / day ──────────────────────────────────────── */}
-          {tab === "byFilter" && (
-            <div className="space-y-4">
-              {/* Mode toggle */}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setFilterMode("shift")}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                    filterMode === "shift"
-                      ? "bg-violet-600 text-white border-violet-600 shadow-sm"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  לפי משמרת
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterMode("day")}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                    filterMode === "day"
-                      ? "bg-violet-600 text-white border-violet-600 shadow-sm"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  לפי יום
-                </button>
+          {/* ── Tab 2: By shift ────────────────────────────────────────────── */}
+          {tab === "byShift" && (
+            <div className="flex flex-col flex-1 min-h-0 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-4 shrink-0">
+                {data.shift_names.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic">אין משמרות בטווח הנבחר</p>
+                ) : (
+                  <Select
+                    optionPrefix="הצג נתונים למשמרת"
+                    value={selectedShift ?? ""}
+                    onChange={e => setSelectedShift(e.target.value || null)}
+                  >
+                    {data.shift_names.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </Select>
+                )}
               </div>
 
-              {/* Shift selector */}
-              {filterMode === "shift" && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-slate-100">
-                    <h2 className="font-semibold text-slate-800">בחר משמרת</h2>
+              {selectedShift && (
+                <>
+                  <div className="px-6 py-3 border-t border-slate-100 bg-violet-50 shrink-0">
+                    <p className="text-sm font-semibold text-violet-700">
+                      משמרת: {selectedShift} — {byShiftRows.filter(r => r.count > 0).length} עובדים עשו אותה
+                    </p>
                   </div>
-                  <div className="p-4 flex flex-wrap gap-2">
-                    {data.shift_names.length === 0 ? (
-                      <p className="text-sm text-slate-400 italic">אין משמרות בטווח הנבחר</p>
-                    ) : data.shift_names.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => setSelectedShift(s === selectedShift ? null : s)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                          selectedShift === s
-                            ? "bg-violet-600 text-white border-violet-600 shadow-sm"
-                            : "bg-slate-50 text-slate-600 border-slate-200 hover:border-violet-300"
-                        }`}
-                      >
-                        {s}
-                      </button>
-                    ))}
+                  <div className="flex-1 overflow-y-auto p-6">
+                    {(() => {
+                      const max = byShiftRows[0]?.count ?? 0;
+                      return byShiftRows.map((row, i) => (
+                        <BarRow key={row.name} name={row.name} count={row.count} max={max || 1} rank={i + 1} color="bg-violet-400" />
+                      ));
+                    })()}
                   </div>
-
-                  {selectedShift && (
-                    <>
-                      <div className="px-6 py-3 border-t border-slate-100 bg-violet-50">
-                        <p className="text-sm font-semibold text-violet-700">
-                          משמרת: {selectedShift} — {byShiftRows.filter(r => r.count > 0).length} עובדים עשו אותה
-                        </p>
-                      </div>
-                      <div className="p-6">
-                        {(() => {
-                          const max = byShiftRows[0]?.count ?? 0;
-                          return byShiftRows.map((row, i) => (
-                            <BarRow key={row.name} name={row.name} count={row.count} max={max || 1} rank={i + 1} color="bg-violet-400" />
-                          ));
-                        })()}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Day selector */}
-              {filterMode === "day" && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-slate-100">
-                    <h2 className="font-semibold text-slate-800">בחר יום</h2>
-                  </div>
-                  <div className="p-4 flex flex-wrap gap-2">
-                    {DOW_LABELS.map((label, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => setSelectedDay(i === selectedDay ? null : i)}
-                        className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                          selectedDay === i
-                            ? "bg-violet-600 text-white border-violet-600 shadow-sm"
-                            : `${DOW_COLORS[i]} hover:shadow-sm`
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {selectedDay !== null && (
-                    <>
-                      <div className="px-6 py-3 border-t border-slate-100 bg-violet-50">
-                        <p className="text-sm font-semibold text-violet-700">
-                          יום {DOW_LABELS[selectedDay]} — {byDayRows.filter(r => r.count > 0).length} עובדים
-                        </p>
-                      </div>
-                      <div className="p-6">
-                        {(() => {
-                          const max = byDayRows[0]?.count ?? 0;
-                          return byDayRows.map((row, i) => (
-                            <BarRow key={row.name} name={row.name} count={row.count} max={max || 1} rank={i + 1} color="bg-violet-400" />
-                          ));
-                        })()}
-                      </div>
-                    </>
-                  )}
-                </div>
+                </>
               )}
             </div>
           )}
 
-          {/* ── Tab 3: By employee ─────────────────────────────────────────── */}
-          {tab === "byEmployee" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Employee list */}
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden lg:col-span-1 h-fit">
-                <div className="px-5 py-4 border-b border-slate-100">
-                  <h2 className="font-semibold text-slate-800">בחר עובד</h2>
-                  {search && (
-                    <p className="text-xs text-blue-600 mt-1">מסונן: "{search}"</p>
-                  )}
-                </div>
-                <div className="max-h-96 overflow-y-auto">
-                  {filteredEmployees.map((emp) => {
-                    const total = data.assignments.filter((a) => a.employee_name === emp).length;
-                    return (
-                      <button
-                        key={emp}
-                        type="button"
-                        onClick={() => setSelectedEmployee(emp === selectedEmployee ? null : emp)}
-                        className={`w-full flex items-center justify-between px-5 py-3 text-sm border-b border-slate-50 transition-all ${
-                          selectedEmployee === emp
-                            ? "bg-blue-50 text-blue-700 font-semibold"
-                            : "text-slate-700 hover:bg-slate-50"
-                        }`}
-                        dir="rtl"
-                      >
-                        <span>{emp}</span>
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                          selectedEmployee === emp ? "bg-blue-200 text-blue-700" : "bg-slate-100 text-slate-500"
-                        }`}>
-                          {total}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+          {/* ── Tab 3: By day ──────────────────────────────────────────────── */}
+          {tab === "byDay" && (
+            <div className="flex flex-col flex-1 min-h-0 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-4 shrink-0">
+                <Select
+                  optionPrefix="הצג נתונים ליום"
+                  value={selectedDay ?? ""}
+                  onChange={e => setSelectedDay(e.target.value === "" ? null : Number(e.target.value))}
+                >
+                  {DOW_LABELS.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
+                  ))}
+                </Select>
               </div>
 
-              {/* Employee detail */}
-              <div className="lg:col-span-2 space-y-4">
-                {!selectedEmployee ? (
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center text-slate-400 text-sm">
-                    בחר עובד מהרשימה לצפייה בפירוט
+              {selectedDay !== null && (
+                <>
+                  <div className="px-6 py-3 border-t border-slate-100 bg-violet-50 shrink-0">
+                    <p className="text-sm font-semibold text-violet-700">
+                      יום {DOW_LABELS[selectedDay]} — {byDayRows.filter(r => r.count > 0).length} עובדים
+                    </p>
                   </div>
-                ) : (
-                  <>
-                    {/* Header */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-2xl px-6 py-4">
-                      <h2 className="text-lg font-bold text-blue-800">{selectedEmployee}</h2>
-                      <p className="text-sm text-blue-600 mt-0.5">
-                        סה"כ {data.assignments.filter(a => a.employee_name === selectedEmployee).length} משמרות בטווח הנבחר
-                      </p>
-                    </div>
+                  <div className="flex-1 overflow-y-auto p-6">
+                    {(() => {
+                      const max = byDayRows[0]?.count ?? 0;
+                      return byDayRows.map((row, i) => (
+                        <BarRow key={row.name} name={row.name} count={row.count} max={max || 1} rank={i + 1} color="bg-violet-400" />
+                      ));
+                    })()}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
+          {/* ── Tab 4: By employee ─────────────────────────────────────────── */}
+          {tab === "byEmployee" && (
+            <div className="space-y-4">
+              {effectiveEmployee && (
+                <p className="text-sm text-slate-500" dir="rtl">
+                  סה&quot;כ {data.assignments.filter(a => a.employee_name === effectiveEmployee).length} משמרות בטווח הנבחר עבור {effectiveEmployee}
+                </p>
+              )}
+
+              {effectiveEmployee && (
+                <>
+                  {/* Per shift + Per day side by side */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Per shift */}
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                       <div className="px-6 py-4 border-b border-slate-100">
@@ -756,51 +665,52 @@ export default function StatsPage() {
                         })()}
                       </div>
                     </div>
+                  </div>
 
-                    {/* Shift List Breakdown */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                      <div className="px-6 py-4 border-b border-slate-100">
-                        <h3 className="font-semibold text-slate-800">פירוט רשימת משמרות</h3>
-                        <p className="text-xs text-slate-400 mt-0.5">כל המשמרות בטווח הזמן שנבחר</p>
-                      </div>
-                      <div className="max-h-96 overflow-y-auto">
-                        {empAssignments.length === 0 ? (
-                          <EmptyState msg="אין משמרות להצגה" />
-                        ) : (
-                          <table className="min-w-full text-sm">
-                            <thead className="bg-slate-50 sticky top-0 border-b border-slate-100">
-                              <tr>
-                                <th className="px-6 py-3 text-right font-medium text-slate-500">תאריך</th>
-                                <th className="px-6 py-3 text-right font-medium text-slate-500">יום</th>
-                                <th className="px-6 py-3 text-right font-medium text-slate-500">משמרת</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50">
-                              {empAssignments.map((a, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                  <td className="px-6 py-3 text-slate-700 tabular-nums">
-                                    {a.date ? new Date(a.date).toLocaleDateString("he-IL") : "—"}
-                                  </td>
-                                  <td className="px-6 py-3 text-slate-600">
-                                    {DOW_LABELS[a.day_of_week]}
-                                  </td>
-                                  <td className="px-6 py-3 font-semibold text-slate-800">
-                                    {a.shift_name}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
+                  {/* Shift List Breakdown */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-slate-100">
+                      <h3 className="font-semibold text-slate-800">פירוט רשימת משמרות</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">כל המשמרות בטווח הזמן שנבחר</p>
                     </div>
-                  </>
-                )}
-              </div>
+                    <div className="max-h-96 overflow-y-auto">
+                      {empAssignments.length === 0 ? (
+                        <EmptyState msg="אין משמרות להצגה" />
+                      ) : (
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0 border-b border-slate-100">
+                            <tr>
+                              <th className="px-6 py-3 text-right font-medium text-slate-500">תאריך</th>
+                              <th className="px-6 py-3 text-right font-medium text-slate-500">יום</th>
+                              <th className="px-6 py-3 text-right font-medium text-slate-500">משמרת</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {empAssignments.map((a, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-6 py-3 text-slate-700 tabular-nums">
+                                  {a.date ? new Date(a.date).toLocaleDateString("he-IL") : "—"}
+                                </td>
+                                <td className="px-6 py-3 text-slate-600">
+                                  {DOW_LABELS[a.day_of_week]}
+                                </td>
+                                <td className="px-6 py-3 font-semibold text-slate-800">
+                                  {a.shift_name}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
-        </>
+        </div>
       )}
+      </div>
 
     </div>
   );

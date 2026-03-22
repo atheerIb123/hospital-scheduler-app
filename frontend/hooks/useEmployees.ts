@@ -37,7 +37,6 @@ export function useEmployees() {
   const updateEmployee = async (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string; max_shifts_per_week?: number | null; home_department?: string | null }) => {
     const emp = await api.updateEmployee(id, data);
     setEmployees((prev) => prev.map((e) => (e.id === id ? emp : e)));
-    return emp;
   };
 
   const deactivateEmployee = async (id: string, reason: string) => {
@@ -67,13 +66,11 @@ export function useEmployees() {
   const renameColumnHeader = async (index: number, name: string) => {
     const headers = await api.renameColumnHeader(index, name);
     setColumnHeaders(headers);
-    return headers;
   };
 
   const addColumnHeader = async (name: string) => {
     const headers = await api.addColumnHeader(name);
     setColumnHeaders(headers);
-    return headers;
   };
 
   const deleteColumnHeader = async (index: number) => {
@@ -81,7 +78,6 @@ export function useEmployees() {
     setColumnHeaders(headers);
     // Reload employees so their attributes reflect the shifted col_N values
     await reload();
-    return headers;
   };
 
   return {

@@ -3,18 +3,9 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { useEmployees } from "@/hooks/useEmployees";
 import { useMode } from "@/components/ModeProvider";
 import { getDepartments, exportEmployeesXlsx } from "@/lib/api";
-
-const COL_COLORS = [
-  { bg: "bg-violet-100", text: "text-violet-700", ring: "ring-violet-300" },
-  { bg: "bg-sky-100",    text: "text-sky-700",    ring: "ring-sky-300" },
-  { bg: "bg-emerald-100",text: "text-emerald-700",ring: "ring-emerald-300" },
-  { bg: "bg-rose-100",   text: "text-rose-700",   ring: "ring-rose-300" },
-  { bg: "bg-amber-100",  text: "text-amber-700",  ring: "ring-amber-300" },
-  { bg: "bg-cyan-100",   text: "text-cyan-700",   ring: "ring-cyan-300" },
-  { bg: "bg-pink-100",   text: "text-pink-700",   ring: "ring-pink-300" },
-  { bg: "bg-indigo-100", text: "text-indigo-700", ring: "ring-indigo-300" },
-  { bg: "bg-teal-100",   text: "text-teal-700",   ring: "ring-teal-300" },
-];
+import { Alert, Badge, Button, DeleteIconButton, Select, SearchDropdown } from "@/components/ui";
+import { COLUMN_COLORS as COL_COLORS } from "@/lib/colors";
+import { Pencil, FileUp, Loader2, Check, Minus, Users } from "lucide-react";
 
 const colAttr = (i: number) => `col_${i}`;
 
@@ -145,10 +136,7 @@ function EditableHeader({
         className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-all hover:ring-2 ${c.ring} ${c.bg} ${c.text}`}
       >
         {value}
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity shrink-0">
-          <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.263a1.75 1.75 0 0 0 0-2.474Z" />
-          <path d="M4.75 3.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V8a.75.75 0 0 1 1.5 0v3.25A2.75 2.75 0 0 1 11.25 14h-6.5A2.75 2.75 0 0 1 2 11.25v-6.5A2.75 2.75 0 0 1 4.75 2H8a.75.75 0 0 1 0 1.5H4.75Z" />
-        </svg>
+        <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity shrink-0" />
       </button>
       <button
         type="button"
@@ -235,9 +223,13 @@ function ShiftsPerWeekCell({
   const display = value ?? 6;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(display));
+  const [prevValue, setPrevValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setDraft(String(value ?? 6)); }, [value]);
+  if (prevValue !== value) {
+    setPrevValue(value);
+    if (!editing) setDraft(String(value ?? 6));
+  }
   useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
 
   const save = async () => {
@@ -330,7 +322,6 @@ export default function EmployeeTable() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
   const [savingCell, setSavingCell] = useState<string | null>(null);
   const [initializingNursing, setInitializingNursing] = useState(false);
   const [seedingEmployees, setSeedingEmployees] = useState(false);
@@ -338,34 +329,14 @@ export default function EmployeeTable() {
 
   // search & filter state
   const [nameSearch, setNameSearch] = useState("");
-  const [attrFilter, setAttrFilter] = useState<Set<string>>(new Set());
-  const [deptFilter, setDeptFilter] = useState<Set<string>>(new Set());
-
-  const toggleAttrFilter = (attr: string) =>
-    setAttrFilter(prev => {
-      const next = new Set(prev);
-      next.has(attr) ? next.delete(attr) : next.add(attr);
-      return next;
-    });
-
-  const toggleDeptFilter = (dept: string) =>
-    setDeptFilter(prev => {
-      const next = new Set(prev);
-      next.has(dept) ? next.delete(dept) : next.add(dept);
-      return next;
-    });
+  const [attrFilter, setAttrFilter] = useState<string>("");
+  const [deptFilter, setDeptFilter] = useState<string>("");
 
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
       if (nameSearch && !emp.name.includes(nameSearch)) return false;
-      if (attrFilter.size > 0) {
-        for (const attr of attrFilter) {
-          if (!emp.attributes.includes(attr)) return false;
-        }
-      }
-      if (deptFilter.size > 0) {
-        if (!deptFilter.has(emp.home_department ?? "")) return false;
-      }
+      if (attrFilter && !emp.attributes.includes(attrFilter)) return false;
+      if (deptFilter && emp.home_department !== deptFilter) return false;
       return true;
     });
   }, [employees, nameSearch, attrFilter, deptFilter]);
@@ -442,151 +413,74 @@ export default function EmployeeTable() {
       {[1, 2, 3].map(i => <div key={i} className="h-12 rounded-xl shimmer" />)}
     </div>
   );
-  if (error) return (
-    <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>
-  );
+  if (error) return <Alert type="error">{error}</Alert>;
 
   const numCols = columnHeaders.length;
 
   return (
-    <div className="space-y-6 fade-in">
-      {/* Upload */}
-      <div
-        className={`relative border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-200 ${
-          dragging ? "border-blue-500 bg-blue-50 scale-[1.01]" : "border-slate-200 bg-white hover:border-blue-400 hover:bg-blue-50/50"
-        }`}
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f && isAccepted(f)) handleFile(f); }}
-        onClick={() => fileInputRef.current?.click()}
-      >
+    <div className="flex flex-col gap-6 fade-in h-full">
+      {/* Toolbar: import button on left, search + filter on right */}
+      <div className="flex items-center gap-3" dir="ltr">
         <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
           onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center shadow-inner">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="12" y1="18" x2="12" y2="12"/>
-              <line x1="9" y1="15" x2="15" y2="15"/>
-            </svg>
-          </div>
-          <div>
-            <p className="text-slate-700 font-semibold text-base">
-              {importing ? "מייבא נתונים…" : "גרור קובץ לכאן"}
-            </p>
-            <p className="text-slate-400 text-sm mt-1">
-              CSV · XLSX · XLS · ODS · שורה 1 = כותרות · עמודה 1 = שם · עמודות 2+ = V להרשאה
-            </p>
-          </div>
-          {!importing && (
-            <span className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg font-medium hover:bg-blue-700 transition-colors">
-              בחר קובץ
-            </span>
-          )}
-        </div>
+        <Button
+          type="button"
+          disabled={importing}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <FileUp className="w-4 h-4" />
+          {importing ? "מייבא…" : "ייבא קובץ"}
+        </Button>
+
+        {employees.length > 0 && (
+          <>
+            <div className="flex-1" />
+            {/* Attribute filter dropdown */}
+            {columnHeaders.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Select
+                  optionPrefix="הצג לפי"
+                  value={attrFilter}
+                  onChange={(e) => setAttrFilter(e.target.value)}
+                  variant="default"
+                >
+                  <option value="">הכל</option>
+                  {columnHeaders.map((header, i) => (
+                    <option key={colAttr(i + 1)} value={colAttr(i + 1)}>{header}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+
+            {/* Department filter dropdown (nursing only) */}
+            {isNursing && departments.length > 0 && (
+              <Select
+                optionPrefix="מחלקה"
+                value={deptFilter}
+                onChange={(e) => setDeptFilter(e.target.value)}
+              >
+                <option value="">הכל</option>
+                {departments.map((dep) => (
+                  <option key={dep} value={dep}>{dep}</option>
+                ))}
+              </Select>
+            )}
+
+            {/* Name search */}
+            <SearchDropdown
+              value={nameSearch}
+              onChange={setNameSearch}
+              options={employees.map(e => e.name)}
+              placeholder="חיפוש לפי שם עובד..."
+              dir="rtl"
+              className="w-52"
+            />
+          </>
+        )}
       </div>
 
-      {importError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{importError}</div>
-      )}
-      {importSuccess && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-emerald-700 font-medium">{importSuccess}</div>
-      )}
-
-      {/* Search & attribute filter */}
-      {employees.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-3">
-          {/* Name search */}
-          <div className="relative">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
-              className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd" />
-            </svg>
-            <input
-              type="text"
-              dir="rtl"
-              placeholder="חיפוש לפי שם עובד..."
-              value={nameSearch}
-              onChange={(e) => setNameSearch(e.target.value)}
-              className="w-full pr-9 pl-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
-            />
-            {nameSearch && (
-              <button type="button" onClick={() => setNameSearch("")}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-xs">✕</button>
-            )}
-          </div>
-
-          {/* Attribute filter chips */}
-          {columnHeaders.length > 0 && (
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-xs font-semibold text-slate-500">סנן לפי תכונה:</span>
-              {columnHeaders.map((header, i) => {
-                const attr = colAttr(i + 1);
-                const active = attrFilter.has(attr);
-                const c = COL_COLORS[i % COL_COLORS.length];
-                return (
-                  <button
-                    key={attr}
-                    type="button"
-                    onClick={() => toggleAttrFilter(attr)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                      active
-                        ? `${c.bg} ${c.text} ring-2 ${c.ring} border-transparent shadow-sm`
-                        : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300"
-                    }`}
-                  >
-                    {header}
-                  </button>
-                );
-              })}
-              {attrFilter.size > 0 && (
-                <button type="button" onClick={() => setAttrFilter(new Set())}
-                  className="text-xs text-slate-400 hover:text-red-500 transition-colors pr-1">
-                  נקה הכל ✕
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Department filter chips (nursing only) */}
-          {isNursing && departments.length > 0 && (
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-xs font-semibold text-slate-500">סנן לפי מחלקה:</span>
-              {departments.map((dep) => {
-                const active = deptFilter.has(dep);
-                return (
-                  <button
-                    key={dep}
-                    type="button"
-                    onClick={() => toggleDeptFilter(dep)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                      active
-                        ? "bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300 border-transparent shadow-sm"
-                        : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300"
-                    }`}
-                  >
-                    {dep}
-                  </button>
-                );
-              })}
-              {deptFilter.size > 0 && (
-                <button type="button" onClick={() => setDeptFilter(new Set())}
-                  className="text-xs text-slate-400 hover:text-red-500 transition-colors pr-1">
-                  נקה ✕
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Results count */}
-          {(nameSearch || attrFilter.size > 0 || deptFilter.size > 0) && (
-            <p className="text-xs text-slate-500">
-              מציג <span className="font-semibold text-blue-600">{filteredEmployees.length}</span> מתוך {employees.length} עובדים
-            </p>
-          )}
-        </div>
-      )}
+      {importError && <Alert type="error">{importError}</Alert>}
+      {importSuccess && <Alert type="success">{importSuccess}</Alert>}
 
       {/* Nursing defaults init banner — shown when employees exist but no columns defined */}
       {employees.length > 0 && numCols === 0 && (
@@ -608,15 +502,16 @@ export default function EmployeeTable() {
 
       {/* Table */}
       {employees.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
             <h3 className="font-semibold text-slate-800">רשימת עובדים</h3>
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-400">לחץ על שם או כותרת לעריכה</span>
-              <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full">
+              <Badge className="bg-blue-100 text-blue-700 border-transparent">
                 {filteredEmployees.length} / {employees.length} עובדים
-              </span>
-              <button
+              </Badge>
+              <Button
+                variant="ghost"
                 type="button"
                 onClick={async () => { try { await exportEmployeesXlsx(filteredEmployees.map(e => e.id)); } catch {} }}
                 className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg transition-all font-medium"
@@ -627,20 +522,21 @@ export default function EmployeeTable() {
                   <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
                 </svg>
                 ייצא Excel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
                 type="button"
                 onClick={async () => {
                   if (!window.confirm("למחוק את כל העובדים בתצוגה זו?")) return;
                   await clearAllEmployees();
                 }}
-                className="text-xs text-slate-400 hover:text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg transition-all"
+                className="text-slate-400 hover:text-red-500 hover:bg-red-50 px-2 py-1"
               >
                 נקה הכל
-              </button>
+              </Button>
             </div>
           </div>
-          <div className="overflow-x-auto" style={{ maxHeight: "520px", overflowY: "auto" }}>
+          <div className="overflow-auto flex-1 min-h-0">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -725,31 +621,27 @@ export default function EmployeeTable() {
                       const disabled = isSaving || isAttrDisabled(columnHeaders, colIdx, emp.attributes);
                       const c = COL_COLORS[i % COL_COLORS.length];
                       return (
-                        <td key={i} className={`px-2 py-2.5 text-center ${isAttrDisabled(columnHeaders, colIdx, emp.attributes) ? "opacity-30" : ""}`}>
-                          <button
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => handleToggleAttr(emp.id, emp.attributes, colIdx)}
-                            title={isAttrDisabled(columnHeaders, colIdx, emp.attributes) ? `דורש ${NURSE_HEADER}` : checked ? "לחץ להסרת הרשאה" : "לחץ להוספת הרשאה"}
-                            className={`w-8 h-8 rounded-full inline-flex items-center justify-center transition-all focus:outline-none focus-visible:ring-2 disabled:opacity-50 ${
-                              checked
-                                ? `${c.bg} ${c.text} hover:ring-2 ${c.ring} shadow-sm`
-                                : "text-slate-200 hover:bg-slate-100 hover:text-slate-400"
-                            }`}
-                          >
+                        <td
+                          key={i}
+                          onClick={() => !disabled && handleToggleAttr(emp.id, emp.attributes, colIdx)}
+                          title={isAttrDisabled(columnHeaders, colIdx, emp.attributes) ? `דורש ${NURSE_HEADER}` : checked ? "לחץ להסרת הרשאה" : "לחץ להוספת הרשאה"}
+                          className={`px-2 py-2.5 text-center cursor-pointer select-none transition-colors ${
+                            checked ? "hover:bg-red-50/40" : "hover:bg-slate-50"
+                          } ${disabled ? "opacity-30 pointer-events-none" : ""} ${isSaving ? "opacity-50 pointer-events-none" : ""}`}
+                        >
+                          <span className={`w-8 h-8 rounded-full inline-flex items-center justify-center transition-all ${
+                            checked
+                              ? `${c.bg} ${c.text} shadow-sm`
+                              : "border-2 border-slate-200 text-slate-300 hover:border-slate-300"
+                          }`}>
                             {isSaving ? (
-                              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                              </svg>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : checked ? (
-                              <svg viewBox="0 0 10 10" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M1.5 5l2.5 2.5 4.5-4.5"/>
-                              </svg>
+                              <Check className="w-3.5 h-3.5" />
                             ) : (
-                              <span className="text-base leading-none">·</span>
+                              <Minus className="w-3 h-3" />
                             )}
-                          </button>
+                          </span>
                         </td>
                       );
                     })}
@@ -780,14 +672,7 @@ export default function EmployeeTable() {
 
                     {/* Delete */}
                     <td className="px-3 py-2.5 text-center">
-                      <button
-                        onClick={() => removeEmployee(emp.id)}
-                        className="w-7 h-7 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all inline-flex items-center justify-center"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                          <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd"/>
-                        </svg>
-                      </button>
+                      <DeleteIconButton onClick={() => removeEmployee(emp.id)} />
                     </td>
                   </tr>
                 ))}
@@ -806,12 +691,7 @@ export default function EmployeeTable() {
       {employees.length === 0 && !importing && !importSuccess && (
         <div className="text-center py-16 text-slate-400">
           <div className="w-16 h-16 bg-slate-100 rounded-2xl mx-auto mb-4 flex items-center justify-center">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
+            <Users className="w-8 h-8 text-slate-400" />
           </div>
           <p className="font-medium">אין עובדים עדיין</p>
           <p className="text-sm mt-1">ייבא קובץ להתחלה</p>

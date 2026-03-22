@@ -1,6 +1,10 @@
 "use client";
 import { useEffect, useRef, useState, useMemo } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, getManualPoints, addManualPoint, removeManualPoint, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer, type ManualPoint, type ManualPointTable } from "@/lib/api";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, getManualPoints, addManualPoint, removeManualPoint, type JusticeEntry, type Advocate, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer, type ManualPoint, type ManualPointTable } from "@/lib/api";
+import type { Employee } from "@/lib/types";
+import { Button, DeleteIconButton, Alert, Input, Select, TabButton, TabsContainer, SearchInput, SearchDropdown, Toggle } from "@/components/ui";
+import { X, Plus, Check, Handshake, Ban, ChevronRight, ChevronLeft, ChevronDown, Trash2, Scale, Building2, Trophy, BarChart2, Pencil } from "lucide-react";
+import type { ReactNode } from "react";
 
 type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype" | "manual";
 type View = "table" | "chart";
@@ -127,9 +131,7 @@ function PointsButton({ employeeId, employeeName, manualTotal, table, onAdd }: {
             "bg-slate-50 border-slate-200 text-slate-400 hover:border-blue-300 hover:text-blue-600"}`}
       >
         {manualTotal !== 0 && <span>{manualTotal > 0 ? "+" : ""}{manualTotal}</span>}
-        <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-          <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"/>
-        </svg>
+        <Plus className="w-3.5 h-3.5" />
       </button>
 
       {open && (
@@ -229,9 +231,7 @@ function BreakdownModal({ employee, employeeId, manualPoints, startDate, endDate
             <div className="text-2xl font-bold text-blue-600 ml-4">{displayTotal} נק׳</div>
           )}
           <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/>
-            </svg>
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -339,7 +339,7 @@ function VolunteerBreakdownModal({ employee, employeeId, manualPoints, startDate
           </div>
           {!loading && <div className="text-2xl font-bold text-green-600 ml-4">{displayTotal} נק׳</div>}
           <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
+            <X className="w-5 h-5" />
           </button>
         </div>
         <div className="overflow-y-auto flex-1">
@@ -453,7 +453,7 @@ function DayTypeBreakdownModal({ employee, employeeId, manualPoints, startDate, 
             </div>
           )}
           <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
+            <X className="w-5 h-5" />
           </button>
         </div>
         <div className="overflow-y-auto flex-1">
@@ -603,7 +603,7 @@ function JusticeSection({ data, view, search, getDayScore, onEmployeeClick, manu
             <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{e.justice_shifts} משמרות</div>
             {getDayScore && (
               <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
-                {getDayScore(e.employee_name)}🕍
+                <span className="inline-flex items-center gap-1">{getDayScore(e.employee_name)}<Building2 className="w-3.5 h-3.5" /></span>
               </div>
             )}
             {getDayScore && (
@@ -704,19 +704,12 @@ function VolunteerSection({ data, view, search, onEmployeeClick, manualTotals = 
   return (
     <div className="space-y-5">
       {/* Shift filter */}
-      <div className="relative max-w-xs">
-        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-          <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
-        </svg>
-        <input
-          value={shiftSearch} onChange={e => setShiftSearch(e.target.value)}
-          placeholder="חיפוש לפי משמרת..."
-          className="w-full border border-slate-200 rounded-xl pr-8 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
-        />
-        {shiftSearch && (
-          <button type="button" onClick={() => setShiftSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
-        )}
-      </div>
+      <SearchInput
+        value={shiftSearch}
+        onChange={setShiftSearch}
+        placeholder="חיפוש לפי משמרת..."
+        className="max-w-xs"
+      />
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100">
@@ -946,75 +939,52 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
 
   if (loading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer" />)}</div>;
 
-  if (fetchError) return (
-    <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{fetchError}</div>
-  );
+  if (fetchError) return <Alert type="error">{fetchError}</Alert>;
 
   return (
     <div className="space-y-5">
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        {/* View toggle */}
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
-          <button type="button" onClick={() => setAdvView("table")}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${advView === "table" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path fillRule="evenodd" d="M.99 5.24A2.25 2.25 0 0 1 3.25 3h13.5A2.25 2.25 0 0 1 19 5.25l.01 9.5A2.25 2.25 0 0 1 16.76 17H3.26A2.272 2.272 0 0 1 1 14.76l-.01-9.5Zm8.26 9.52v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.615c0 .414.336.75.75.75h5.09a.75.75 0 0 0 .91-.74Zm1.5 0a.75.75 0 0 0 .91.74h5.09a.75.75 0 0 0 .75-.75v-.615a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625Zm6.75-3.63v-.625a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75h5.25a.75.75 0 0 0 .75-.75Zm-8.25 0v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75H8.5a.75.75 0 0 0 .75-.75Z" clipRule="evenodd"/>
-            </svg>
-            טבלה
-          </button>
-          <button type="button" onClick={() => setAdvView("chart")}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${advView === "chart" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM9.5 7A1.5 1.5 0 0 0 8 8.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 9.5 7ZM3.5 12A1.5 1.5 0 0 0 2 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 3.5 12Z"/>
-            </svg>
-            גרף
-          </button>
+        <div className="flex items-center gap-2">
+          <SearchInput
+            value={descSearch}
+            onChange={e => setDescSearch(e.target.value)}
+            onClear={() => setDescSearch("")}
+            placeholder="חיפוש לפי סוג סנגור..."
+            className="flex-1 max-w-xs"
+          />
+          <Button onClick={() => { setShowForm(v => !v); setSaveError(null); }} icon={<Plus className="w-4 h-4" />}>
+            הוסף סנגור
+          </Button>
         </div>
-
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="relative flex-1 max-w-xs">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
-            </svg>
-            <input
-              value={descSearch} onChange={e => setDescSearch(e.target.value)}
-              placeholder="חיפוש לפי סוג סנגור..."
-              className="w-full border border-slate-200 rounded-xl pr-8 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
-            />
-            {descSearch && (
-              <button type="button" onClick={() => setDescSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
-            )}
-          </div>
-        </div>
-
-        <button type="button" onClick={() => { setShowForm(v => !v); setSaveError(null); }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-all shadow-sm shrink-0">
-          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"/></svg>
-          הוסף סנגור
-        </button>
+        <Toggle
+          labelOff="טבלה"
+          labelOn="גרף"
+          checked={advView === "chart"}
+          onChange={v => setAdvView(v ? "chart" : "table")}
+        />
       </div>
 
       {/* Add form */}
       {showForm && (
         <form onSubmit={handleAdd} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
           <h3 className="font-bold text-slate-800">סנגור חדש</h3>
-          {saveError && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-sm">{saveError}</div>}
+          {saveError && <Alert type="error">{saveError}</Alert>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">עובד</label>
               <div className="relative">
-                <input
+                <Input
                   type="text"
                   value={empSearch}
                   onChange={e => { setEmpSearch(e.target.value); setEmpOpen(true); setForm(f => ({ ...f, employee_id: "" })); }}
                   onFocus={() => setEmpOpen(true)}
                   placeholder="הקלד שם עובד..."
                   autoComplete="off"
-                  className={`w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 ${form.employee_id ? "border-blue-300 bg-blue-50/40" : "border-slate-200"}`}
+                  className={form.employee_id ? "border-blue-300 bg-blue-50/40" : ""}
                 />
                 {form.employee_id && (
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 text-xs">✓</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500"><Check className="w-3.5 h-3.5" /></span>
                 )}
                 {empOpen && (
                   <>
@@ -1036,35 +1006,29 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
                   </>
                 )}
               </div>
-              {/* Hidden required validation anchor */}
               <input type="text" required readOnly value={form.employee_id} className="sr-only" tabIndex={-1} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">תאריך</label>
-              <input type="date" value={form.date}
-                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+              <Input type="date" value={form.date}
+                onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
             </div>
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-slate-500 mb-1">תיאור הסנגור</label>
-              <input required type="text" value={form.description} placeholder="מה עשה העובד?"
-                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+              <Input required type="text" value={form.description} placeholder="מה עשה העובד?"
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">נקודות</label>
-              <input required type="number" min={1} max={100} value={form.points}
-                onChange={e => setForm(f => ({ ...f, points: Number(e.target.value) }))}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+              <Input required type="number" min={1} max={100} value={form.points}
+                onChange={e => setForm(f => ({ ...f, points: Number(e.target.value) }))} />
             </div>
           </div>
           <div className="flex gap-2 justify-end">
-            <button type="button" onClick={() => setShowForm(false)}
-              className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100 transition-all">ביטול</button>
-            <button type="submit" disabled={saving}
-              className="px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-all disabled:opacity-50">
+            <Button type="button" variant="secondary" onClick={() => setShowForm(false)}>ביטול</Button>
+            <Button type="submit" disabled={saving}>
               {saving ? "שומר..." : "שמור"}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -1140,9 +1104,9 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
               <h3 className="font-bold text-slate-800">סנגורים של {totals[selectedEmployee]?.name}</h3>
               <p className="text-xs text-slate-400 mt-0.5">{filtered.length} רשומות · {filtered.reduce((s, a) => s + a.points, 0)} נקודות</p>
             </div>
-            <button type="button" onClick={() => setSelectedEmployee(null)} className="text-slate-400 hover:text-slate-600 transition-all">
-              <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
-            </button>
+            <Button type="button" variant="ghost" onClick={() => setSelectedEmployee(null)} className="text-slate-400 hover:text-slate-600 p-1">
+              <X className="w-5 h-5" />
+            </Button>
           </div>
           <div className="divide-y divide-slate-50">
             {filtered.map(a => (
@@ -1152,9 +1116,7 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
                   <p className="text-xs text-slate-400 mt-0.5">{a.date}</p>
                 </div>
                 <span className="text-sm font-bold text-purple-600 shrink-0">{a.points} נק׳</span>
-                <button type="button" onClick={() => handleDelete(a.id)} className="text-slate-300 hover:text-red-400 transition-all shrink-0">
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd"/></svg>
-                </button>
+                <DeleteIconButton onClick={() => handleDelete(a.id)} className="shrink-0" />
               </div>
             ))}
             {filtered.length === 0 && <p className="text-center text-slate-400 text-sm py-8">אין סנגורים עדיין</p>}
@@ -1198,7 +1160,7 @@ function ShirkingBreakdownModal({
           </div>
           <div className="text-2xl font-bold text-rose-600 ml-4">{total} הברזות</div>
           <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
+            <X className="w-5 h-5" />
           </button>
         </div>
         <div className="overflow-y-auto flex-1">
@@ -1214,7 +1176,7 @@ function ShirkingBreakdownModal({
                     {r.replacement_name && <span className="text-xs text-slate-500 block mt-0.5">הוחלף ע״י {r.replacement_name}</span>}
                   </div>
                   <button type="button" onClick={() => onRemoveRecord(r.id)} className="text-slate-300 hover:text-red-400 transition-all shrink-0">
-                    <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd"/></svg>
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               ))}
@@ -1301,7 +1263,7 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
   const filteredRecords = shiftFiltered.filter(r => !q || r.employee_name.toLowerCase().includes(q));
 
   if (loading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer"/>)}</div>;
-  if (error) return <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>;
+  if (error) return <Alert type="error">{error}</Alert>;
 
   const shirkingBlock = (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -1329,7 +1291,6 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
           </div>
         )
       }
-      
       {breakdownEmp && (
         <ShirkingBreakdownModal
           employeeName={breakdownEmp.name}
@@ -1365,40 +1326,23 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
 
   return (
     <div className="space-y-5">
-      {/* Shift filter */}
-      <div className="relative max-w-xs">
-        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-          <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
-        </svg>
-        <input
-          value={shiftSearch} onChange={e => setShiftSearch(e.target.value)}
+      {/* Shift filter + balance toggle */}
+      <div className="flex items-center justify-between gap-3">
+        <SearchInput
+          value={shiftSearch}
+          onChange={setShiftSearch}
           placeholder="חיפוש לפי משמרת..."
-          className="w-full border border-slate-200 rounded-xl pr-8 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
+          className="flex-1 max-w-xs"
         />
-        {shiftSearch && (
-          <button type="button" onClick={() => setShiftSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
+        {volunteerData && (
+          <Toggle
+            labelOff="הסתר מאזן"
+            labelOn="הצג מאזן"
+            checked={sideBySide}
+            onChange={setSideBySide}
+          />
         )}
       </div>
-
-      {/* Toggle button */}
-      {volunteerData && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setSideBySide(v => !v)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
-              sideBySide
-                ? "bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
-                : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-            }`}
-          >
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"/>
-            </svg>
-            {sideBySide ? "הסתר מאזן" : "הצג מאזן התנדבות − הברזות"}
-          </button>
-        </div>
-      )}
 
       {/* Balance summary table */}
       {sideBySide && volunteerData && (
@@ -1413,8 +1357,8 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
                 <tr className="bg-slate-50 text-slate-500 text-xs font-semibold">
                   <th className="px-4 py-2.5 text-right w-8">#</th>
                   <th className="px-4 py-2.5 text-right">עובד</th>
-                  <th className="px-4 py-2.5 text-center">🤝 התנדבויות</th>
-                  <th className="px-4 py-2.5 text-center">🚫 הברזות</th>
+                  <th className="px-4 py-2.5 text-center"><span className="inline-flex items-center gap-1"><Handshake className="w-3.5 h-3.5" />התנדבויות</span></th>
+                  <th className="px-4 py-2.5 text-center"><span className="inline-flex items-center gap-1"><Ban className="w-3.5 h-3.5" />הברזות</span></th>
                   <th className="px-4 py-2.5 text-center">מאזן</th>
                   <th className="px-4 py-2.5 text-right w-48">גרף</th>
                 </tr>
@@ -1508,16 +1452,6 @@ function DayTypeJusticeSection({
 
   return (
     <div className="space-y-4">
-      {/* View toggle */}
-      <div className="flex flex-wrap items-center justify-end gap-4">
-
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-        <button onClick={() => onFilterChange("combined")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === "combined" ? "bg-white text-purple-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>משולב</button>
-        <button onClick={() => onFilterChange("shabbat")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === "shabbat" ? "bg-white text-purple-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>שבתות</button>
-        <button onClick={() => onFilterChange("holidays")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === "holidays" ? "bg-white text-purple-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>חגים</button>
-      </div>
-      </div>
-
       {employees.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 text-slate-400 text-sm">
           אין נתוני שבתות / חגים בטווח הנבחר
@@ -1566,12 +1500,12 @@ function DayTypeJusticeSection({
 }
 
 const TABLE_LABELS: Partial<Record<ManualPointTable, string>> = {
-  justice:   "⚖️ צדק",
-  volunteer: "🤝 התנדבות",
-  // advocates: "🏆 סנגורים",
-  shirking:  "🚫 הברזות",
-  daytype:   "🕍 שבתות וחגים",
-  // general:   "📋 כללי",
+  justice:   "צדק",
+  volunteer: "התנדבות",
+  // advocates: "סנגורים",
+  shirking:  "הברזות",
+  daytype:   "שבתות וחגים",
+  // general:   "כללי",
 };
 
 // ── Manual points section (tracking table) ────────────────────────────────────
@@ -1648,7 +1582,7 @@ function ManualPointsSection({ points, manualTotalsByTable, employees, onAdd, on
             <button ref={empBtnRef} type="button" onClick={openEmpDropdown}
               className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 text-sm font-semibold text-slate-700 hover:border-blue-300 min-w-[160px]">
               {selectedEmp ? selectedEmp.name : <span className="text-slate-400">בחר עובד</span>}
-              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-slate-400 mr-auto"><path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd"/></svg>
+              <ChevronDown className="w-4 h-4 text-slate-400 mr-auto" />
             </button>
             {empOpen && (
               <>
@@ -1794,7 +1728,7 @@ function ManualPointsSection({ points, manualTotalsByTable, employees, onAdd, on
                     <td className="px-4 py-3">
                       <button type="button" onClick={() => onRemove(p.id)}
                         className="text-slate-300 hover:text-red-400 transition-colors">
-                        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd"/></svg>
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
                   </tr>
@@ -1848,6 +1782,12 @@ export default function JusticePage() {
       .finally(() => setLoading(false));
   }, [startISO, endISO]);
 
+  const [search, setSearch] = useState("");
+  const [daytypeData, setDaytypeData] = useState<DayTypeJusticeData | null>(null);
+  const [daytypeLoading, setDaytypeLoading] = useState(false);
+  const [daytypeError, setDaytypeError] = useState<string | null>(null);
+  const [dayTypeFilter, setDayTypeFilter] = useState<DayTypeFilter>("combined");
+
   useEffect(() => {
     if (!startISO || !endISO) return;
     setDaytypeLoading(true);
@@ -1857,12 +1797,6 @@ export default function JusticePage() {
       .catch(e => setDaytypeError((e as Error).message))
       .finally(() => setDaytypeLoading(false));
   }, [startISO, endISO]);
-
-  const [search, setSearch] = useState("");
-  const [daytypeData, setDaytypeData] = useState<DayTypeJusticeData | null>(null);
-  const [daytypeLoading, setDaytypeLoading] = useState(false);
-  const [daytypeError, setDaytypeError] = useState<string | null>(null);
-  const [dayTypeFilter, setDayTypeFilter] = useState<DayTypeFilter>("combined");
 
   const [showDayScores, setShowDayScores] = useState(false);
   const [dayScoreData, setDayScoreData] = useState<DayTypeJusticeData | null>(null);
@@ -1964,14 +1898,14 @@ export default function JusticePage() {
       .catch(() => setDayScoreData(null));
   }, [showDayScores, startISO, endISO]);
 
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "justice",   label: "טבלת צדק",         icon: "⚖️" },
-    { id: "volunteer", label: "טבלת התנדבות",     icon: "🤝" },
-    { id: "shirking",  label: "הברזות",            icon: "🚫" },
-    { id: "advocates", label: "סנגורים",           icon: "🏆" },
-    { id: "daytype",   label: "שבתות וחגים",       icon: "🕍" },
-    { id: "combined",  label: "טבלה משולבת",       icon: "📊" },
-    { id: "manual",    label: "ניקוד ידני",        icon: "✏️" },
+  const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
+    { id: "justice",   label: "טבלת צדק",         icon: <Scale className="w-3.5 h-3.5" /> },
+    { id: "volunteer", label: "טבלת התנדבות",     icon: <Handshake className="w-3.5 h-3.5" /> },
+    { id: "shirking",  label: "הברזות",            icon: <Ban className="w-3.5 h-3.5" /> },
+    { id: "advocates", label: "סנגורים",           icon: <Trophy className="w-3.5 h-3.5" /> },
+    { id: "daytype",   label: "שבתות וחגים",       icon: <Building2 className="w-3.5 h-3.5" /> },
+    { id: "combined",  label: "טבלה משולבת",       icon: <BarChart2 className="w-3.5 h-3.5" /> },
+    { id: "manual",    label: "ניקוד ידני",        icon: <Pencil className="w-3.5 h-3.5" /> },
   ];
 
   // Show loading state until date is set on client (prevents hydration mismatch)
@@ -2002,126 +1936,98 @@ export default function JusticePage() {
       </div>
 
       {/* Search */}
-      <div className="relative max-w-xs w-full">
-        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-          <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
-        </svg>
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="חיפוש לפי שם עובד..."
-          className="w-full bg-white border border-slate-200 rounded-xl pr-9 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder:text-slate-400"
-        />
-        {search && (
-          <button type="button" onClick={() => setSearch("")}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
-          </button>
-        )}
-      </div>
+      <SearchDropdown
+        value={search}
+        onChange={setSearch}
+        options={employees.map(e => e.name)}
+        placeholder="חיפוש לפי שם עובד..."
+        className="max-w-xs w-full"
+      />
 
-      {/* Controls */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        {/* Tab selector */}
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
-          {tabs.map(t => (
-            <button key={t.id} type="button" onClick={() => setTab(t.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                tab === t.id ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
+      {/* Tab selector + filters */}
+      <div className="flex flex-col gap-3">
+      <TabsContainer>
+        {tabs.map(t => (
+          <TabButton key={t.id} onClick={() => setTab(t.id)} active={tab === t.id} className="px-4 py-2">
+            <span>{t.icon}</span>
+            <span>{t.label}</span>
+          </TabButton>
+        ))}
+      </TabsContainer>
+
+      {/* Filters row — all controls on one line, left/right split */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        {/* RIGHT side (start in RTL): time range — hidden on advocates/shirking tabs */}
+        {!(tab === "advocates" || tab === "shirking") ? (
+          <div className="flex items-center gap-2">
+            <Select value={rangeType} onChange={e => { setRangeType(e.target.value as RangeType); setRefDate(new Date()); }} className="w-auto">
+              {rangeTypes.map(r => (
+                <option key={r.id} value={r.id}>{r.label}</option>
+              ))}
+            </Select>
+            <Button variant="ghost"
+              onClick={() => refDate && setRefDate(shiftRef(rangeType, refDate, 1))}
+              className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-600"
+              title="קודם"
             >
-              <span>{t.icon}</span>
-              <span>{t.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* View toggle — hidden on advocates/shirking/daytype tabs */}
-        <div className={`flex gap-1 bg-slate-100 rounded-xl p-1 ${(tab === "advocates" || tab === "shirking" || tab === "daytype" || tab === "combined") ? "invisible" : ""}`}>
-          <button type="button" onClick={() => setView("table")}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
-              view === "table" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path fillRule="evenodd" d="M.99 5.24A2.25 2.25 0 0 1 3.25 3h13.5A2.25 2.25 0 0 1 19 5.25l.01 9.5A2.25 2.25 0 0 1 16.76 17H3.26A2.272 2.272 0 0 1 1 14.76l-.01-9.5Zm8.26 9.52v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.615c0 .414.336.75.75.75h5.09a.75.75 0 0 0 .91-.74Zm1.5 0a.75.75 0 0 0 .91.74h5.09a.75.75 0 0 0 .75-.75v-.615a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625Zm6.75-3.63v-.625a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75h5.25a.75.75 0 0 0 .75-.75Zm-8.25 0v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75H8.5a.75.75 0 0 0 .75-.75Z" clipRule="evenodd"/>
-            </svg>
-            טבלה
-          </button>
-          <button type="button" onClick={() => setView("chart")}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
-              view === "chart" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM9.5 7A1.5 1.5 0 0 0 8 8.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 9.5 7ZM3.5 12A1.5 1.5 0 0 0 2 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 3.5 12Z"/>
-            </svg>
-            גרף
-          </button>
-        </div>
-      </div>
-
-      {/* Day scores toggle — visible on justice/volunteer/combined tabs */}
-      {(tab === "justice" || tab === "combined") && (
-        <button
-          type="button"
-          onClick={() => { setShowDayScores(v => !v); }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
-            showDayScores
-              ? "bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100"
-              : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
-          }`}
-        >
-          🕍 {showDayScores ? "מסתיר ניקוד שבת/חגים" : "הוסף ניקוד שבת/חגים"}
-        </button>
-      )}
-
-      {/* Time range bar — hidden on advocates/shirking tabs */}
-      <div className={`flex items-center gap-3 flex-wrap ${(tab === "advocates" || tab === "shirking") ? "hidden" : ""}`}>
-        {/* Range type buttons */}
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
-          {rangeTypes.map(r => (
-            <button key={r.id} type="button"
-              onClick={() => { setRangeType(r.id); setRefDate(new Date()); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                rangeType === r.id ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+            <span className="text-sm font-semibold text-slate-700 min-w-[160px] text-center">{rangeLabel}</span>
+            <Button variant="ghost"
+              onClick={() => refDate && setRefDate(shiftRef(rangeType, refDate, -1))}
+              className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-600"
+              title="הבא"
             >
-              {r.label}
-            </button>
-          ))}
-        </div>
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost"
+              onClick={() => setRefDate(new Date())}
+              className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold"
+            >
+              היום
+            </Button>
+          </div>
+        ) : <div />}
 
-        {/* Prev / label / next */}
+        {/* LEFT side (end in RTL): view binary toggle + day scores toggle + daytype filter */}
         <div className="flex items-center gap-2">
-          <button type="button"
-            onClick={() => refDate && setRefDate(shiftRef(rangeType, refDate, 1))}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all"
-            title="קודם"
-          >
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 0 1 0-1.414L10.586 10 7.293 6.707a1 1 0 0 1 1.414-1.414l4 4a1 1 0 0 1 0 1.414l-4 4a1 1 0 0 1-1.414 0Z" clipRule="evenodd"/></svg>
-          </button>
-          <span className="text-sm font-semibold text-slate-700 min-w-[160px] text-center">{rangeLabel}</span>
-          <button type="button"
-            onClick={() => refDate && setRefDate(shiftRef(rangeType, refDate, -1))}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all"
-            title="הבא"
-          >
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 0 1 0 1.414L9.414 10l3.293 3.293a1 1 0 0 1-1.414 1.414l-4-4a1 1 0 0 1 0-1.414l4-4a1 1 0 0 1 1.414 0Z" clipRule="evenodd"/></svg>
-          </button>
-          <button type="button"
-            onClick={() => setRefDate(new Date())}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all"
-          >
-            היום
-          </button>
+          {/* View binary toggle — hidden on advocates/shirking/daytype/combined tabs */}
+          {!(tab === "advocates" || tab === "shirking" || tab === "daytype" || tab === "combined") && (
+            <Toggle
+              labelOff="טבלה"
+              labelOn="גרף"
+              checked={view === "chart"}
+              onChange={v => setView(v ? "chart" : "table")}
+            />
+          )}
+
+          {/* Day scores toggle — visible on justice/combined tabs */}
+          {(tab === "justice" || tab === "combined") && (
+            <Toggle
+              labelOff="ימי חול"
+              labelOn="כולל שבת/חגים"
+              checked={showDayScores}
+              onChange={setShowDayScores}
+            />
+          )}
+
+          {/* Daytype filter dropdown — visible on daytype tab */}
+          {tab === "daytype" && (
+            <div className="flex items-center gap-1.5">
+              <Select value={dayTypeFilter} optionPrefix="הצג" onChange={e => setDayTypeFilter(e.target.value as "combined" | "shabbat" | "holidays")} className="w-auto text-xs">
+                <option value="combined">משולב</option>
+                <option value="shabbat">שבתות</option>
+                <option value="holidays">חגים</option>
+              </Select>
+            </div>
+          )}
         </div>
+      </div>
       </div>
 
       {/* Error */}
       {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && error && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>
+        <Alert type="error">{error}</Alert>
       )}
 
       {/* Loading */}

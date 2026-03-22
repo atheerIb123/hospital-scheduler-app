@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { useDaySettings } from "@/hooks/useDaySettings";
 import { DayType } from "@/lib/types";
+import { Select, DropdownPanel } from "@/components/ui";
+import { getDayTypeActiveColor } from "@/lib/colors";
 
 interface Props {
   dayTypes: DayType[];
@@ -51,16 +53,12 @@ export default function CalendarConfigurator({ dayTypes, allDayTypes }: Props) {
         <h2 className="font-semibold text-slate-800">הגדרת מבנה ימים (חגים/מיוחדים)</h2>
 
         <div className="flex items-center gap-2">
-          <select
-            className="text-xs font-semibold border-none bg-slate-50 rounded-lg px-2 py-1 focus:ring-0"
-            value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+          <Select variant="compact" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
             {MONTH_NAMES.map((n, i) => <option key={i + 1} value={i + 1}>{n}</option>)}
-          </select>
-          <select
-            className="text-xs font-semibold border-none bg-slate-50 rounded-lg px-2 py-1 focus:ring-0"
-            value={year} onChange={(e) => setYear(Number(e.target.value))}>
+          </Select>
+          <Select variant="compact" value={year} onChange={(e) => setYear(Number(e.target.value))}>
             {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
+          </Select>
         </div>
       </div>
 
@@ -145,8 +143,8 @@ function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, cu
     <div className="relative">
       <div
         onClick={handleOpen}
-        className={`cursor-pointer p-2 rounded-xl border transition-all flex flex-col items-center justify-center min-h-[56px] ${activeType
-            ? activeType.color.replace("100", "600").replace(/text-[a-z]+-800/, "text-white").replace(/border-[a-z]+-200/, `border-${activeType.color.split("-")[1]}-600`) + " border-current shadow-sm"
+        className={`cursor-pointer p-2 rounded-xl border transition-all flex flex-col items-center justify-center min-h-14 ${activeType
+            ? getDayTypeActiveColor(activeType.color) + " border-current shadow-sm"
             : isWeekend
               ? "bg-slate-50 border-slate-100 text-slate-400"
               : "bg-white border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 text-slate-600"
@@ -164,50 +162,45 @@ function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, cu
         )}
       </div>
 
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className={`absolute z-50 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 flex flex-col gap-0.5 w-36 animate-in fade-in zoom-in-95 ${popupBelow ? "top-full mt-2 slide-in-from-top-2" : "bottom-full mb-2 slide-in-from-bottom-2"}`}>
-            <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase text-center border-b border-slate-50 mb-1">סוג יום</p>
-            <button
-              onClick={() => { onSelect(null, undefined); setOpen(false); }}
-              className="w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-slate-50 text-slate-500 transition-colors"
-            >
-              רגיל
-            </button>
-            {dayTypes.map((dt) => (
-              <button
-                key={dt.id}
-                onClick={() => {
-                  const s = scoreInput.trim() !== "" ? Number(scoreInput) : undefined;
-                  onSelect(dt.id, s);
-                  setOpen(false);
-                }}
-                className={`w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeType?.id === dt.id
-                    ? `${dt.color.replace("100", "600").replace(/text-[a-z]+-800/, "text-white").replace(/border-[a-z]+-200/, `border-${dt.color.split("-")[1]}-600`)} shadow-sm border border-current`
-                    : "text-slate-500 hover:bg-slate-50"
-                  }`}
-              >
-                {dt.name}
-              </button>
-            ))}
-            <div className="border-t border-slate-100 mt-1 pt-2 px-2 pb-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">ציון יום זה</label>
-              <input
-                type="number"
-                min={0}
-                value={scoreInput}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => setScoreInput(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
-                placeholder={String(defaultScore ?? 0)}
-                className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
-              />
-              <p className="text-[9px] text-slate-400 mt-0.5 text-center">ריק = ציון ברירת מחדל של הסוג</p>
-            </div>
-          </div>
-        </>
-      )}
+      <DropdownPanel open={open} onClose={() => setOpen(false)} className={`left-1/2 -translate-x-1/2 rounded-xl p-1.5 flex flex-col gap-0.5 w-36 animate-in fade-in zoom-in-95 ${popupBelow ? "top-full mt-2 slide-in-from-top-2" : "bottom-full mb-2 slide-in-from-bottom-2"}`}>
+        <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase text-center border-b border-slate-50 mb-1">סוג יום</p>
+        <button
+          onClick={() => { onSelect(null, undefined); setOpen(false); }}
+          className="w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-slate-50 text-slate-500 transition-colors"
+        >
+          רגיל
+        </button>
+        {dayTypes.map((dt) => (
+          <button
+            key={dt.id}
+            onClick={() => {
+              const s = scoreInput.trim() !== "" ? Number(scoreInput) : undefined;
+              onSelect(dt.id, s);
+              setOpen(false);
+            }}
+            className={`w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeType?.id === dt.id
+                ? `${getDayTypeActiveColor(dt.color)} shadow-sm border border-current`
+                : "text-slate-500 hover:bg-slate-50"
+              }`}
+          >
+            {dt.name}
+          </button>
+        ))}
+        <div className="border-t border-slate-100 mt-1 pt-2 px-2 pb-1">
+          <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">ציון יום זה</label>
+          <input
+            type="number"
+            min={0}
+            value={scoreInput}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setScoreInput(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+            placeholder={String(defaultScore ?? 0)}
+            className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
+          />
+          <p className="text-[9px] text-slate-400 mt-0.5 text-center">ריק = ציון ברירת מחדל של הסוג</p>
+        </div>
+      </DropdownPanel>
     </div>
   );
 }
