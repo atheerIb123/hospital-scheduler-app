@@ -23,6 +23,47 @@ function daysInMonth(year: number, month: number) {
   return new Date(year, month, 0).getDate(); // month is 1-based
 }
 
+// ---------------------------------------------------------------------------
+// Grouping consecutive constraints
+// ---------------------------------------------------------------------------
+
+interface ConstraintGroup {
+  employee_name: string;
+  reason: string;
+  items: Constraint[]; // sorted by date, all consecutive
+}
+
+function isNextDay(isoA: string, isoB: string) {
+  const d = new Date(isoA);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10) === isoB;
+}
+
+function groupConstraints(constraints: Constraint[]): ConstraintGroup[] {
+  const sorted = [...constraints].sort((a, b) => {
+    if (a.employee_name !== b.employee_name) return a.employee_name.localeCompare(b.employee_name, "he");
+    const ra = a.reason ?? "", rb = b.reason ?? "";
+    if (ra !== rb) return ra.localeCompare(rb, "he");
+    return a.date.localeCompare(b.date);
+  });
+  const groups: ConstraintGroup[] = [];
+  for (const c of sorted) {
+    const last = groups[groups.length - 1];
+    if (last && last.employee_name === c.employee_name && (last.reason ?? "") === (c.reason ?? "") &&
+        isNextDay(last.items[last.items.length - 1].date, c.date)) {
+      last.items.push(c);
+    } else {
+      groups.push({ employee_name: c.employee_name, reason: c.reason ?? "", items: [c] });
+    }
+  }
+  return groups;
+}
+
+function displayGroupDates(items: Constraint[]): string {
+  if (items.length === 1) return formatDateHebrew(items[0].date);
+  return `${formatDateHebrew(items[0].date)} — ${formatDateHebrew(items[items.length - 1].date)}`;
+}
+
 // Sunday = 0 in JS, but Israel week starts Sunday too so we use 0-based as-is
 function firstDayOfWeek(year: number, month: number) {
   return new Date(year, month - 1, 1).getDay(); // 0=Sun … 6=Sat
@@ -354,6 +395,95 @@ function ConstraintRow({ constraint, onUpdate, onDelete }: {
 }
 
 // ---------------------------------------------------------------------------
+// Grouped table row
+// ---------------------------------------------------------------------------
+
+function GroupedRow({ group, onDelete, onUpdate }: {
+  group: ConstraintGroup;
+  onDelete: (id: string) => Promise<void>;
+  onUpdate: (id: string, data: Partial<CreateConstraintPayload>) => Promise<void>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const isRange = group.items.length > 1;
+
+  const handleDelete = async (id: string, label: string) => {
+    if (!confirm(`למחוק הסתייגות של ${group.employee_name} בתאריך ${label}?`)) return;
+    setDeleting(id);
+    try { await onDelete(id); } finally { setDeleting(null); }
+  };
+
+  if (!isRange && editing) return (
+    <tr className="bg-blue-50">
+      <td colSpan={4} className="px-4 py-3">
+        <ConstraintForm
+          initial={{ employee_name: group.employee_name, date: group.items[0].date, reason: group.reason }}
+          onSubmit={async data => { await onUpdate(group.items[0].id, data); setEditing(false); }}
+          onCancel={() => setEditing(false)}
+          submitLabel="שמור" />
+      </td>
+    </tr>
+  );
+
+  return (
+    <>
+      <tr className="hover:bg-slate-50 border-b border-slate-100 last:border-0 transition-colors">
+        <td className="px-4 py-3 text-sm font-medium text-slate-800">{group.employee_name}</td>
+        <td className="px-4 py-3 text-sm text-slate-600 tabular-nums">
+          <div className="flex items-center gap-2">
+            {displayGroupDates(group.items)}
+            {isRange && (
+              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold">
+                {group.items.length} ימים
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-sm text-slate-500">
+          {group.reason
+            ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">{group.reason}</span>
+            : <span className="text-slate-300">—</span>}
+        </td>
+        <td className="px-4 py-3">
+          <div className="flex gap-2 justify-end">
+            {isRange ? (
+              <button onClick={() => setExpanded(e => !e)}
+                className="px-2.5 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
+                {expanded ? "▲ סגור" : "▼ פרט"}
+              </button>
+            ) : (
+              <>
+                <button onClick={() => setEditing(true)} className="px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">✏️ ערוך</button>
+                <button onClick={() => handleDelete(group.items[0].id, formatDateHebrew(group.items[0].date))}
+                  disabled={deleting === group.items[0].id}
+                  className="px-2.5 py-1 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40">🗑️ מחק</button>
+              </>
+            )}
+          </div>
+        </td>
+      </tr>
+      {isRange && expanded && group.items.map(c => (
+        <tr key={c.id} className="bg-slate-50/70 border-b border-slate-50">
+          <td />
+          <td className="px-4 py-2 text-xs text-slate-500 tabular-nums">↳ {formatDateHebrew(c.date)}</td>
+          <td />
+          <td className="px-4 py-2">
+            <div className="flex justify-end">
+              <button onClick={() => handleDelete(c.id, formatDateHebrew(c.date))}
+                disabled={deleting === c.id}
+                className="px-2.5 py-1 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40">
+                🗑️ מחק
+              </button>
+            </div>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Day detail panel (shown when a day is clicked)
 // ---------------------------------------------------------------------------
 
@@ -437,7 +567,14 @@ function DayDetailPanel({ iso, list, colorFor, onClose }: {
 // Calendar view
 // ---------------------------------------------------------------------------
 
-function CalendarView({ constraints }: { constraints: Constraint[] }) {
+function CalendarView({ constraints, filterName, setFilterName, filterReason, setFilterReason, filterDateFrom, setFilterDateFrom, filterDateTo, setFilterDateTo, totalCount }: {
+  constraints: Constraint[];
+  filterName: string; setFilterName: (v: string) => void;
+  filterReason: string; setFilterReason: (v: string) => void;
+  filterDateFrom: string; setFilterDateFrom: (v: string) => void;
+  filterDateTo: string; setFilterDateTo: (v: string) => void;
+  totalCount: number;
+}) {
   const now = new Date();
   const [calYear,    setCalYear]    = useState(now.getFullYear());
   const [calMonth,   setCalMonth]   = useState(now.getMonth() + 1); // 1-based
@@ -489,8 +626,22 @@ function CalendarView({ constraints }: { constraints: Constraint[] }) {
   const allNames = [...new Set(constraints.map(c=>c.employee_name))].sort();
   allNames.forEach(n => colorFor(n));
 
+  const hasFilter = filterName || filterReason || filterDateFrom || filterDateTo;
+  const clearFilters = () => { setFilterName(""); setFilterReason(""); setFilterDateFrom(""); setFilterDateTo(""); };
+
   return (
     <div dir="rtl" className="space-y-4">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 items-center bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
+        <input value={filterName} onChange={e => setFilterName(e.target.value)} placeholder="שם עובד..." className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs w-32 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
+        <input value={filterReason} onChange={e => setFilterReason(e.target.value)} placeholder="סיבה..." className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
+        <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" title="מתאריך" />
+        <span className="text-xs text-slate-400">—</span>
+        <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" title="עד תאריך" />
+        {hasFilter && <button onClick={clearFilters} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">✕ נקה</button>}
+        <span className="text-xs text-slate-400 mr-auto">{constraints.length}/{totalCount}</span>
+      </div>
+
       {/* Day detail modal */}
       {selectedIso && (
         <DayDetailPanel
@@ -585,11 +736,23 @@ function CalendarView({ constraints }: { constraints: Constraint[] }) {
 export default function ConstraintsPage() {
   const [activeTab, setActiveTab] = useState<"table"|"calendar"|"import"|"add">("table");
   const [filterName, setFilterName] = useState("");
+  const [filterReason, setFilterReason] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
   const [notice, setNotice] = useState<{type:"success"|"error";msg:string}|null>(null);
 
   const { constraints, loading, error, add, update, remove, clear, importCsv } = useConstraints();
 
-  const filtered = constraints.filter(c => filterName ? c.employee_name.includes(filterName) : true);
+  const filtered = constraints.filter(c => {
+    if (filterName && !c.employee_name.includes(filterName)) return false;
+    if (filterReason && !(c.reason ?? "").includes(filterReason)) return false;
+    if (filterDateFrom && c.date < filterDateFrom) return false;
+    if (filterDateTo && c.date > filterDateTo) return false;
+    return true;
+  });
+  const grouped = groupConstraints(filtered);
+  const hasFilter = !!(filterName || filterReason || filterDateFrom || filterDateTo);
+  const clearFilters = () => { setFilterName(""); setFilterReason(""); setFilterDateFrom(""); setFilterDateTo(""); };
 
   const handleAdd = async (data: CreateConstraintPayload) => {
     const result = await add(data) as unknown as { created: Constraint[]; skipped: number };
@@ -681,7 +844,14 @@ export default function ConstraintsPage() {
             {loading ? (
               <div className="py-16 text-center text-slate-400 text-sm">טוען...</div>
             ) : (
-              <CalendarView constraints={constraints} />
+              <CalendarView
+                constraints={filtered}
+                filterName={filterName} setFilterName={setFilterName}
+                filterReason={filterReason} setFilterReason={setFilterReason}
+                filterDateFrom={filterDateFrom} setFilterDateFrom={setFilterDateFrom}
+                filterDateTo={filterDateTo} setFilterDateTo={setFilterDateTo}
+                totalCount={constraints.length}
+              />
             )}
           </div>
         )}
@@ -689,26 +859,31 @@ export default function ConstraintsPage() {
         {/* TABLE */}
         {activeTab==="table" && (
           <>
-            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
-              <span className="text-sm text-slate-500">סינון:</span>
-              <input value={filterName} onChange={e=>setFilterName(e.target.value)}
-                placeholder="חיפוש לפי שם עובד..."
-                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              {filterName && <button onClick={()=>setFilterName("")} className="text-xs text-slate-400 hover:text-slate-600">✕ נקה</button>}
-              <span className="text-xs text-slate-400 mr-auto">מציג {filtered.length} מתוך {constraints.length}</span>
+            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center gap-2">
+              <input value={filterName} onChange={e => setFilterName(e.target.value)}
+                placeholder="שם עובד..." className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+              <input value={filterReason} onChange={e => setFilterReason(e.target.value)}
+                placeholder="סיבה..." className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+              <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" title="מתאריך" />
+              <span className="text-xs text-slate-400">—</span>
+              <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" title="עד תאריך" />
+              {hasFilter && <button onClick={clearFilters} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">✕ נקה</button>}
+              <span className="text-xs text-slate-400 mr-auto">{grouped.length} רשומות · {filtered.length}/{constraints.length} ימים</span>
             </div>
 
             {error && <div className="p-6"><Alert type="error">{error}</Alert></div>}
 
             {loading ? (
               <div className="py-16 text-center text-slate-400 text-sm">טוען...</div>
-            ) : filtered.length===0 ? (
+            ) : grouped.length === 0 ? (
               <div className="py-16 text-center space-y-2">
-                <p className="text-slate-400 text-sm">{constraints.length===0 ? "אין הסתייגויות עדיין" : "לא נמצאו תוצאות"}</p>
-                {constraints.length===0 && (
+                <p className="text-slate-400 text-sm">{constraints.length === 0 ? "אין הסתייגויות עדיין" : "לא נמצאו תוצאות"}</p>
+                {constraints.length === 0 && (
                   <div className="flex gap-3 justify-center mt-3">
-                    <button onClick={()=>setActiveTab("add")} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">הוסף ידנית</button>
-                    <button onClick={()=>setActiveTab("import")} className="px-3 py-1.5 bg-slate-100 text-slate-700 text-sm rounded-lg hover:bg-slate-200">ייבוא מקובץ</button>
+                    <button onClick={() => setActiveTab("add")} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">הוסף ידנית</button>
+                    <button onClick={() => setActiveTab("import")} className="px-3 py-1.5 bg-slate-100 text-slate-700 text-sm rounded-lg hover:bg-slate-200">ייבוא מקובץ</button>
                   </div>
                 )}
               </div>
@@ -724,8 +899,8 @@ export default function ConstraintsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map(c => (
-                      <ConstraintRow key={c.id} constraint={c} onUpdate={update} onDelete={remove} />
+                    {grouped.map((g, i) => (
+                      <GroupedRow key={i} group={g} onDelete={remove} onUpdate={update} />
                     ))}
                   </tbody>
                 </table>
