@@ -81,13 +81,15 @@ def set_day_setting():
     if not date_str:
         return jsonify({"error": "date is required"}), 400
         
+    score = data.get("score")
+
     if not day_type_id:
         db.day_settings.delete_one({"date": date_str})
         return jsonify({"ok": True})
-        
+
     db.day_settings.update_one(
         {"date": date_str},
-        {"$set": {"day_type_id": day_type_id, "updated_at": datetime.datetime.utcnow()}},
+        {"$set": {"day_type_id": day_type_id, "score": score, "updated_at": datetime.datetime.utcnow()}},
         upsert=True
     )
     return jsonify({"ok": True})
@@ -122,12 +124,15 @@ def day_type_justice():
         for d in day_types_list
     }
 
-    # Build day_settings map {date_str: day_type_id}
+    # Build day_settings map {date_str: day_type_id} and per-date score overrides
     day_settings = {}
+    date_score_map: dict = {}
     if start_str and end_str:
         settings = list(db.day_settings.find({"date": {"$gte": start_str, "$lte": end_str}}))
         for s in settings:
             day_settings[s["date"]] = s["day_type_id"]
+            if s.get("score") is not None:
+                date_score_map[s["date"]] = s["score"]
 
     schedules = list(db.schedules.find({"status": "generated"}))
     emp_data = {}  # {name: {shabbat_count, by_type: {type_id: count}}}
@@ -151,28 +156,41 @@ def day_type_justice():
                 continue
 
             if emp_name not in emp_data:
-                emp_data[emp_name] = {"shabbat_count": 0, "by_type": {}}
+                emp_data[emp_name] = {"shabbat_count": 0, "shabbat_dates": {}, "by_type": {}, "by_type_dates": {}}
 
-            # Saturday: Python weekday() == 5
-            if date_obj.weekday() == 5:
+            # Friday=4 or Saturday=5 counts as Shabbat
+            if date_obj.weekday() in (4, 5):  # Friday=4, Saturday=5 in Python
                 emp_data[emp_name]["shabbat_count"] += 1
+                emp_data[emp_name]["shabbat_dates"][date_str] = emp_data[emp_name]["shabbat_dates"].get(date_str, 0) + 1
 
             dt_id = day_settings.get(date_str)
             if dt_id and dt_id in day_types_map:
                 emp_data[emp_name]["by_type"][dt_id] = emp_data[emp_name]["by_type"].get(dt_id, 0) + 1
+                emp_data[emp_name]["by_type_dates"].setdefault(dt_id, {})[date_str] = \
+                    emp_data[emp_name]["by_type_dates"].get(dt_id, {}).get(date_str, 0) + 1
 
     employees = []
     for name, d in emp_data.items():
-        total_score = d["shabbat_count"] * shabbat_score
+        # Compute shabbat score — use per-date score overrides where available
+        shabbat_total = 0
+        for date_str_key, count in d.get("shabbat_dates", {}).items():
+            effective = date_score_map.get(date_str_key, shabbat_score)
+            shabbat_total += count * effective
+        total_score = shabbat_total
         by_type_scored = {}
         for type_id, count in d["by_type"].items():
-            score_per = day_types_map.get(type_id, {}).get("score", 0)
-            by_type_scored[type_id] = {"count": count, "score": count * score_per}
-            total_score += count * score_per
+            default_score_per = day_types_map.get(type_id, {}).get("score", 0)
+            # Sum per-date scores for this type, using per-date override when available
+            type_score_total = 0
+            for date_str_key, cnt in d.get("by_type_dates", {}).get(type_id, {}).items():
+                effective = date_score_map.get(date_str_key, default_score_per)
+                type_score_total += cnt * effective
+            by_type_scored[type_id] = {"count": count, "score": type_score_total}
+            total_score += type_score_total
         employees.append({
             "name": name,
             "shabbat_count": d["shabbat_count"],
-            "shabbat_score": d["shabbat_count"] * shabbat_score,
+            "shabbat_score": shabbat_total,
             "by_type": by_type_scored,
             "total_score": total_score,
         })

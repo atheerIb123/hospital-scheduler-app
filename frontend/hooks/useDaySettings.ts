@@ -25,10 +25,9 @@ export function useDaySettings(year: number, month: number) {
     fetchSettings();
   }, [fetchSettings]);
 
-  const setOverride = async (date: string, day_type_id: string | null) => {
+  const setOverride = async (date: string, day_type_id: string | null, score?: number) => {
     try {
-      await api.setDaySetting(date, day_type_id);
-      // Optimistic update or refetch
+      await api.setDaySetting(date, day_type_id, score);
       fetchSettings();
     } catch (e) {
       throw e;

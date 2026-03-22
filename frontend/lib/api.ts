@@ -324,10 +324,10 @@ export const deleteDayType = (id: string) =>
 export const getDaySettings = (year: number, month: number) =>
   request<DaySetting[]>(`/day-settings/${year}/${month}`);
 
-export const setDaySetting = (date: string, day_type_id: string | null) =>
+export const setDaySetting = (date: string, day_type_id: string | null, score?: number) =>
   request<{ ok: boolean }>("/day-settings", {
     method: "POST",
-    body: JSON.stringify({ date, day_type_id }),
+    body: JSON.stringify({ date, day_type_id, score: score ?? null }),
   });
 
 export const getShabbatScore = () =>

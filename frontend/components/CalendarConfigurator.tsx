@@ -36,8 +36,10 @@ export default function CalendarConfigurator({ dayTypes }: Props) {
   const paddingCells = Array.from({ length: firstDayOfMonth }, (_, i) => i);
 
   const dayTypeOverrides: Record<string, string> = {};
+  const scoreOverrides: Record<string, number> = {};
   for (const s of settings) {
     dayTypeOverrides[s.date] = s.day_type_id;
+    if (s.score != null) scoreOverrides[s.date] = s.score;
   }
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 1 + i);
@@ -102,7 +104,9 @@ export default function CalendarConfigurator({ dayTypes }: Props) {
                   isWeekend={isWeekend}
                   activeType={activeType}
                   dayTypes={dayTypes}
-                  onSelect={(typeId) => setOverride(dateStr, typeId)}
+                  currentScore={scoreOverrides[dateStr]}
+                  defaultScore={activeType?.score}
+                  onSelect={(typeId, score) => setOverride(dateStr, typeId, score)}
                 />
               );
             })}
@@ -113,21 +117,29 @@ export default function CalendarConfigurator({ dayTypes }: Props) {
   );
 }
 
-function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, onSelect }: {
+function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, currentScore, defaultScore, onSelect }: {
   day: number;
   dayName: string;
   hebrewDate: string;
   isWeekend: boolean;
   activeType?: DayType;
   dayTypes: DayType[];
-  onSelect: (id: string | null) => void;
+  currentScore?: number;
+  defaultScore?: number;
+  onSelect: (id: string | null, score?: number) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [scoreInput, setScoreInput] = useState<string>("");
+
+  function handleOpen() {
+    setScoreInput(String(currentScore ?? defaultScore ?? 0));
+    setOpen(true);
+  }
 
   return (
     <div className="relative">
       <div
-        onClick={() => setOpen(!open)}
+        onClick={handleOpen}
         className={`cursor-pointer p-2 rounded-xl border transition-all flex flex-col items-center justify-center min-h-[56px] ${activeType
             ? activeType.color.replace("100", "600").replace(/text-[a-z]+-800/, "text-white").replace(/border-[a-z]+-200/, `border-${activeType.color.split("-")[1]}-600`) + " border-current shadow-sm"
             : isWeekend
@@ -142,15 +154,18 @@ function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, on
         <span className={`text-[10px] mt-1 ${activeType ? "font-bold text-white uppercase" : "opacity-70 font-medium"}`}>
           {activeType ? activeType.name : dayName}
         </span>
+        {currentScore != null && (
+          <span className="text-[9px] opacity-80 font-bold">{currentScore}★</span>
+        )}
       </div>
 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 flex flex-col gap-0.5 w-32 animate-in fade-in zoom-in-95 slide-in-from-bottom-2">
+          <div className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 flex flex-col gap-0.5 w-36 animate-in fade-in zoom-in-95 slide-in-from-bottom-2">
             <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase text-center border-b border-slate-50 mb-1">סוג יום</p>
             <button
-              onClick={() => { onSelect(null); setOpen(false); }}
+              onClick={() => { onSelect(null, undefined); setOpen(false); }}
               className="w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-slate-50 text-slate-500 transition-colors"
             >
               רגיל
@@ -158,7 +173,11 @@ function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, on
             {dayTypes.map((dt) => (
               <button
                 key={dt.id}
-                onClick={() => { onSelect(dt.id); setOpen(false); }}
+                onClick={() => {
+                  const s = scoreInput.trim() !== "" ? Number(scoreInput) : undefined;
+                  onSelect(dt.id, s);
+                  setOpen(false);
+                }}
                 className={`w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeType?.id === dt.id
                     ? `${dt.color.replace("100", "600").replace(/text-[a-z]+-800/, "text-white").replace(/border-[a-z]+-200/, `border-${dt.color.split("-")[1]}-600`)} shadow-sm border border-current`
                     : "text-slate-500 hover:bg-slate-50"
@@ -167,6 +186,20 @@ function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, on
                 {dt.name}
               </button>
             ))}
+            <div className="border-t border-slate-100 mt-1 pt-2 px-2 pb-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">ציון יום זה</label>
+              <input
+                type="number"
+                min={0}
+                value={scoreInput}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setScoreInput(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder={String(defaultScore ?? 0)}
+                className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
+              />
+              <p className="text-[9px] text-slate-400 mt-0.5 text-center">ריק = ציון ברירת מחדל של הסוג</p>
+            </div>
           </div>
         </>
       )}

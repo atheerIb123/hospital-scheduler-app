@@ -79,7 +79,7 @@ function Bar({ value, max, color }: { value: number; max: number; color: string 
 }
 
 // ── Justice section ───────────────────────────────────────────────────────────
-function JusticeSection({ data, view, search }: { data: JusticeEntry[]; view: View; search: string }) {
+function JusticeSection({ data, view, search, getDayScore }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number }) {
   const q = search.trim().toLowerCase();
   const sorted = [...data]
     .filter(e => !q || e.employee_name.toLowerCase().includes(q))
@@ -141,18 +141,34 @@ function JusticeSection({ data, view, search }: { data: JusticeEntry[]; view: Vi
             <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
             <Bar value={e.justice_score} max={max} color={rank === 0 ? "bg-amber-400" : rank === 1 ? "bg-slate-300" : rank === 2 ? "bg-orange-300" : "bg-blue-400"} />
             <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{e.justice_shifts} משמרות</div>
+            {getDayScore && (
+              <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
+                {getDayScore(e.employee_name)}🕍
+              </div>
+            )}
+            {getDayScore && (
+              <div className="text-sm font-bold text-slate-800 shrink-0 w-16 text-center" title="סה״כ">
+                {e.justice_score + getDayScore(e.employee_name)}
+              </div>
+            )}
           </div>
         ))}
         {sorted.length === 0 && (
           <p className="text-center text-slate-400 text-sm py-8">אין נתוני סידורים עדיין</p>
         )}
       </div>
+      {getDayScore && (
+        <div className="px-6 pb-3 flex gap-4 text-xs text-slate-400">
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"/>ניקוד שבת/חגים</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"/>סה״כ = צדק + שבת/חגים</span>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Volunteer section ─────────────────────────────────────────────────────────
-function VolunteerSection({ data, view, search }: { data: JusticeEntry[]; view: View; search: string }) {
+function VolunteerSection({ data, view, search, getDayScore }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number }) {
   const q = search.trim().toLowerCase();
   const sorted = [...data]
     .filter(e => !q || e.employee_name.toLowerCase().includes(q))
@@ -205,12 +221,28 @@ function VolunteerSection({ data, view, search }: { data: JusticeEntry[]; view: 
             <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
             <Bar value={e.volunteer_score} max={max} color={rank === 0 ? "bg-green-500" : rank === 1 ? "bg-green-300" : "bg-green-200"} />
             <div className="text-xs text-slate-400 shrink-0 w-24 text-left">{e.volunteer_count} התנדבויות</div>
+            {getDayScore && (
+              <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
+                {getDayScore(e.employee_name)}🕍
+              </div>
+            )}
+            {getDayScore && (
+              <div className="text-sm font-bold text-slate-800 shrink-0 w-16 text-center" title="סה״כ">
+                {e.volunteer_score + getDayScore(e.employee_name)}
+              </div>
+            )}
           </div>
         ))}
         {sorted.length === 0 && (
           <p className="text-center text-slate-400 text-sm py-8">אין נתוני התנדבויות עדיין</p>
         )}
       </div>
+      {getDayScore && (
+        <div className="px-6 pb-3 flex gap-4 text-xs text-slate-400">
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"/>ניקוד שבת/חגים</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"/>סה״כ = התנדבות + שבת/חגים</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -956,11 +988,21 @@ export default function JusticePage() {
       .finally(() => setDaytypeLoading(false));
   }, [tab, startISO, endISO]);
 
+  useEffect(() => {
+    if (!showDayScores) return;
+    getDayTypeJustice(startISO, endISO)
+      .then(setDayScoreData)
+      .catch(() => setDayScoreData(null));
+  }, [showDayScores, startISO, endISO]);
+
   const [search, setSearch] = useState("");
   const [daytypeData, setDaytypeData] = useState<DayTypeJusticeData | null>(null);
   const [daytypeLoading, setDaytypeLoading] = useState(false);
   const [daytypeError, setDaytypeError] = useState<string | null>(null);
   const [daytypeView, setDaytypeView] = useState<"total" | "breakdown">("total");
+
+  const [showDayScores, setShowDayScores] = useState(false);
+  const [dayScoreData, setDayScoreData] = useState<DayTypeJusticeData | null>(null);
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "justice",   label: "טבלת צדק",         icon: "⚖️" },
@@ -1048,6 +1090,21 @@ export default function JusticePage() {
         </div>
       </div>
 
+      {/* Day scores toggle — visible on justice/volunteer/combined tabs */}
+      {(tab === "justice" || tab === "volunteer" || tab === "combined") && (
+        <button
+          type="button"
+          onClick={() => { setShowDayScores(v => !v); }}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
+            showDayScores
+              ? "bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100"
+              : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+          }`}
+        >
+          🕍 {showDayScores ? "מסתיר ניקוד שבת/חגים" : "הוסף ניקוד שבת/חגים"}
+        </button>
+      )}
+
       {/* Time range bar — hidden on advocates/shirking tabs */}
       <div className={`flex items-center gap-3 flex-wrap ${(tab === "advocates" || tab === "shirking") ? "hidden" : ""}`}>
         {/* Range type buttons */}
@@ -1122,13 +1179,37 @@ export default function JusticePage() {
       {/* Content for justice/volunteer/combined */}
       {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && !loading && !error && (
         <div className="space-y-6">
-          {tab === "justice" && <JusticeSection data={data} view={view} search={search} />}
-          {tab === "volunteer" && <VolunteerSection data={data} view={view} search={search} />}
-          {tab === "combined" && (
-            view === "chart"
-              ? <CombinedChart data={data} search={search} />
-              : <CombinedTable data={data} search={search} />
-          )}
+          {(() => {
+            const getDayScoreForEmployee = (name: string) => {
+              if (!showDayScores || !dayScoreData) return 0;
+              return dayScoreData.employees.find(e => e.name === name)?.total_score ?? 0;
+            };
+            return (
+              <>
+                {tab === "justice" && (
+                  <JusticeSection
+                    data={data}
+                    view={view}
+                    search={search}
+                    getDayScore={showDayScores ? getDayScoreForEmployee : undefined}
+                  />
+                )}
+                {tab === "volunteer" && (
+                  <VolunteerSection
+                    data={data}
+                    view={view}
+                    search={search}
+                    getDayScore={showDayScores ? getDayScoreForEmployee : undefined}
+                  />
+                )}
+                {tab === "combined" && (
+                  view === "chart"
+                    ? <CombinedChart data={data} search={search} />
+                    : <CombinedTable data={data} search={search} />
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
     </div>

@@ -105,4 +105,5 @@ export interface DaySetting {
   id: string;
   date: string;
   day_type_id: string;
+  score?: number;
 }
