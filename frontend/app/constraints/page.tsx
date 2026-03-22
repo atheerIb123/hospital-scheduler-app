@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useConstraints } from "@/hooks/useConstraints";
+import { useEmployees } from "@/hooks/useEmployees";
 import type { Constraint, CreateConstraintPayload } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -199,17 +200,31 @@ function DatePickerInput({ value, onChange }: { value: string; onChange: (v: str
 // Manual add form — now accepts free-text date expression
 // ---------------------------------------------------------------------------
 
-function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף" }: {
+function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף", employeeNames = [] }: {
   initial?: Partial<CreateConstraintPayload>;
   onSubmit: (data: CreateConstraintPayload) => Promise<void>;
   onCancel?: () => void;
   submitLabel?: string;
+  employeeNames?: string[];
 }) {
-  const [name,   setName]   = useState(initial?.employee_name ?? "");
-  const [date,   setDate]   = useState(initial?.date ?? "");
-  const [reason, setReason] = useState(initial?.reason ?? "");
-  const [saving, setSaving] = useState(false);
-  const [err,    setErr]    = useState<string | null>(null);
+  const [name,      setName]      = useState(initial?.employee_name ?? "");
+  const [nameOpen,  setNameOpen]  = useState(false);
+  const [date,      setDate]      = useState(initial?.date ?? "");
+  const [reason,    setReason]    = useState(initial?.reason ?? "");
+  const [saving,    setSaving]    = useState(false);
+  const [err,       setErr]       = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const [namePopupStyle, setNamePopupStyle] = useState<React.CSSProperties>({});
+
+  const openNameDropdown = () => {
+    if (nameInputRef.current) {
+      const rect = nameInputRef.current.getBoundingClientRect();
+      setNamePopupStyle({ position: "fixed", top: rect.bottom + 4, right: window.innerWidth - rect.right, minWidth: rect.width });
+    }
+    setNameOpen(true);
+  };
+
+  const filteredNames = employeeNames.filter(n => !name.trim() || n.toLowerCase().includes(name.toLowerCase()));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,8 +244,31 @@ function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף" 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">שם עובד *</label>
-          <input value={name} onChange={e=>setName(e.target.value)} placeholder='ד"ר כהן'
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <div className="relative">
+            <input
+              ref={nameInputRef}
+              value={name}
+              onChange={e => { setName(e.target.value); setNameOpen(true); }}
+              onFocus={openNameDropdown}
+              placeholder='ד"ר כהן'
+              autoComplete="off"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {nameOpen && filteredNames.length > 0 && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setNameOpen(false)} />
+                <div style={namePopupStyle} className="z-[9999] bg-white rounded-xl shadow-xl border border-slate-200 max-h-52 overflow-y-auto" dir="rtl">
+                  {filteredNames.map(n => (
+                    <button key={n} type="button"
+                      onClick={() => { setName(n); setNameOpen(false); }}
+                      className="w-full text-right px-3 py-2 text-sm hover:bg-blue-50 transition-colors text-slate-700">
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
         <div className="sm:col-span-1">
           <label className="block text-xs font-medium text-slate-600 mb-1">
@@ -398,10 +436,11 @@ function ConstraintRow({ constraint, onUpdate, onDelete }: {
 // Grouped table row
 // ---------------------------------------------------------------------------
 
-function GroupedRow({ group, onDelete, onUpdate }: {
+function GroupedRow({ group, onDelete, onUpdate, employeeNames = [] }: {
   group: ConstraintGroup;
   onDelete: (id: string) => Promise<void>;
   onUpdate: (id: string, data: Partial<CreateConstraintPayload>) => Promise<void>;
+  employeeNames?: string[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -421,7 +460,8 @@ function GroupedRow({ group, onDelete, onUpdate }: {
           initial={{ employee_name: group.employee_name, date: group.items[0].date, reason: group.reason }}
           onSubmit={async data => { await onUpdate(group.items[0].id, data); setEditing(false); }}
           onCancel={() => setEditing(false)}
-          submitLabel="שמור" />
+          submitLabel="שמור"
+          employeeNames={employeeNames} />
       </td>
     </tr>
   );
@@ -745,6 +785,8 @@ export default function ConstraintsPage() {
   const [notice, setNotice] = useState<{type:"success"|"error";msg:string}|null>(null);
 
   const { constraints, loading, error, add, update, remove, clear, importCsv } = useConstraints();
+  const { employees } = useEmployees();
+  const employeeNames = employees.map(e => e.name);
 
   const filtered = constraints.filter(c => {
     if (filterName && !c.employee_name.includes(filterName)) return false;
@@ -829,7 +871,7 @@ export default function ConstraintsPage() {
           <div className="p-6">
             <h2 className="text-base font-semibold text-slate-700 mb-1">הוספת הסתייגות ידנית</h2>
             <p className="text-xs text-slate-400 mb-4">ניתן להזין תאריך בודד, טווח תאריכים, או שילוב מופרד בפסיק</p>
-            <ConstraintForm onSubmit={handleAdd} />
+            <ConstraintForm onSubmit={handleAdd} employeeNames={employeeNames} />
           </div>
         )}
 
@@ -906,7 +948,7 @@ export default function ConstraintsPage() {
                   </thead>
                   <tbody>
                     {grouped.map((g, i) => (
-                      <GroupedRow key={i} group={g} onDelete={remove} onUpdate={update} />
+                      <GroupedRow key={i} group={g} onDelete={remove} onUpdate={update} employeeNames={employeeNames} />
                     ))}
                   </tbody>
                 </table>
