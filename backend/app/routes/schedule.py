@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify
 from bson import ObjectId
 from ..db import get_db
 from ..scheduler.solver import generate_schedule
+from .day_management import _get_weekday_scores
 
 schedule_bp = Blueprint("schedule", __name__)
 
@@ -138,25 +139,31 @@ def get_justice():
         key = (schedule.get("year"), schedule.get("month"))
         latest_schedules[key] = schedule
 
+    # Weekday scores for non-Shabbat days → added to regular justice
+    weekday_scores = _get_weekday_scores(db)
+
     # Aggregate justice scores from one schedule per month
     justice: dict = {}
     for schedule in latest_schedules.values():
         sched_year = schedule.get("year")
         sched_month = schedule.get("month")
         for a in schedule.get("assignments", []):
-            if start_date or end_date:
-                try:
-                    a_date = date_type(sched_year, sched_month, int(a["day"]))
-                except (ValueError, TypeError, KeyError):
-                    continue
-                if start_date and a_date < start_date:
-                    continue
-                if end_date and a_date > end_date:
-                    continue
+            try:
+                a_date = date_type(sched_year, sched_month, int(a["day"]))
+            except (ValueError, TypeError, KeyError):
+                continue
+            if start_date and a_date < start_date:
+                continue
+            if end_date and a_date > end_date:
+                continue
             emp = a["employee_name"]
             pts = des_map.get(a["shift_name"], 4)
             justice.setdefault(emp, {"score": 0, "shifts": 0})
             justice[emp]["score"] += pts
+            # Add weekday score for Sun–Thu (not Friday=4 or Saturday=5)
+            wd = a_date.weekday()
+            if wd not in (4, 5):
+                justice[emp]["score"] += weekday_scores.get(str(wd), 0)
             justice[emp]["shifts"] += 1
 
     # Aggregate volunteer scores
