@@ -174,16 +174,16 @@ export default function ScheduleTable({
 
   // Apply filters
   const q = searchName.trim();
+  const hasNameFilter = !!q;
+  const nameMatch = (name: string) => hasNameFilter && name.toLowerCase().includes(q.toLowerCase());
+  const hasAnyFilter = hasNameFilter || filterShifts.size > 0 || filterDays.size > 0;
+  const DOW_LABELS = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
   const visibleSorted = filterShifts.size > 0 ? sorted.filter(st => filterShifts.has(st.names[0])) : sorted;
-  const visibleDays   = days.filter(d => {
+  const visibleDays = days.filter(d => {
     if (filterDays.size > 0 && !filterDays.has(new Date(schedule.year, schedule.month - 1, d).getDay())) return false;
     if (hasNameFilter && !sorted.some(st => nameMatch(lookup[d]?.[st.names[0]] ?? ""))) return false;
     return true;
   });
-  const nameMatch = (name: string) => q && name.toLowerCase().includes(q.toLowerCase());
-  const hasNameFilter = !!q;
-  const hasAnyFilter = hasNameFilter || filterShifts.size > 0 || filterDays.size > 0;
-  const DOW_LABELS = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
 
   // Map of date (YYYY-MM-DD) to day type ID
   const dayTypeOverrides: Record<string, string> = {};
