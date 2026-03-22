@@ -947,6 +947,7 @@ function ShirkingSection({ search, volunteerData }: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sideBySide, setSideBySide] = useState(false);
+  const [shiftSearch, setShiftSearch] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -963,10 +964,14 @@ function ShirkingSection({ search, volunteerData }: {
   }
 
   const q = search.trim().toLowerCase();
+  const sq = shiftSearch.trim().toLowerCase();
+
+  // Filter by shift name first
+  const shiftFiltered = sq ? records.filter(r => r.shift_name.toLowerCase().includes(sq)) : records;
 
   // Aggregate per employee
   const totals: Record<string, { name: string; count: number }> = {};
-  for (const r of records) {
+  for (const r of shiftFiltered) {
     totals[r.employee_id] ??= { name: r.employee_name, count: 0 };
     totals[r.employee_id].count++;
   }
@@ -975,7 +980,7 @@ function ShirkingSection({ search, volunteerData }: {
     .sort((a, b) => b[1].count - a[1].count);
   const maxCount = sorted[0]?.[1].count ?? 1;
 
-  const filteredRecords = records.filter(r => !q || r.employee_name.toLowerCase().includes(q));
+  const filteredRecords = shiftFiltered.filter(r => !q || r.employee_name.toLowerCase().includes(q));
 
   if (loading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer"/>)}</div>;
   if (error) return <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>;
@@ -1042,7 +1047,7 @@ function ShirkingSection({ search, volunteerData }: {
       }
     }
   }
-  for (const r of records) {
+  for (const r of shiftFiltered) {
     if (!q || r.employee_name.toLowerCase().includes(q)) {
       balanceMap[r.employee_id] ??= { name: r.employee_name, volunteerCount: 0, shirkingCount: 0 };
       balanceMap[r.employee_id].shirkingCount = totals[r.employee_id]?.count ?? 0;
@@ -1055,6 +1060,21 @@ function ShirkingSection({ search, volunteerData }: {
 
   return (
     <div className="space-y-5">
+      {/* Shift filter */}
+      <div className="relative max-w-xs">
+        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+          <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
+        </svg>
+        <input
+          value={shiftSearch} onChange={e => setShiftSearch(e.target.value)}
+          placeholder="חיפוש לפי משמרת..."
+          className="w-full border border-slate-200 rounded-xl pr-8 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
+        />
+        {shiftSearch && (
+          <button type="button" onClick={() => setShiftSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
+        )}
+      </div>
+
       {/* Toggle button */}
       {volunteerData && (
         <div className="flex justify-end">
