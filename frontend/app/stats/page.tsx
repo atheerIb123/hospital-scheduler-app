@@ -1,7 +1,9 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { getStats } from "@/lib/api";
+import { getStats, getScheduleByMonth } from "@/lib/api";
 import type { StatsData } from "@/lib/api";
+import { useShiftTypes } from "@/hooks/useShiftTypes";
+import SummaryTable from "@/components/SummaryTable";
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -93,7 +95,7 @@ function EmptyState({ msg }: { msg: string }) {
 
 export default function StatsPage() {
   const [rangeIdx, setRangeIdx] = useState(1);
-  const [tab, setTab] = useState<"general" | "byFilter" | "byEmployee">("general");
+  const [tab, setTab] = useState<"general" | "byFilter" | "byEmployee" | "monthly">("general");
   const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +110,23 @@ export default function StatsPage() {
 
   // global employee search (applies to all tabs)
   const [search, setSearch] = useState("");
+
+  // monthly summary tab state
+  const now = new Date();
+  const [sumMonth, setSumMonth] = useState(now.getMonth() + 1);
+  const [sumYear, setSumYear] = useState(now.getFullYear());
+  const [sumSchedule, setSumSchedule] = useState<import("@/lib/types").Schedule | null>(null);
+  const [sumLoading, setSumLoading] = useState(false);
+  const { shiftTypes } = useShiftTypes();
+
+  useEffect(() => {
+    if (tab !== "monthly") return;
+    setSumLoading(true);
+    getScheduleByMonth(sumMonth, sumYear)
+      .then(setSumSchedule)
+      .catch(() => setSumSchedule(null))
+      .finally(() => setSumLoading(false));
+  }, [tab, sumMonth, sumYear]);
 
   // fetch on range change
   useEffect(() => {
@@ -192,7 +211,10 @@ export default function StatsPage() {
     { id: "general",     label: "כללי" },
     { id: "byFilter",    label: "לפי משמרת / יום" },
     { id: "byEmployee",  label: "לפי עובד" },
+    { id: "monthly",     label: "סיכום חודשי" },
   ] as const;
+
+  const MONTH_NAMES = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 
   return (
     <div className="space-y-6">
@@ -511,6 +533,53 @@ export default function StatsPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Tab 4: Monthly summary ───────────────────────────────────────── */}
+      {tab === "monthly" && (
+        <div className="space-y-4">
+          {/* Month / year selector */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-wrap items-center gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">חודש</label>
+              <select
+                value={sumMonth}
+                onChange={(e) => setSumMonth(Number(e.target.value))}
+                className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+              >
+                {MONTH_NAMES.map((m, i) => (
+                  <option key={i} value={i + 1}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">שנה</label>
+              <select
+                value={sumYear}
+                onChange={(e) => setSumYear(Number(e.target.value))}
+                className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+              >
+                {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {sumLoading ? (
+            <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-12 rounded-xl shimmer" />)}</div>
+          ) : !sumSchedule || sumSchedule.status !== "generated" ? (
+            <div className="text-center py-16 bg-white rounded-2xl border border-slate-100 shadow-sm text-slate-400">
+              <p className="font-medium">אין סידור ל{MONTH_NAMES[sumMonth - 1]} {sumYear}</p>
+            </div>
+          ) : (
+            <SummaryTable
+              schedule={sumSchedule}
+              shiftTypes={shiftTypes}
+              assignments={sumSchedule.assignments ?? []}
+            />
+          )}
+        </div>
       )}
     </div>
   );

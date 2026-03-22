@@ -8,7 +8,6 @@ import { useEmployees } from "@/hooks/useEmployees";
 import { useDayTypes } from "@/hooks/useDayTypes";
 import { useDaySettings } from "@/hooks/useDaySettings";
 import ScheduleTable from "@/components/ScheduleTable";
-import SummaryTable from "@/components/SummaryTable";
 import CalendarConfigurator from "@/components/CalendarConfigurator";
 import type { Assignment } from "@/lib/types";
 
@@ -255,15 +254,6 @@ export default function SchedulePage() {
             />
           </div>
 
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <h2 className="text-xl font-bold text-slate-800">סיכום לעובד</h2>
-              <span className="text-xs bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full font-medium">
-                גבוה / נמוך
-              </span>
-            </div>
-            <SummaryTable schedule={schedule} shiftTypes={shiftTypes} assignments={localAssignments} />
-          </div>
         </div>
       )}
 
