@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown } from "@/lib/api";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer } from "@/lib/api";
 
 type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype";
 type View = "table" | "chart";
@@ -446,11 +446,36 @@ function JusticeSection({ data, view, search, getDayScore, onEmployeeClick }: { 
 
 // ── Volunteer section ─────────────────────────────────────────────────────────
 function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (name: string) => void }) {
+  const [records, setRecords] = useState<Volunteer[]>([]);
+  const [shiftSearch, setShiftSearch] = useState("");
+
+  useEffect(() => {
+    getVolunteers().then(setRecords).catch(() => {});
+  }, []);
+
   const q = search.trim().toLowerCase();
-  const sorted = [...data]
-    .filter(e => !q || e.employee_name.toLowerCase().includes(q))
-    .sort((a, b) => b.volunteer_score - a.volunteer_score);
-  const max = sorted[0]?.volunteer_score ?? 1;
+  const sq = shiftSearch.trim().toLowerCase();
+
+  // When shift filter active, derive sorted list from raw records
+  const shiftFiltered = sq ? records.filter(r => r.shift_name.toLowerCase().includes(sq)) : null;
+
+  const sorted = shiftFiltered
+    ? (() => {
+        const totals: Record<string, { employee_id: string; employee_name: string; volunteer_count: number; volunteer_score: number }> = {};
+        for (const r of shiftFiltered) {
+          if (q && !r.employee_name.toLowerCase().includes(q)) continue;
+          totals[r.employee_id] ??= { employee_id: r.employee_id, employee_name: r.employee_name, volunteer_count: 0, volunteer_score: 0 };
+          totals[r.employee_id].volunteer_count++;
+        }
+        return Object.values(totals).sort((a, b) => b.volunteer_count - a.volunteer_count);
+      })()
+    : [...data]
+        .filter(e => !q || e.employee_name.toLowerCase().includes(q))
+        .sort((a, b) => b.volunteer_score - a.volunteer_score);
+
+  const max = shiftFiltered
+    ? (sorted[0]?.volunteer_count ?? 1)
+    : (sorted[0]?.volunteer_score ?? 1);
 
   if (view === "chart") {
     return (
@@ -462,10 +487,11 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: 
         <div className="p-6">
           <div className="flex items-end gap-3 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
             {sorted.map((e, i) => {
-              const barH = max > 0 ? Math.max(e.volunteer_score > 0 ? 4 : 0, Math.round((e.volunteer_score / max) * 150)) : 0;
+              const val = shiftFiltered ? e.volunteer_count : (e as JusticeEntry).volunteer_score;
+              const barH = max > 0 ? Math.max(val > 0 ? 4 : 0, Math.round((val / max) * 150)) : 0;
               return (
                 <div key={e.employee_id} className="flex flex-col items-center gap-1 min-w-[52px]">
-                  <span className="text-xs font-bold text-slate-600">{e.volunteer_score}</span>
+                  <span className="text-xs font-bold text-slate-600">{val}</span>
                   <div className="w-10 rounded-t-lg transition-all duration-500"
                     style={{
                       height: `${barH}px`,
@@ -486,43 +512,88 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: 
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100">
-        <h3 className="font-bold text-slate-800">טבלת התנדבות</h3>
-        <p className="text-xs text-slate-400 mt-0.5">ניקוד לפי כמות ואיכות ההתנדבויות — ממשמרת לא רצויה מקבלים יותר נקודות</p>
-      </div>
-      <div className="p-5 space-y-2.5">
-        {sorted.map((e, rank) => (
-          <div
-            key={e.employee_id}
-            className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick ? "cursor-pointer hover:bg-green-50" : ""}`}
-            onClick={() => onEmployeeClick?.(e.employee_name)}
-            title={onEmployeeClick ? "לחץ לפירוט" : undefined}
-          >
-            <RankBadge rank={rank} />
-            <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
-            <Bar value={e.volunteer_score} max={max} color={rank === 0 ? "bg-green-500" : rank === 1 ? "bg-green-300" : "bg-green-200"} />
-            <div className="text-xs text-slate-400 shrink-0 w-24 text-left">{e.volunteer_count} התנדבויות</div>
-            {getDayScore && (
-              <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
-                {getDayScore(e.employee_name)}🕍
-              </div>
-            )}
-            {getDayScore && (
-              <div className="text-sm font-bold text-slate-800 shrink-0 w-16 text-center" title="סה״כ">
-                {e.volunteer_score + getDayScore(e.employee_name)}
-              </div>
-            )}
-          </div>
-        ))}
-        {sorted.length === 0 && (
-          <p className="text-center text-slate-400 text-sm py-8">אין נתוני התנדבויות עדיין</p>
+    <div className="space-y-5">
+      {/* Shift filter */}
+      <div className="relative max-w-xs">
+        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+          <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
+        </svg>
+        <input
+          value={shiftSearch} onChange={e => setShiftSearch(e.target.value)}
+          placeholder="חיפוש לפי משמרת..."
+          className="w-full border border-slate-200 rounded-xl pr-8 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
+        />
+        {shiftSearch && (
+          <button type="button" onClick={() => setShiftSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
         )}
       </div>
-      {getDayScore && (
-        <div className="px-6 pb-3 flex gap-4 text-xs text-slate-400">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"/>ניקוד שבת/חגים</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"/>סה״כ = התנדבות + שבת/חגים</span>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100">
+          <h3 className="font-bold text-slate-800">טבלת התנדבות</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {shiftFiltered ? `סינון לפי משמרת: ${shiftSearch}` : "ניקוד לפי כמות ואיכות ההתנדבויות — ממשמרת לא רצויה מקבלים יותר נקודות"}
+          </p>
+        </div>
+        <div className="p-5 space-y-2.5">
+          {sorted.map((e, rank) => {
+            const displayValue = shiftFiltered ? e.volunteer_count : (e as JusticeEntry).volunteer_score;
+            return (
+              <div
+                key={e.employee_id}
+                className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick && !shiftFiltered ? "cursor-pointer hover:bg-green-50" : ""}`}
+                onClick={() => !shiftFiltered && onEmployeeClick?.(e.employee_name)}
+                title={onEmployeeClick && !shiftFiltered ? "לחץ לפירוט" : undefined}
+              >
+                <RankBadge rank={rank} />
+                <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
+                <Bar value={displayValue} max={max} color={rank === 0 ? "bg-green-500" : rank === 1 ? "bg-green-300" : "bg-green-200"} />
+                <div className="text-xs text-slate-400 shrink-0 w-24 text-left">{e.volunteer_count} התנדבויות</div>
+                {!shiftFiltered && getDayScore && (
+                  <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
+                    {getDayScore(e.employee_name)}🕍
+                  </div>
+                )}
+                {!shiftFiltered && getDayScore && (
+                  <div className="text-sm font-bold text-slate-800 shrink-0 w-16 text-center" title="סה״כ">
+                    {(e as JusticeEntry).volunteer_score + getDayScore(e.employee_name)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {sorted.length === 0 && (
+            <p className="text-center text-slate-400 text-sm py-8">אין נתוני התנדבויות עדיין</p>
+          )}
+        </div>
+        {!shiftFiltered && getDayScore && (
+          <div className="px-6 pb-3 flex gap-4 text-xs text-slate-400">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"/>ניקוד שבת/חגים</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"/>סה״כ = התנדבות + שבת/חגים</span>
+          </div>
+        )}
+      </div>
+
+      {/* Detail list when shift filter active */}
+      {shiftFiltered && shiftFiltered.filter(r => !q || r.employee_name.toLowerCase().includes(q)).length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="px-6 py-3 bg-slate-50 border-b border-slate-100">
+            <p className="text-xs font-semibold text-slate-500">פירוט התנדבויות</p>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {shiftFiltered
+              .filter(r => !q || r.employee_name.toLowerCase().includes(q))
+              .map(r => (
+                <div key={r.id} className="flex items-center gap-3 px-6 py-2.5 hover:bg-slate-50 transition-all">
+                  <div className="flex-1">
+                    <span className="text-sm font-semibold text-slate-800">{r.employee_name}</span>
+                    <span className="text-xs text-slate-400 mx-1.5">—</span>
+                    <span className="text-sm text-slate-600">{r.shift_name}</span>
+                    <span className="text-xs text-slate-400 mx-1.5">יום {r.day}/{r.month}/{r.year}</span>
+                  </div>
+                </div>
+              ))}
+          </div>
         </div>
       )}
     </div>
@@ -654,6 +725,9 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
   const [form, setForm] = useState({ employee_id: "", description: "", points: 1, date: new Date().toISOString().slice(0, 10) });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [empSearch, setEmpSearch] = useState("");
+  const [empOpen, setEmpOpen] = useState(false);
+  const [descSearch, setDescSearch] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -674,7 +748,8 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
     try {
       const added = await addAdvocate({ ...form, employee_name: emp.name, points: Number(form.points) });
       setAdvocates(prev => [added, ...prev]);
-      setForm(f => ({ ...f, description: "", points: 1 }));
+      setForm(f => ({ ...f, employee_id: "", description: "", points: 1 }));
+      setEmpSearch("");
       setShowForm(false);
     } catch (err) {
       setSaveError((err as Error).message);
@@ -692,9 +767,13 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
     }
   }
 
-  // Aggregate totals per employee
+  // Filter by description first
+  const dq = descSearch.trim().toLowerCase();
+  const descFiltered = dq ? advocates.filter(a => a.description.toLowerCase().includes(dq)) : advocates;
+
+  // Aggregate totals per employee (from description-filtered list)
   const totals: Record<string, { name: string; points: number; count: number }> = {};
-  for (const a of advocates) {
+  for (const a of descFiltered) {
     totals[a.employee_id] ??= { name: a.employee_name, points: 0, count: 0 };
     totals[a.employee_id].points += a.points;
     totals[a.employee_id].count += 1;
@@ -706,8 +785,8 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
   const maxPts = sorted[0]?.[1].points ?? 1;
 
   const filtered = selectedEmployee
-    ? advocates.filter(a => a.employee_id === selectedEmployee)
-    : advocates;
+    ? descFiltered.filter(a => a.employee_id === selectedEmployee)
+    : descFiltered;
 
   if (loading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer" />)}</div>;
 
@@ -737,8 +816,24 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
           </button>
         </div>
 
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="relative flex-1 max-w-xs">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
+            </svg>
+            <input
+              value={descSearch} onChange={e => setDescSearch(e.target.value)}
+              placeholder="חיפוש לפי סוג סנגור..."
+              className="w-full border border-slate-200 rounded-xl pr-8 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
+            />
+            {descSearch && (
+              <button type="button" onClick={() => setDescSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
+            )}
+          </div>
+        </div>
+
         <button type="button" onClick={() => { setShowForm(v => !v); setSaveError(null); }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-all shadow-sm">
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-all shadow-sm shrink-0">
           <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"/></svg>
           הוסף סנגור
         </button>
@@ -752,12 +847,41 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">עובד</label>
-              <select required value={form.employee_id}
-                onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-                <option value="">בחר עובד...</option>
-                {employees.map(em => <option key={em.id} value={em.id}>{em.name}</option>)}
-              </select>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={empSearch}
+                  onChange={e => { setEmpSearch(e.target.value); setEmpOpen(true); setForm(f => ({ ...f, employee_id: "" })); }}
+                  onFocus={() => setEmpOpen(true)}
+                  placeholder="הקלד שם עובד..."
+                  autoComplete="off"
+                  className={`w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 ${form.employee_id ? "border-blue-300 bg-blue-50/40" : "border-slate-200"}`}
+                />
+                {form.employee_id && (
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 text-xs">✓</span>
+                )}
+                {empOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setEmpOpen(false)} />
+                    <div className="absolute z-50 top-full mt-1 right-0 left-0 bg-white rounded-xl shadow-xl border border-slate-200 max-h-52 overflow-y-auto" dir="rtl">
+                      {employees
+                        .filter(em => !empSearch.trim() || em.name.toLowerCase().includes(empSearch.toLowerCase()))
+                        .map(em => (
+                          <button key={em.id} type="button"
+                            onClick={() => { setForm(f => ({ ...f, employee_id: em.id })); setEmpSearch(em.name); setEmpOpen(false); }}
+                            className={`w-full text-right px-3 py-2 text-sm hover:bg-blue-50 transition-colors ${form.employee_id === em.id ? "bg-blue-50 text-blue-700 font-semibold" : "text-slate-700"}`}>
+                            {em.name}
+                          </button>
+                        ))}
+                      {employees.filter(em => !empSearch.trim() || em.name.toLowerCase().includes(empSearch.toLowerCase())).length === 0 && (
+                        <p className="text-center text-slate-400 text-sm py-3">לא נמצאו עובדים</p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+              {/* Hidden required validation anchor */}
+              <input type="text" required readOnly value={form.employee_id} className="sr-only" tabIndex={-1} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">תאריך</label>
@@ -894,6 +1018,7 @@ function ShirkingSection({ search, volunteerData }: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sideBySide, setSideBySide] = useState(false);
+  const [shiftSearch, setShiftSearch] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -910,10 +1035,14 @@ function ShirkingSection({ search, volunteerData }: {
   }
 
   const q = search.trim().toLowerCase();
+  const sq = shiftSearch.trim().toLowerCase();
+
+  // Filter by shift name first
+  const shiftFiltered = sq ? records.filter(r => r.shift_name.toLowerCase().includes(sq)) : records;
 
   // Aggregate per employee
   const totals: Record<string, { name: string; count: number }> = {};
-  for (const r of records) {
+  for (const r of shiftFiltered) {
     totals[r.employee_id] ??= { name: r.employee_name, count: 0 };
     totals[r.employee_id].count++;
   }
@@ -922,7 +1051,7 @@ function ShirkingSection({ search, volunteerData }: {
     .sort((a, b) => b[1].count - a[1].count);
   const maxCount = sorted[0]?.[1].count ?? 1;
 
-  const filteredRecords = records.filter(r => !q || r.employee_name.toLowerCase().includes(q));
+  const filteredRecords = shiftFiltered.filter(r => !q || r.employee_name.toLowerCase().includes(q));
 
   if (loading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer"/>)}</div>;
   if (error) return <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>;
@@ -989,7 +1118,7 @@ function ShirkingSection({ search, volunteerData }: {
       }
     }
   }
-  for (const r of records) {
+  for (const r of shiftFiltered) {
     if (!q || r.employee_name.toLowerCase().includes(q)) {
       balanceMap[r.employee_id] ??= { name: r.employee_name, volunteerCount: 0, shirkingCount: 0 };
       balanceMap[r.employee_id].shirkingCount = totals[r.employee_id]?.count ?? 0;
@@ -1002,6 +1131,21 @@ function ShirkingSection({ search, volunteerData }: {
 
   return (
     <div className="space-y-5">
+      {/* Shift filter */}
+      <div className="relative max-w-xs">
+        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+          <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
+        </svg>
+        <input
+          value={shiftSearch} onChange={e => setShiftSearch(e.target.value)}
+          placeholder="חיפוש לפי משמרת..."
+          className="w-full border border-slate-200 rounded-xl pr-8 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
+        />
+        {shiftSearch && (
+          <button type="button" onClick={() => setShiftSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
+        )}
+      </div>
+
       {/* Toggle button */}
       {volunteerData && (
         <div className="flex justify-end">

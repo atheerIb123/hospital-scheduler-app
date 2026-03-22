@@ -194,8 +194,13 @@ export interface Volunteer {
   year: number;
 }
 
-export const getVolunteers = (month: number, year: number) =>
-  request<Volunteer[]>(`/volunteers?month=${month}&year=${year}`);
+export const getVolunteers = (month?: number, year?: number) => {
+  const params = new URLSearchParams();
+  if (month != null) params.set("month", String(month));
+  if (year  != null) params.set("year",  String(year));
+  const qs = params.toString();
+  return request<Volunteer[]>(`/volunteers${qs ? `?${qs}` : ""}`);
+};
 
 export const addVolunteer = (data: Omit<Volunteer, "id">) =>
   request<Volunteer>("/volunteers", {

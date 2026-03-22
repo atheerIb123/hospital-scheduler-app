@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { useEmployees } from "@/hooks/useEmployees";
 
 const COL_COLORS = [
@@ -167,6 +167,29 @@ export default function EmployeeTable() {
   const [savingCell, setSavingCell] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // search & filter state
+  const [nameSearch, setNameSearch] = useState("");
+  const [attrFilter, setAttrFilter] = useState<Set<string>>(new Set());
+
+  const toggleAttrFilter = (attr: string) =>
+    setAttrFilter(prev => {
+      const next = new Set(prev);
+      next.has(attr) ? next.delete(attr) : next.add(attr);
+      return next;
+    });
+
+  const filteredEmployees = useMemo(() => {
+    return employees.filter(emp => {
+      if (nameSearch && !emp.name.includes(nameSearch)) return false;
+      if (attrFilter.size > 0) {
+        for (const attr of attrFilter) {
+          if (!emp.attributes.includes(attr)) return false;
+        }
+      }
+      return true;
+    });
+  }, [employees, nameSearch, attrFilter]);
+
   const ACCEPTED_EXTENSIONS = [".csv", ".xlsx", ".xls", ".ods"];
   const isAccepted = (f: File) =>
     ACCEPTED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext));
@@ -260,6 +283,70 @@ export default function EmployeeTable() {
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-emerald-700 font-medium">{importSuccess}</div>
       )}
 
+      {/* Search & attribute filter */}
+      {employees.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-3">
+          {/* Name search */}
+          <div className="relative">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
+              className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd" />
+            </svg>
+            <input
+              type="text"
+              dir="rtl"
+              placeholder="חיפוש לפי שם עובד..."
+              value={nameSearch}
+              onChange={(e) => setNameSearch(e.target.value)}
+              className="w-full pr-9 pl-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+            />
+            {nameSearch && (
+              <button type="button" onClick={() => setNameSearch("")}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-xs">✕</button>
+            )}
+          </div>
+
+          {/* Attribute filter chips */}
+          {columnHeaders.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-xs font-semibold text-slate-500">סנן לפי תכונה:</span>
+              {columnHeaders.map((header, i) => {
+                const attr = colAttr(i + 1);
+                const active = attrFilter.has(attr);
+                const c = COL_COLORS[i % COL_COLORS.length];
+                return (
+                  <button
+                    key={attr}
+                    type="button"
+                    onClick={() => toggleAttrFilter(attr)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                      active
+                        ? `${c.bg} ${c.text} ring-2 ${c.ring} border-transparent shadow-sm`
+                        : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300"
+                    }`}
+                  >
+                    {header}
+                  </button>
+                );
+              })}
+              {attrFilter.size > 0 && (
+                <button type="button" onClick={() => setAttrFilter(new Set())}
+                  className="text-xs text-slate-400 hover:text-red-500 transition-colors pr-1">
+                  נקה הכל ✕
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Results count */}
+          {(nameSearch || attrFilter.size > 0) && (
+            <p className="text-xs text-slate-500">
+              מציג <span className="font-semibold text-blue-600">{filteredEmployees.length}</span> מתוך {employees.length} עובדים
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Table */}
       {employees.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -268,7 +355,7 @@ export default function EmployeeTable() {
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-400">לחץ על שם או כותרת לעריכה</span>
               <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full">
-                {employees.length} עובדים
+                {filteredEmployees.length} / {employees.length} עובדים
               </span>
             </div>
           </div>
@@ -294,7 +381,7 @@ export default function EmployeeTable() {
                 </tr>
               </thead>
               <tbody>
-                {employees.map((emp, idx) => (
+                {filteredEmployees.map((emp, idx) => (
                   <tr
                     key={emp.id}
                     className={`border-b border-slate-50 transition-colors hover:bg-blue-50/30 ${idx % 2 === 0 ? "" : "bg-slate-50/50"}`}
@@ -365,6 +452,12 @@ export default function EmployeeTable() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {filteredEmployees.length === 0 && employees.length > 0 && (
+        <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl border border-slate-100">
+          לא נמצאו עובדים התואמים את החיפוש
         </div>
       )}
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import ShiftTypeTable, { attrToBadgeColor, DesirabilityStars, DESIRABILITY_LABELS, DESIRABILITY_POINTS } from "@/components/ShiftTypeTable";
 import type { ScheduleOn } from "@/lib/types";
 import { useShiftTypes } from "@/hooks/useShiftTypes";
@@ -17,6 +17,42 @@ export default function ShiftTypesPage() {
     dayTypes, loading: dayTypesLoading,
     createDayType: createDayTypeAction, deleteDayType: deleteDayTypeAction, updateDayType: updateDayTypeAction
   } = useDayTypes();
+
+  // ── Shift type filter state ───────────────────────────────────────────────
+  const [shiftSearch, setShiftSearch] = useState("");
+  const [shiftDesFilter, setShiftDesFilter] = useState<Set<number>>(new Set());
+  const [shiftAttrFilter, setShiftAttrFilter] = useState<Set<string>>(new Set());
+  const [shiftDayFilter, setShiftDayFilter] = useState<Set<string>>(new Set());
+
+  const toggleDesFil = (n: number) => setShiftDesFilter(prev => { const s = new Set(prev); s.has(n) ? s.delete(n) : s.add(n); return s; });
+  const toggleAttrFil = (a: string) => setShiftAttrFilter(prev => { const s = new Set(prev); s.has(a) ? s.delete(a) : s.add(a); return s; });
+  const toggleDayFil = (v: string) => setShiftDayFilter(prev => { const s = new Set(prev); s.has(v) ? s.delete(v) : s.add(v); return s; });
+
+  const filteredShiftTypes = useMemo(() => {
+    const q = shiftSearch.trim().toLowerCase();
+    return shiftTypes.filter(st => {
+      if (q && !st.names.some(n => n.toLowerCase().includes(q))) return false;
+      if (shiftDesFilter.size > 0 && !shiftDesFilter.has(Number(st.desirability ?? 3))) return false;
+      if (shiftAttrFilter.size > 0 && ![...shiftAttrFilter].some(a => st.required_attributes.includes(a))) return false;
+      if (shiftDayFilter.size > 0) {
+        const days: string[] = Array.isArray(st.schedule_on) ? st.schedule_on : [st.schedule_on ?? "all"];
+        if (!days.includes("all") && ![...shiftDayFilter].some(d => days.includes(d))) return false;
+      }
+      return true;
+    });
+  }, [shiftTypes, shiftSearch, shiftDesFilter, shiftAttrFilter, shiftDayFilter]);
+
+  // ── Day type filter state ─────────────────────────────────────────────────
+  const [dtSearch, setDtSearch] = useState("");
+  const [dtMinScore, setDtMinScore] = useState<number | "">("");
+
+  const filteredDayTypes = useMemo(() =>
+    dayTypes.filter(dt => {
+      if (dtSearch.trim() && !dt.name.includes(dtSearch.trim())) return false;
+      if (dtMinScore !== "" && (dt.score ?? 0) < dtMinScore) return false;
+      return true;
+    }),
+  [dayTypes, dtSearch, dtMinScore]);
 
   // ── Load Defaults state ───────────────────────────────────────────────────
   const [defaultsLoading, setDefaultsLoading] = useState(false);
@@ -133,15 +169,42 @@ export default function ShiftTypesPage() {
       </div>
 
       {/* ── Day Types & Calendar ── */}
+      <div className="flex items-center gap-3 flex-wrap bg-slate-50/60 rounded-xl px-4 py-2.5 border border-slate-100">
+        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-slate-400 shrink-0">
+          <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
+        </svg>
+        <input
+          type="text"
+          value={dtSearch}
+          onChange={e => setDtSearch(e.target.value)}
+          placeholder="סנן מבנה יום לפי שם..."
+          className="border border-slate-200 rounded-xl px-3 py-1 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+        />
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">ציון מינימום</span>
+          <input
+            type="number"
+            min={0}
+            value={dtMinScore}
+            onChange={e => setDtMinScore(e.target.value === "" ? "" : Math.max(0, Number(e.target.value)))}
+            className="w-16 border border-slate-200 rounded-xl px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+          />
+        </div>
+        {(dtSearch || dtMinScore !== "") && (
+          <button type="button" onClick={() => { setDtSearch(""); setDtMinScore(""); }}
+            className="text-xs text-slate-400 hover:text-slate-600 transition-colors">נקה</button>
+        )}
+        <span className="text-xs text-slate-400 mr-auto">{filteredDayTypes.length}/{dayTypes.length} סוגים</span>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <DayTypeManager
-          dayTypes={dayTypes}
+          dayTypes={filteredDayTypes}
           loading={dayTypesLoading}
           createDayType={createDayTypeAction}
           deleteDayType={deleteDayTypeAction}
           updateDayType={updateDayTypeAction}
         />
-        <CalendarConfigurator dayTypes={dayTypes} />
+        <CalendarConfigurator dayTypes={filteredDayTypes} allDayTypes={dayTypes} />
       </div>
 
       {/* ── Weekday Scoring ── */}
@@ -267,6 +330,76 @@ export default function ShiftTypesPage() {
         </div>
       </div>
 
+      {/* ── Shift Types Filter ── */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Name search */}
+          <div className="relative">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
+            </svg>
+            <input
+              type="text"
+              value={shiftSearch}
+              onChange={e => setShiftSearch(e.target.value)}
+              placeholder="חיפוש לפי שם משמרת..."
+              className="border border-slate-200 rounded-xl pr-9 pl-3 py-1.5 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+          {/* Desirability toggles */}
+          <div className="flex gap-1">
+            {[1,2,3,4,5].map(n => (
+              <button key={n} type="button" onClick={() => toggleDesFil(n)}
+                className={`px-2 py-1 rounded-lg text-xs font-bold border transition-all ${shiftDesFilter.has(n) ? "bg-amber-400 text-white border-amber-400 shadow-sm" : "bg-white text-slate-400 border-slate-200 hover:border-slate-300"}`}>
+                {"★".repeat(n)}
+              </button>
+            ))}
+          </div>
+          {/* Reset */}
+          {(shiftSearch || shiftDesFilter.size > 0 || shiftAttrFilter.size > 0 || shiftDayFilter.size > 0) && (
+            <button type="button"
+              onClick={() => { setShiftSearch(""); setShiftDesFilter(new Set()); setShiftAttrFilter(new Set()); setShiftDayFilter(new Set()); }}
+              className="text-xs text-slate-400 hover:text-slate-600 transition-colors">נקה הכל</button>
+          )}
+          <span className="text-xs text-slate-400 mr-auto">{filteredShiftTypes.length}/{shiftTypes.length} משמרות</span>
+        </div>
+        {/* Attribute chips */}
+        {columnHeaders.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap">
+            <span className="text-xs text-slate-400 self-center ml-1">תכונה:</span>
+            {columnHeaders.map((h, i) => {
+              const attr = `col_${i+1}`;
+              const active = shiftAttrFilter.has(attr);
+              return (
+                <button key={attr} type="button" onClick={() => toggleAttrFil(attr)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${active ? `${attrToBadgeColor(attr)} shadow-sm` : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300"}`}>
+                  {h}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {/* Schedule-on day chips */}
+        <div className="flex gap-1.5 flex-wrap">
+          <span className="text-xs text-slate-400 self-center ml-1">ימים:</span>
+          {[
+            { value: "all", label: "כל הימים" },
+            { value: "weekdays", label: "ימי חול" },
+            { value: "friday", label: "שישי" },
+            { value: "weekend", label: "סוף שבוע" },
+            ...dayTypes.map(dt => ({ value: dt.id, label: dt.name })),
+          ].map(opt => {
+            const active = shiftDayFilter.has(opt.value);
+            return (
+              <button key={opt.value} type="button" onClick={() => toggleDayFil(opt.value)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${active ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300"}`}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* ── Table ── */}
       {loading ? (
         <div className="space-y-3">
@@ -278,7 +411,7 @@ export default function ShiftTypesPage() {
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>
       ) : (
         <ShiftTypeTable
-          shiftTypes={shiftTypes}
+          shiftTypes={filteredShiftTypes}
           columnHeaders={columnHeaders}
           onUpdate={updateShiftType}
           onDelete={deleteShiftType}
