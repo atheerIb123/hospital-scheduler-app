@@ -635,9 +635,12 @@ function CalendarView({ constraints, filterName, setFilterName, filterReason, se
       <div className="flex flex-wrap gap-2 items-center bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
         <input value={filterName} onChange={e => setFilterName(e.target.value)} placeholder="שם עובד..." className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs w-32 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
         <input value={filterReason} onChange={e => setFilterReason(e.target.value)} placeholder="סיבה..." className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
-        <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" title="מתאריך" />
-        <span className="text-xs text-slate-400">—</span>
-        <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" title="עד תאריך" />
+        <div className="flex items-center gap-1" dir="ltr">
+          <span className="text-xs text-slate-400">מ:</span>
+          <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
+          <span className="text-xs text-slate-400">עד:</span>
+          <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
+        </div>
         {hasFilter && <button onClick={clearFilters} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">✕ נקה</button>}
         <span className="text-xs text-slate-400 mr-auto">{constraints.length}/{totalCount}</span>
       </div>
@@ -864,11 +867,14 @@ export default function ConstraintsPage() {
                 placeholder="שם עובד..." className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
               <input value={filterReason} onChange={e => setFilterReason(e.target.value)}
                 placeholder="סיבה..." className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-              <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
-                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" title="מתאריך" />
-              <span className="text-xs text-slate-400">—</span>
-              <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
-                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" title="עד תאריך" />
+              <div className="flex items-center gap-1" dir="ltr">
+                <span className="text-xs text-slate-400">מ:</span>
+                <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                <span className="text-xs text-slate-400">עד:</span>
+                <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+              </div>
               {hasFilter && <button onClick={clearFilters} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">✕ נקה</button>}
               <span className="text-xs text-slate-400 mr-auto">{grouped.length} רשומות · {filtered.length}/{constraints.length} ימים</span>
             </div>
