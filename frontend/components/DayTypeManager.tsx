@@ -182,7 +182,7 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
             ) : dayTypes.length === 0 ? (
               <p className="text-xs text-slate-400 italic">טרם הוגדרו סוגי ימים</p>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="flex flex-col gap-2">
                 {dayTypes.map((dt) => (
                   <div key={dt.id} className="group flex items-center gap-2 bg-white border border-slate-100 p-2 rounded-xl hover:border-slate-200 transition-all">
                     <div className={`w-3 h-3 rounded-full shrink-0 ${dt.color.split(" ")[0]}`} />

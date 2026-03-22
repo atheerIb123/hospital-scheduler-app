@@ -5,6 +5,7 @@ import { DayType } from "@/lib/types";
 
 interface Props {
   dayTypes: DayType[];
+  allDayTypes?: DayType[];
 }
 
 const MONTH_NAMES = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
@@ -19,7 +20,7 @@ function toHebrewNumeral(n: number): string {
   return tens[Math.floor(n / 10)] + units[n % 10];
 }
 
-export default function CalendarConfigurator({ dayTypes }: Props) {
+export default function CalendarConfigurator({ dayTypes, allDayTypes }: Props) {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
@@ -95,6 +96,8 @@ export default function CalendarConfigurator({ dayTypes }: Props) {
               const hDayNum = parseInt(new Intl.DateTimeFormat('he-u-ca-hebrew', { day: 'numeric' }).format(dateObj));
               const hebrewDate = `${toHebrewNumeral(hDayNum)} ב${hMonth}`;
 
+              const isFirstRow = (firstDayOfMonth + day - 1) < 7;
+
               return (
                 <DayCell
                   key={day}
@@ -103,9 +106,10 @@ export default function CalendarConfigurator({ dayTypes }: Props) {
                   hebrewDate={hebrewDate}
                   isWeekend={isWeekend}
                   activeType={activeType}
-                  dayTypes={dayTypes}
+                  dayTypes={allDayTypes ?? dayTypes}
                   currentScore={scoreOverrides[dateStr]}
                   defaultScore={activeType?.score}
+                  popupBelow={isFirstRow}
                   onSelect={(typeId, score) => setOverride(dateStr, typeId, score)}
                 />
               );
@@ -117,7 +121,7 @@ export default function CalendarConfigurator({ dayTypes }: Props) {
   );
 }
 
-function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, currentScore, defaultScore, onSelect }: {
+function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, currentScore, defaultScore, popupBelow, onSelect }: {
   day: number;
   dayName: string;
   hebrewDate: string;
@@ -126,6 +130,7 @@ function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, cu
   dayTypes: DayType[];
   currentScore?: number;
   defaultScore?: number;
+  popupBelow?: boolean;
   onSelect: (id: string | null, score?: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -162,7 +167,7 @@ function DayCell({ day, dayName, hebrewDate, isWeekend, activeType, dayTypes, cu
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 flex flex-col gap-0.5 w-36 animate-in fade-in zoom-in-95 slide-in-from-bottom-2">
+          <div className={`absolute z-50 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 flex flex-col gap-0.5 w-36 animate-in fade-in zoom-in-95 ${popupBelow ? "top-full mt-2 slide-in-from-top-2" : "bottom-full mb-2 slide-in-from-bottom-2"}`}>
             <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase text-center border-b border-slate-50 mb-1">סוג יום</p>
             <button
               onClick={() => { onSelect(null, undefined); setOpen(false); }}

@@ -32,7 +32,7 @@ export default function ShiftTypesPage() {
     const q = shiftSearch.trim().toLowerCase();
     return shiftTypes.filter(st => {
       if (q && !st.names.some(n => n.toLowerCase().includes(q))) return false;
-      if (shiftDesFilter.size > 0 && !shiftDesFilter.has(st.desirability)) return false;
+      if (shiftDesFilter.size > 0 && !shiftDesFilter.has(Number(st.desirability ?? 3))) return false;
       if (shiftAttrFilter.size > 0 && ![...shiftAttrFilter].some(a => st.required_attributes.includes(a))) return false;
       if (shiftDayFilter.size > 0) {
         const days: string[] = Array.isArray(st.schedule_on) ? st.schedule_on : [st.schedule_on ?? "all"];
@@ -198,13 +198,13 @@ export default function ShiftTypesPage() {
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <DayTypeManager
-          dayTypes={dayTypes}
+          dayTypes={filteredDayTypes}
           loading={dayTypesLoading}
           createDayType={createDayTypeAction}
           deleteDayType={deleteDayTypeAction}
           updateDayType={updateDayTypeAction}
         />
-        <CalendarConfigurator dayTypes={filteredDayTypes} />
+        <CalendarConfigurator dayTypes={filteredDayTypes} allDayTypes={dayTypes} />
       </div>
 
       {/* ── Weekday Scoring ── */}
