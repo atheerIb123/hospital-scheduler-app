@@ -654,6 +654,8 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
   const [form, setForm] = useState({ employee_id: "", description: "", points: 1, date: new Date().toISOString().slice(0, 10) });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [empSearch, setEmpSearch] = useState("");
+  const [empOpen, setEmpOpen] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -674,7 +676,8 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
     try {
       const added = await addAdvocate({ ...form, employee_name: emp.name, points: Number(form.points) });
       setAdvocates(prev => [added, ...prev]);
-      setForm(f => ({ ...f, description: "", points: 1 }));
+      setForm(f => ({ ...f, employee_id: "", description: "", points: 1 }));
+      setEmpSearch("");
       setShowForm(false);
     } catch (err) {
       setSaveError((err as Error).message);
@@ -752,12 +755,41 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">עובד</label>
-              <select required value={form.employee_id}
-                onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-                <option value="">בחר עובד...</option>
-                {employees.map(em => <option key={em.id} value={em.id}>{em.name}</option>)}
-              </select>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={empSearch}
+                  onChange={e => { setEmpSearch(e.target.value); setEmpOpen(true); setForm(f => ({ ...f, employee_id: "" })); }}
+                  onFocus={() => setEmpOpen(true)}
+                  placeholder="הקלד שם עובד..."
+                  autoComplete="off"
+                  className={`w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 ${form.employee_id ? "border-blue-300 bg-blue-50/40" : "border-slate-200"}`}
+                />
+                {form.employee_id && (
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 text-xs">✓</span>
+                )}
+                {empOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setEmpOpen(false)} />
+                    <div className="absolute z-50 top-full mt-1 right-0 left-0 bg-white rounded-xl shadow-xl border border-slate-200 max-h-52 overflow-y-auto" dir="rtl">
+                      {employees
+                        .filter(em => !empSearch.trim() || em.name.toLowerCase().includes(empSearch.toLowerCase()))
+                        .map(em => (
+                          <button key={em.id} type="button"
+                            onClick={() => { setForm(f => ({ ...f, employee_id: em.id })); setEmpSearch(em.name); setEmpOpen(false); }}
+                            className={`w-full text-right px-3 py-2 text-sm hover:bg-blue-50 transition-colors ${form.employee_id === em.id ? "bg-blue-50 text-blue-700 font-semibold" : "text-slate-700"}`}>
+                            {em.name}
+                          </button>
+                        ))}
+                      {employees.filter(em => !empSearch.trim() || em.name.toLowerCase().includes(empSearch.toLowerCase())).length === 0 && (
+                        <p className="text-center text-slate-400 text-sm py-3">לא נמצאו עובדים</p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+              {/* Hidden required validation anchor */}
+              <input type="text" required readOnly value={form.employee_id} className="sr-only" tabIndex={-1} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">תאריך</label>
