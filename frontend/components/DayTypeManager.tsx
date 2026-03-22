@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { DayType } from "@/lib/types";
-import { getShabbatScore, setShabbatScore as saveShabbatScore } from "@/lib/api";
 
 // ── Controlled score input cell ───────────────────────────────────────────────
 function ScoreCell({
@@ -85,12 +84,6 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
   const [newScore, setNewScore] = useState(0);
   const [adding, setAdding] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [shabbatScore, setShabbatScore] = useState(2);
-  const [shabbatSaving, setShabbatSaving] = useState(false);
-
-  useEffect(() => {
-    getShabbatScore().then(res => setShabbatScore(res.score)).catch(() => {});
-  }, []);
 
   const handleAdd = async () => {
     if (!newTypeName.trim()) return;
@@ -136,30 +129,6 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
 
       {isExpanded && (
         <div className="p-6 border-t border-slate-100 space-y-6 animate-in slide-in-from-top-2 duration-200">
-          {/* Shabbat score */}
-          <div className="flex items-center gap-3 bg-purple-50 border border-purple-100 rounded-xl px-4 py-3">
-            <span className="text-sm font-semibold text-purple-700">ציון שבת</span>
-            <input
-              type="number"
-              min={0}
-              value={shabbatScore}
-              onChange={(e) => setShabbatScore(Math.max(0, Number(e.target.value)))}
-              className="w-20 text-center text-sm font-bold border border-purple-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
-            />
-            <button
-              type="button"
-              disabled={shabbatSaving}
-              onClick={async () => {
-                setShabbatSaving(true);
-                try { await saveShabbatScore(shabbatScore); } finally { setShabbatSaving(false); }
-              }}
-              className="px-3 py-1 bg-purple-600 text-white text-xs font-semibold rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-all"
-            >
-              {shabbatSaving ? "שומר..." : "שמור"}
-            </button>
-            <span className="text-xs text-purple-500">נקודות לכל משמרת בשבת</span>
-          </div>
-
           {/* Add New */}
           <div className="flex flex-col sm:flex-row gap-4 items-end bg-slate-50/50 p-4 rounded-xl border border-slate-100">
             <div className="flex-1 space-y-1.5 w-full">

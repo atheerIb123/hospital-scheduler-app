@@ -108,6 +108,32 @@ def set_shabbat_score():
     db.config.update_one({"key": "shabbat_score"}, {"$set": {"value": score}}, upsert=True)
     return jsonify({"score": score})
 
+def _get_weekday_scores(db):
+    """Return weekday scores dict {str(0..6): score}. 0=Mon,4=Fri,5=Sat,6=Sun."""
+    defaults = {str(i): 0 for i in range(7)}
+    defaults["4"] = 2
+    defaults["5"] = 2
+    cfg = db.config.find_one({"key": "weekday_scores"})
+    if cfg and isinstance(cfg.get("value"), dict):
+        for i in range(7):
+            k = str(i)
+            if k in cfg["value"]:
+                defaults[k] = cfg["value"][k]
+    return defaults
+
+@day_mgmt_bp.route("/config/weekday-scores", methods=["GET"])
+def get_weekday_scores():
+    db = get_db()
+    return jsonify(_get_weekday_scores(db))
+
+@day_mgmt_bp.route("/config/weekday-scores", methods=["PUT"])
+def set_weekday_scores():
+    db = get_db()
+    data = request.get_json()
+    scores = {str(i): max(0, int(data.get(str(i), 0))) for i in range(7)}
+    db.config.update_one({"key": "weekday_scores"}, {"$set": {"value": scores}}, upsert=True)
+    return jsonify(scores)
+
 @day_mgmt_bp.route("/day-type-justice", methods=["GET"])
 def day_type_justice():
     import datetime as dt_mod
@@ -115,8 +141,7 @@ def day_type_justice():
     end_str = request.args.get("end_date")
     db = get_db()
 
-    cfg = db.config.find_one({"key": "shabbat_score"})
-    shabbat_score = cfg["value"] if cfg else 2
+    weekday_scores = _get_weekday_scores(db)
 
     day_types_list = list(db.day_types.find())
     day_types_map = {
@@ -171,10 +196,15 @@ def day_type_justice():
 
     employees = []
     for name, d in emp_data.items():
-        # Compute shabbat score — use per-date score overrides where available
+        # Compute shabbat score — use per-date override, then weekday score
         shabbat_total = 0
         for date_str_key, count in d.get("shabbat_dates", {}).items():
-            effective = date_score_map.get(date_str_key, shabbat_score)
+            try:
+                wd = str(dt_mod.date.fromisoformat(date_str_key).weekday())
+            except Exception:
+                wd = "5"
+            default_score = weekday_scores.get(wd, 0)
+            effective = date_score_map.get(date_str_key, default_score)
             shabbat_total += count * effective
         total_score = shabbat_total
         by_type_scored = {}
@@ -198,6 +228,6 @@ def day_type_justice():
 
     return jsonify({
         "day_types": list(day_types_map.values()),
-        "shabbat_score": shabbat_score,
+        "weekday_scores": weekday_scores,
         "employees": employees,
     })

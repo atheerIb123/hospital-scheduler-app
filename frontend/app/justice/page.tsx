@@ -843,7 +843,9 @@ function DayTypeJusticeSection({
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
             <div>
               <h3 className="font-bold text-slate-800">ציון שבתות וחגים — סה״כ</h3>
-              <p className="text-xs text-slate-400 mt-0.5">ציון שבת: {data.shabbat_score} נק׳ · ציון חג לפי הגדרה</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                שישי: {data.weekday_scores?.["4"] ?? 0} נק׳ · שבת: {data.weekday_scores?.["5"] ?? 0} נק׳ · ציון חג לפי הגדרה
+              </p>
             </div>
           </div>
           <div className="p-5 space-y-2.5">
@@ -873,7 +875,9 @@ function DayTypeJusticeSection({
                   <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">עובד</th>
                   {hasShabbat && (
                     <th className="px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-50 z-10">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700">שבת ({data.shabbat_score} נק׳)</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700">
+                        שישי/שבת (ו׳:{data.weekday_scores?.["4"] ?? 0} ש׳:{data.weekday_scores?.["5"] ?? 0} נק׳)
+                      </span>
                     </th>
                   )}
                   {activeDayTypes.map(dt => (
@@ -988,13 +992,6 @@ export default function JusticePage() {
       .finally(() => setDaytypeLoading(false));
   }, [tab, startISO, endISO]);
 
-  useEffect(() => {
-    if (!showDayScores) return;
-    getDayTypeJustice(startISO, endISO)
-      .then(setDayScoreData)
-      .catch(() => setDayScoreData(null));
-  }, [showDayScores, startISO, endISO]);
-
   const [search, setSearch] = useState("");
   const [daytypeData, setDaytypeData] = useState<DayTypeJusticeData | null>(null);
   const [daytypeLoading, setDaytypeLoading] = useState(false);
@@ -1003,6 +1000,13 @@ export default function JusticePage() {
 
   const [showDayScores, setShowDayScores] = useState(false);
   const [dayScoreData, setDayScoreData] = useState<DayTypeJusticeData | null>(null);
+
+  useEffect(() => {
+    if (!showDayScores) return;
+    getDayTypeJustice(startISO, endISO)
+      .then(setDayScoreData)
+      .catch(() => setDayScoreData(null));
+  }, [showDayScores, startISO, endISO]);
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "justice",   label: "טבלת צדק",         icon: "⚖️" },

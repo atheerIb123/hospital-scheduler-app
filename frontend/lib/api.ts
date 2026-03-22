@@ -349,9 +349,21 @@ export interface DayTypeJusticeEntry {
 
 export interface DayTypeJusticeData {
   day_types: { id: string; name: string; color: string; score: number }[];
-  shabbat_score: number;
+  weekday_scores: Record<string, number>;
   employees: DayTypeJusticeEntry[];
 }
 
 export const getDayTypeJustice = (startDate: string, endDate: string) =>
   request<DayTypeJusticeData>(`/day-type-justice?start_date=${startDate}&end_date=${endDate}`);
+
+// ---------------------------------------------------------------------------
+// Weekday Scores
+// ---------------------------------------------------------------------------
+
+export const getWeekdayScores = () => request<Record<string, number>>("/config/weekday-scores");
+
+export const setWeekdayScores = (scores: Record<string, number>) =>
+  request<Record<string, number>>("/config/weekday-scores", {
+    method: "PUT",
+    body: JSON.stringify(scores),
+  });
