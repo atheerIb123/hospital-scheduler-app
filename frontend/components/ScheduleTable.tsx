@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { Schedule, ShiftType, Assignment, Employee, DayType, DaySetting } from "@/lib/types";
+import { addVolunteer, addShirking } from "@/lib/api";
 
 const SHIFT_COLORS = [
   "bg-violet-50 text-violet-800","bg-sky-50 text-sky-800","bg-emerald-50 text-emerald-800",
@@ -36,6 +37,22 @@ function canEmployeeDo(empName: string, st: ShiftType, byName: Record<string, Em
   return st.required_attributes.every(attr => emp.attributes.includes(attr));
 }
 
+// Returns the human-readable names of attributes the employee is MISSING for this shift
+function getMissingAttrNames(empName: string, st: ShiftType, byName: Record<string, Employee>, columnHeaders: string[]): string[] {
+  const emp = byName[empName];
+  if (!emp || !st.required_attributes) return [];
+  return st.required_attributes
+    .filter(attr => !emp.attributes.includes(attr))
+    .map(attr => {
+      const match = attr.match(/^col_(\d+)$/);
+      if (match) {
+        const idx = parseInt(match[1]) - 1;
+        return columnHeaders[idx] ?? attr;
+      }
+      return attr;
+    });
+}
+
 type PopupState =
   | { stage: "select"; day: number; shiftName: string }
   | { stage: "resolve"; day: number; shiftName: string; targetEmp: string };
@@ -45,6 +62,7 @@ interface Props {
   shiftTypes: ShiftType[];
   assignments: Assignment[];
   employees: Employee[];
+  columnHeaders: string[];          // e.g. ["מיון 1","כוננות מחלקה",…] index 0 = col_1
   onAssignmentChange: (day: number, shiftName: string, newEmpName: string) => void;
   changedCells: Set<string>;
   maxShifts?: number;
@@ -58,6 +76,7 @@ export default function ScheduleTable({
   shiftTypes,
   assignments,
   employees,
+  columnHeaders,
   onAssignmentChange,
   changedCells,
   maxShifts = 0,
@@ -68,6 +87,50 @@ export default function ScheduleTable({
   const [dragSrc, setDragSrc] = useState<{ day: number; shiftName: string; emp: string } | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ day: number; shiftName: string } | null>(null);
   const [popup, setPopup] = useState<PopupState | null>(null);
+  const [showIneligible, setShowIneligible] = useState(false);
+  const [flagVolunteer, setFlagVolunteer] = useState(false);
+  const [flagShirking, setFlagShirking] = useState(false);
+
+  function openSelectPopup(day: number, shiftName: string) {
+    setPopup({ stage: "select", day, shiftName });
+    setShowIneligible(false);
+    setFlagVolunteer(false);
+    setFlagShirking(false);
+  }
+
+  async function assignEmployee(day: number, shiftName: string, newEmpName: string, currentEmpName: string) {
+    onAssignmentChange(day, shiftName, newEmpName);
+    const empObj = employees.find(e => e.name === newEmpName);
+    const shiftType = shiftByName[shiftName];
+    if (flagVolunteer && empObj) {
+      try {
+        await addVolunteer({
+          employee_id:   empObj.id,
+          employee_name: newEmpName,
+          shift_type_id: shiftType?.id ?? "",
+          shift_name:    shiftName,
+          day,
+          month:  schedule.month,
+          year:   schedule.year,
+        });
+      } catch { /* non-blocking */ }
+    }
+    if (flagShirking && currentEmpName) {
+      const oldEmp = employees.find(e => e.name === currentEmpName);
+      try {
+        await addShirking({
+          employee_id:      oldEmp?.id ?? "",
+          employee_name:    currentEmpName,
+          shift_name:       shiftName,
+          day,
+          month:            schedule.month,
+          year:             schedule.year,
+          replacement_name: newEmpName,
+        });
+      } catch { /* non-blocking */ }
+    }
+    setPopup(null);
+  }
 
   if (!schedule.assignments) return null;
 
@@ -118,21 +181,50 @@ export default function ScheduleTable({
 
   // --- Popup rendering ---
 
-  function renderSelectStage(day: number, shiftName: string) {
+  function renderSelectStage(day: number, shiftName: string, showIneligible: boolean, setShowIneligible: (v: boolean) => void) {
     const st = shiftByName[shiftName];
     if (!st) return null;
     const currentEmp = lookup[day]?.[shiftName] ?? "";
-    const eligibleEmps = employees
-      .map(e => e.name)
-      .filter(emp => canEmployeeDo(emp, st, employeesByName))
-      .sort((a, b) => a.localeCompare(b));
+
+    const allNames = employees.map(e => e.name).sort((a, b) => a.localeCompare(b));
+    const eligibleEmps   = allNames.filter(emp => canEmployeeDo(emp, st, employeesByName));
+    const ineligibleEmps = allNames.filter(emp => !canEmployeeDo(emp, st, employeesByName));
 
     const underMax = eligibleEmps.filter(emp => maxShifts === 0 || (empShiftCounts[emp] ?? 0) < maxShifts);
     const atMax    = eligibleEmps.filter(emp => maxShifts > 0  && (empShiftCounts[emp] ?? 0) >= maxShifts);
 
+    function EmpRow({ emp, className, warn }: { emp: string; className: string; warn?: string }) {
+      const count = empShiftCounts[emp] ?? 0;
+      const isCurrent = emp === currentEmp;
+      const missing = getMissingAttrNames(emp, st!, employeesByName, columnHeaders);
+      return (
+        <div className="space-y-0.5">
+          <div className={`flex items-center gap-1 ${className}`}>
+            <button
+              onClick={() => { if (!isCurrent) assignEmployee(day, shiftName, emp, currentEmp); else setPopup(null); }}
+              className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors text-right"
+            >
+              <span>{emp}{isCurrent ? " ✓" : ""}</span>
+              <span className="text-xs opacity-60">{count}{maxShifts > 0 ? `/${maxShifts}` : ""} משמרות{warn ? ` ${warn}` : ""}</span>
+            </button>
+            {!isCurrent && emp !== "" && (
+              <button
+                onClick={() => setPopup({ stage: "resolve", day, shiftName, targetEmp: emp })}
+                className="px-2 py-2 rounded-lg text-xs bg-slate-100 text-slate-500 hover:bg-slate-200 border border-slate-200 transition-colors whitespace-nowrap shrink-0"
+                title="אפשרויות החלפה"
+              >↔</button>
+            )}
+          </div>
+          {missing.length > 0 && (
+            <p className="text-[10px] text-red-400 pr-3 pb-0.5">חסר: {missing.join(", ")}</p>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div dir="rtl">
-        <div className="flex items-start justify-between mb-4">
+        <div className="flex items-start justify-between mb-3">
           <div>
             <h3 className="font-bold text-slate-800 text-base">יום {day} — {shiftName}</h3>
             {currentEmp && <p className="text-sm text-slate-500 mt-0.5">כרגע: <span className="font-medium text-slate-700">{currentEmp}</span></p>}
@@ -140,71 +232,92 @@ export default function ScheduleTable({
           <button onClick={() => setPopup(null)} className="text-slate-400 hover:text-slate-600 text-lg leading-none mt-0.5">✕</button>
         </div>
 
+        {/* Flags */}
+        <div className="flex flex-col gap-1.5 mb-3 bg-slate-50 rounded-xl px-3 py-2.5 border border-slate-100">
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700 select-none">
+            <input type="checkbox" checked={flagVolunteer} onChange={e => setFlagVolunteer(e.target.checked)}
+              className="w-4 h-4 rounded accent-emerald-500" />
+            <span>🤝 סמן כהתנדבות של העובד החדש</span>
+          </label>
+          {currentEmp && (
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700 select-none">
+              <input type="checkbox" checked={flagShirking} onChange={e => setFlagShirking(e.target.checked)}
+                className="w-4 h-4 rounded accent-red-400" />
+              <span>🚫 סמן הברזה של <strong>{currentEmp}</strong></span>
+            </label>
+          )}
+        </div>
+
         {currentEmp && (
           <button
             onClick={() => { onAssignmentChange(day, shiftName, ""); setPopup(null); }}
             className="w-full text-right px-3 py-2 mb-3 rounded-lg text-sm text-slate-400 hover:bg-slate-50 border border-slate-200 hover:border-slate-300 transition-colors"
-          >
-            — הסר עובד —
-          </button>
+          >— הסר עובד —</button>
         )}
 
-        {eligibleEmps.length === 0 && (
-          <p className="text-slate-400 text-sm text-center py-4">אין עובדים זכאים למשמרת זו</p>
-        )}
-
+        {/* Eligible — under max */}
         {underMax.length > 0 && (
-          <div className="space-y-1 mb-3">
-            {underMax.map(emp => {
-              const count = empShiftCounts[emp] ?? 0;
-              const isCurrent = emp === currentEmp;
-              return (
-                <button
-                  key={emp}
-                  onClick={() => {
-                    if (!isCurrent) onAssignmentChange(day, shiftName, emp);
-                    setPopup(null);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
-                    isCurrent
-                      ? "bg-blue-50 text-blue-700 border border-blue-200"
-                      : "hover:bg-slate-50 text-slate-700 border border-transparent hover:border-slate-200"
-                  }`}
-                >
-                  <span>{emp}{isCurrent ? " ✓" : ""}</span>
-                  <span className="text-xs text-slate-400">
-                    {count}{maxShifts > 0 ? `/${maxShifts}` : ""} משמרות
-                  </span>
-                </button>
-              );
-            })}
+          <div className="space-y-1 mb-2">
+            {underMax.map(emp => (
+              <EmpRow key={emp} emp={emp}
+                className={emp === currentEmp
+                  ? "bg-blue-50 text-blue-700 border border-blue-200 rounded-lg"
+                  : "hover:bg-slate-50 text-slate-700 border border-transparent hover:border-slate-200 rounded-lg"
+                }
+              />
+            ))}
           </div>
         )}
 
+        {/* Eligible — at/over max */}
         {atMax.length > 0 && (
           <>
             <div className="flex items-center gap-2 my-2">
               <div className="flex-1 h-px bg-orange-100" />
-              <span className="text-xs text-orange-400 font-semibold whitespace-nowrap">במקסימום</span>
+              <span className="text-xs text-orange-400 font-semibold whitespace-nowrap">במקסימום משמרות</span>
               <div className="flex-1 h-px bg-orange-100" />
             </div>
+            <div className="space-y-1 mb-2">
+              {atMax.map(emp => (
+                <EmpRow key={emp} emp={emp}
+                  className="bg-orange-50 text-orange-800 border border-orange-200 rounded-lg hover:bg-orange-100"
+                  warn="⚠"
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {eligibleEmps.length === 0 && !showIneligible && (
+          <p className="text-slate-400 text-sm text-center py-3">אין עובדים מתאימים למשמרת זו</p>
+        )}
+
+        {/* Toggle ineligible */}
+        {ineligibleEmps.length > 0 && (
+          <button type="button" onClick={() => setShowIneligible(!showIneligible)}
+            className="w-full flex items-center justify-center gap-1.5 mt-2 py-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" className={`w-3.5 h-3.5 transition-transform ${showIneligible ? "rotate-180" : ""}`}>
+              <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd"/>
+            </svg>
+            {showIneligible ? "הסתר לא מתאימים" : `הצג לא מתאימים (${ineligibleEmps.length})`}
+          </button>
+        )}
+
+        {/* Ineligible employees */}
+        {showIneligible && ineligibleEmps.length > 0 && (
+          <>
+            <div className="flex items-center gap-2 my-2">
+              <div className="flex-1 h-px bg-red-100" />
+              <span className="text-xs text-red-400 font-semibold whitespace-nowrap">לא עומדים בדרישות</span>
+              <div className="flex-1 h-px bg-red-100" />
+            </div>
             <div className="space-y-1">
-              {atMax.map(emp => {
-                const count = empShiftCounts[emp] ?? 0;
-                return (
-                  <button
-                    key={emp}
-                    onClick={() => setPopup({ stage: "resolve", day, shiftName, targetEmp: emp })}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-orange-50 text-orange-800 border border-orange-200 hover:bg-orange-100 transition-colors"
-                  >
-                    <span>{emp}</span>
-                    <span className="flex items-center gap-1.5 text-xs">
-                      <span className="text-orange-500 font-semibold">{count}/{maxShifts} ⚠</span>
-                      <span className="text-orange-400">בחר אפשרות ›</span>
-                    </span>
-                  </button>
-                );
-              })}
+              {ineligibleEmps.map(emp => (
+                <EmpRow key={emp} emp={emp}
+                  className="bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100"
+                />
+              ))}
             </div>
           </>
         )}
@@ -234,7 +347,7 @@ export default function ScheduleTable({
       <div dir="rtl">
         <div className="flex items-center gap-2 mb-4">
           <button
-            onClick={() => setPopup({ stage: "select", day, shiftName })}
+            onClick={() => openSelectPopup(day, shiftName)}
             className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1"
           >
             ‹ חזור
@@ -295,10 +408,7 @@ export default function ScheduleTable({
         <div className="border-t border-slate-100 pt-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">חריגה מהמקסימום</p>
           <button
-            onClick={() => {
-              onAssignmentChange(day, shiftName, targetEmp);
-              setPopup(null);
-            }}
+            onClick={() => assignEmployee(day, shiftName, targetEmp, currentEmp)}
             className="w-full px-3 py-2.5 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors font-medium"
           >
             הקצה בכל זאת — {targetEmp} יגיע ל־{targetCount + 1} משמרות ⚠
@@ -310,7 +420,7 @@ export default function ScheduleTable({
 
   function renderPopupContent() {
     if (!popup) return null;
-    if (popup.stage === "select") return renderSelectStage(popup.day, popup.shiftName);
+    if (popup.stage === "select") return renderSelectStage(popup.day, popup.shiftName, showIneligible, setShowIneligible);
     if (popup.stage === "resolve") return renderResolveStage(popup.day, popup.shiftName, popup.targetEmp);
     return null;
   }
@@ -457,7 +567,7 @@ export default function ScheduleTable({
                               ? "ring-2 ring-inset ring-red-400 bg-red-50"
                               : ""
                           }`}
-                          onClick={() => setPopup({ stage: "select", day, shiftName })}
+                          onClick={() => openSelectPopup(day, shiftName)}
                           onDragEnd={() => { setDragSrc(null); setDragOverCell(null); }}
                           onDragOver={e => {
                             if (!dragSrc) return;

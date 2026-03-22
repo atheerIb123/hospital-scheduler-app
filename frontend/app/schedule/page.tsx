@@ -21,7 +21,7 @@ export default function SchedulePage() {
 
   const { schedule, loading, generating, error, generate } = useSchedule(month, year);
   const { shiftTypes } = useShiftTypes();
-  const { employees } = useEmployees();
+  const { employees, columnHeaders } = useEmployees();
   const { dayTypes } = useDayTypes();
   const { settings: daySettings, setOverride } = useDaySettings(year, month);
 
@@ -124,7 +124,7 @@ export default function SchedulePage() {
         <h1 className="text-3xl font-bold text-slate-800">סידור עבודה</h1>
         <p className="text-slate-500 mt-1 text-sm">
           הסולבר יצור סידור חודשי הוגן תוך שמירה על אילוצי זכאות.
-          משמרות <span className="text-amber-600 font-semibold">רצויות ★</span> מקבלות משקל כפול בפיזור.
+          כל המשמרות מחולקות שווה בין העובדים לפי זכאות.
         </p>
       </div>
 
@@ -247,6 +247,7 @@ export default function SchedulePage() {
               onAssignmentChange={handleAssignmentChange}
               changedCells={changedCells}
               employees={employees}
+              columnHeaders={columnHeaders}
               maxShifts={maxShifts}
               dayTypes={dayTypes}
               daySettings={daySettings}

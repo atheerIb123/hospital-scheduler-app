@@ -1,5 +1,5 @@
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date as date_type
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
 from ..db import get_db
@@ -99,6 +99,100 @@ def update_assignments(schedule_id):
     if "generated_at" in schedule:
         schedule["generated_at"] = schedule["generated_at"].isoformat()
     return jsonify(schedule)
+
+
+@schedule_bp.get("/justice")
+def get_justice():
+    db = get_db()
+
+    # Optional date range filter
+    start_date = None
+    end_date = None
+    start_str = request.args.get("start_date")
+    end_str = request.args.get("end_date")
+    if start_str:
+        try:
+            start_date = date_type.fromisoformat(start_str)
+        except ValueError:
+            pass
+    if end_str:
+        try:
+            end_date = date_type.fromisoformat(end_str)
+        except ValueError:
+            pass
+
+    # Non-linear justice points per desirability level (mirrors frontend DESIRABILITY_POINTS)
+    JUSTICE_PTS = {1: 10, 2: 7, 3: 4, 4: 2, 5: 1}
+
+    # Build desirability map: shift_name → justice points
+    des_map: dict = {}
+    for st in db.shift_types.find():
+        des = st.get("desirability", 3)
+        pts = JUSTICE_PTS.get(int(des), 4)
+        for name in st.get("names", []):
+            des_map[name] = pts
+
+    # For each (month, year) pair keep only the most recently generated schedule
+    latest_schedules: dict = {}
+    for schedule in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+        key = (schedule.get("year"), schedule.get("month"))
+        latest_schedules[key] = schedule
+
+    # Aggregate justice scores from one schedule per month
+    justice: dict = {}
+    for schedule in latest_schedules.values():
+        sched_year = schedule.get("year")
+        sched_month = schedule.get("month")
+        for a in schedule.get("assignments", []):
+            if start_date or end_date:
+                try:
+                    a_date = date_type(sched_year, sched_month, int(a["day"]))
+                except (ValueError, TypeError, KeyError):
+                    continue
+                if start_date and a_date < start_date:
+                    continue
+                if end_date and a_date > end_date:
+                    continue
+            emp = a["employee_name"]
+            pts = des_map.get(a["shift_name"], 4)
+            justice.setdefault(emp, {"score": 0, "shifts": 0})
+            justice[emp]["score"] += pts
+            justice[emp]["shifts"] += 1
+
+    # Aggregate volunteer scores
+    volunteer: dict = {}
+    for vol in db.volunteers.find():
+        if start_date or end_date:
+            try:
+                v_date = date_type(int(vol["year"]), int(vol["month"]), int(vol["day"]))
+            except (ValueError, TypeError, KeyError):
+                continue
+            if start_date and v_date < start_date:
+                continue
+            if end_date and v_date > end_date:
+                continue
+        emp = vol["employee_name"]
+        pts = des_map.get(vol["shift_name"], 4)
+        volunteer.setdefault(emp, {"score": 0, "count": 0})
+        volunteer[emp]["score"] += pts
+        volunteer[emp]["count"] += 1
+
+    employees = list(db.employees.find())
+    result = []
+    for emp in employees:
+        name = emp["name"]
+        j = justice.get(name, {"score": 0, "shifts": 0})
+        v = volunteer.get(name, {"score": 0, "count": 0})
+        result.append({
+            "employee_name": name,
+            "employee_id": str(emp["_id"]),
+            "justice_score": j["score"],
+            "justice_shifts": j["shifts"],
+            "volunteer_score": v["score"],
+            "volunteer_count": v["count"],
+        })
+
+    return jsonify(result)
 
 
 @schedule_bp.get("/schedules/<schedule_id>")

@@ -74,7 +74,7 @@ export const createShiftType = (data: CreateShiftTypePayload) =>
 
 export const updateShiftType = (
   id: string,
-  data: Partial<Pick<ShiftType, "names" | "is_desired" | "schedule_on" | "required_attributes">>
+  data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes">>
 ) =>
   request<ShiftType>(`/shift-types/${id}`, {
     method: "PUT",
@@ -177,6 +177,107 @@ export const importConstraintsCsv = async (
     throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<ConstraintImportResult>;
+};
+
+// ---------------------------------------------------------------------------
+// Volunteers
+// ---------------------------------------------------------------------------
+
+export interface Volunteer {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  shift_type_id: string;
+  shift_name: string;
+  day: number;
+  month: number;
+  year: number;
+}
+
+export const getVolunteers = (month: number, year: number) =>
+  request<Volunteer[]>(`/volunteers?month=${month}&year=${year}`);
+
+export const addVolunteer = (data: Omit<Volunteer, "id">) =>
+  request<Volunteer>("/volunteers", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const removeVolunteer = (id: string) =>
+  request<{ ok: boolean }>(`/volunteers/${id}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
+// Shirking (הברזות)
+// ---------------------------------------------------------------------------
+
+export interface ShirkingRecord {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  shift_name: string;
+  day: number;
+  month: number;
+  year: number;
+  replacement_name: string;
+}
+
+export const getShirking = (month?: number, year?: number) => {
+  const qs = month && year ? `?month=${month}&year=${year}` : "";
+  return request<ShirkingRecord[]>(`/shirking${qs}`);
+};
+
+export const addShirking = (data: Omit<ShirkingRecord, "id">) =>
+  request<ShirkingRecord>("/shirking", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const removeShirking = (id: string) =>
+  request<{ ok: boolean }>(`/shirking/${id}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
+// Advocates
+// ---------------------------------------------------------------------------
+
+export interface Advocate {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  description: string;
+  points: number;
+  date: string;
+}
+
+export const getAdvocates = () => request<Advocate[]>("/advocates");
+
+export const addAdvocate = (data: Omit<Advocate, "id">) =>
+  request<Advocate>("/advocates", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const removeAdvocate = (id: string) =>
+  request<{ ok: boolean }>(`/advocates/${id}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
+// Justice / Volunteer stats
+// ---------------------------------------------------------------------------
+
+export interface JusticeEntry {
+  employee_name: string;
+  employee_id: string;
+  justice_score: number;
+  justice_shifts: number;
+  volunteer_score: number;
+  volunteer_count: number;
+}
+
+export const getJustice = (startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams();
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  const qs = params.toString();
+  return request<JusticeEntry[]>(`/justice${qs ? `?${qs}` : ""}`);
 };
 
 // ---------------------------------------------------------------------------

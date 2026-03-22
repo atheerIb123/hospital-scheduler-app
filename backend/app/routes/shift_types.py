@@ -125,11 +125,16 @@ def create_shift_type():
         return jsonify({"error": "at least one name is required"}), 400
     required_attributes = [a.strip() for a in data.get("required_attributes", []) if a.strip()]
     schedule_on = data.get("schedule_on", "all")
+    if schedule_on not in ("all", "weekdays", "friday", "weekend"):
+        schedule_on = "all"
+    desirability = int(data.get("desirability", 3))
+    desirability = max(1, min(5, desirability))
     doc = {
         "names": names,
         "required_attributes": required_attributes,
         "schedule_on": schedule_on,
-        "is_desired": bool(data.get("is_desired", False)),
+        "desirability": desirability,
+        "is_desired": desirability >= 4,
         "skip": False,
         "created_at": datetime.datetime.utcnow(),
     }
@@ -176,7 +181,11 @@ def update_shift_type(shift_id):
         update["names"] = [n.strip() for n in raw if n.strip()]
     if "required_attributes" in data:
         update["required_attributes"] = [a.strip() for a in data["required_attributes"] if a.strip()]
-    if "is_desired" in data:
+    if "desirability" in data:
+        des = max(1, min(5, int(data["desirability"])))
+        update["desirability"] = des
+        update["is_desired"] = des >= 4
+    elif "is_desired" in data:
         update["is_desired"] = bool(data["is_desired"])
     if "schedule_on" in data:
         update["schedule_on"] = data["schedule_on"]
