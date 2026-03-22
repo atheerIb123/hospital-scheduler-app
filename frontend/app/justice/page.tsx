@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord } from "@/lib/api";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData } from "@/lib/api";
 
-type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking";
+type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype";
 type View = "table" | "chart";
 type RangeType = "week" | "month" | "year";
 
@@ -768,6 +768,154 @@ function ShirkingSection({ search, volunteerData }: {
   );
 }
 
+// ── Day Type Justice section ──────────────────────────────────────────────────
+function DayTypeJusticeSection({
+  data, view, onViewChange, search,
+}: {
+  data: DayTypeJusticeData;
+  view: "total" | "breakdown";
+  onViewChange: (v: "total" | "breakdown") => void;
+  search: string;
+}) {
+  const q = search.trim();
+  const employees = data.employees.filter(e => !q || e.name.includes(q));
+  const maxTotal = Math.max(...employees.map(e => e.total_score), 1);
+
+  // Which day types actually have any counts in this data
+  const activeDayTypes = data.day_types.filter(dt =>
+    employees.some(e => e.by_type[dt.id]?.count > 0)
+  );
+  const hasShabbat = employees.some(e => e.shabbat_count > 0);
+
+  return (
+    <div className="space-y-4">
+      {/* View toggle */}
+      <div className="flex gap-2">
+        <button type="button" onClick={() => onViewChange("total")}
+          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${view === "total" ? "bg-purple-600 text-white border-purple-600 shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}`}>
+          ציון כולל
+        </button>
+        <button type="button" onClick={() => onViewChange("breakdown")}
+          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${view === "breakdown" ? "bg-purple-600 text-white border-purple-600 shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}`}>
+          פירוט לכל סוג
+        </button>
+      </div>
+
+      {employees.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 text-slate-400 text-sm">
+          אין נתוני שבתות / חגים בטווח הנבחר
+        </div>
+      ) : view === "total" ? (
+        /* Total score view */
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="font-bold text-slate-800">ציון שבתות וחגים — סה״כ</h3>
+              <p className="text-xs text-slate-400 mt-0.5">ציון שבת: {data.shabbat_score} נק׳ · ציון חג לפי הגדרה</p>
+            </div>
+          </div>
+          <div className="p-5 space-y-2.5">
+            {employees.map((e, rank) => (
+              <div key={e.name} className="flex items-center gap-3">
+                <RankBadge rank={rank} />
+                <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.name}</div>
+                <Bar value={e.total_score} max={maxTotal}
+                  color={rank === 0 ? "bg-purple-500" : rank === 1 ? "bg-purple-300" : "bg-purple-200"} />
+                <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{e.total_score} נק׳</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        /* Breakdown view */
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="font-bold text-slate-800">פירוט שבתות וחגים לעובד</h3>
+            <span className="text-xs bg-purple-100 text-purple-600 px-3 py-1 rounded-full font-medium">גבוה / נמוך</span>
+          </div>
+          <div className="overflow-x-auto" style={{ maxHeight: "520px", overflowY: "auto" }}>
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">#</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">עובד</th>
+                  {hasShabbat && (
+                    <th className="px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-50 z-10">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700">שבת ({data.shabbat_score} נק׳)</span>
+                    </th>
+                  )}
+                  {activeDayTypes.map(dt => (
+                    <th key={dt.id} className="px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-50 z-10">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${dt.color}`}>{dt.name} ({dt.score} נק׳)</span>
+                    </th>
+                  ))}
+                  <th className="px-4 py-3 text-center font-bold text-slate-700 whitespace-nowrap sticky top-0 bg-slate-50 z-10">סה״כ נק׳</th>
+                </tr>
+              </thead>
+              <tbody>
+                {employees.map((row, idx) => {
+                  // column stats for highlighting
+                  const shabbatVals = employees.map(e => e.shabbat_count);
+                  const shabbatMin = Math.min(...shabbatVals);
+                  const shabbatMax = Math.max(...shabbatVals);
+                  const totalVals = employees.map(e => e.total_score);
+                  const totalMin = Math.min(...totalVals);
+                  const totalMax = Math.max(...totalVals);
+                  return (
+                    <tr key={row.name} className={`border-b border-slate-50 hover:bg-purple-50/20 ${idx % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                      <td className="px-4 py-3 text-slate-400 text-xs font-medium">{idx + 1}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{row.name}</td>
+                      {hasShabbat && (() => {
+                        const isHigh = row.shabbat_count === shabbatMax && shabbatMin !== shabbatMax;
+                        const isLow = row.shabbat_count === shabbatMin && shabbatMin !== shabbatMax;
+                        return (
+                          <td className="px-3 py-3 text-center">
+                            <span className={`inline-flex flex-col items-center justify-center w-12 h-10 rounded-lg text-xs font-bold ${isHigh ? "bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300" : isLow ? "bg-red-100 text-red-600 ring-2 ring-red-200" : "text-slate-600"}`}>
+                              <span>{row.shabbat_count}</span>
+                              <span className="text-[10px] font-normal opacity-70">{row.shabbat_score} נק׳</span>
+                            </span>
+                          </td>
+                        );
+                      })()}
+                      {activeDayTypes.map(dt => {
+                        const entry = row.by_type[dt.id];
+                        const count = entry?.count ?? 0;
+                        const score = entry?.score ?? 0;
+                        const vals = employees.map(e => e.by_type[dt.id]?.count ?? 0);
+                        const min = Math.min(...vals); const max = Math.max(...vals);
+                        const isHigh = count === max && min !== max;
+                        const isLow = count === min && min !== max;
+                        return (
+                          <td key={dt.id} className="px-3 py-3 text-center">
+                            <span className={`inline-flex flex-col items-center justify-center w-12 h-10 rounded-lg text-xs font-bold ${isHigh ? "bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300" : isLow ? "bg-red-100 text-red-600 ring-2 ring-red-200" : "text-slate-600"}`}>
+                              <span>{count}</span>
+                              <span className="text-[10px] font-normal opacity-70">{score} נק׳</span>
+                            </span>
+                          </td>
+                        );
+                      })}
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`text-sm font-bold ${row.total_score === totalMax && totalMin !== totalMax ? "text-purple-600" : row.total_score === totalMin && totalMin !== totalMax ? "text-red-500" : "text-slate-700"}`}>
+                            {row.total_score}
+                          </span>
+                          <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-purple-400 rounded-full" style={{ width: `${(row.total_score / maxTotal) * 100}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function JusticePage() {
   const [data, setData] = useState<JusticeEntry[]>([]);
@@ -798,7 +946,21 @@ export default function JusticePage() {
       .finally(() => setLoading(false));
   }, [startISO, endISO]);
 
+  useEffect(() => {
+    if (tab !== "daytype") return;
+    setDaytypeLoading(true);
+    setDaytypeError(null);
+    getDayTypeJustice(startISO, endISO)
+      .then(setDaytypeData)
+      .catch(e => setDaytypeError((e as Error).message))
+      .finally(() => setDaytypeLoading(false));
+  }, [tab, startISO, endISO]);
+
   const [search, setSearch] = useState("");
+  const [daytypeData, setDaytypeData] = useState<DayTypeJusticeData | null>(null);
+  const [daytypeLoading, setDaytypeLoading] = useState(false);
+  const [daytypeError, setDaytypeError] = useState<string | null>(null);
+  const [daytypeView, setDaytypeView] = useState<"total" | "breakdown">("total");
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "justice",   label: "טבלת צדק",         icon: "⚖️" },
@@ -806,6 +968,7 @@ export default function JusticePage() {
     { id: "combined",  label: "שניהם",             icon: "📊" },
     { id: "shirking",  label: "הברזות",            icon: "🚫" },
     { id: "advocates", label: "סנגורים",           icon: "🏆" },
+    { id: "daytype",   label: "שבתות וחגים",       icon: "🕍" },
   ];
 
   const rangeTypes: { id: RangeType; label: string }[] = [
@@ -860,8 +1023,8 @@ export default function JusticePage() {
           ))}
         </div>
 
-        {/* View toggle — hidden on advocates/shirking tabs */}
-        <div className={`flex gap-1 bg-slate-100 rounded-xl p-1 ${(tab === "advocates" || tab === "shirking") ? "invisible" : ""}`}>
+        {/* View toggle — hidden on advocates/shirking/daytype tabs */}
+        <div className={`flex gap-1 bg-slate-100 rounded-xl p-1 ${(tab === "advocates" || tab === "shirking" || tab === "daytype") ? "invisible" : ""}`}>
           <button type="button" onClick={() => setView("table")}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
               view === "table" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
@@ -928,12 +1091,12 @@ export default function JusticePage() {
       </div>
 
       {/* Error */}
-      {tab !== "advocates" && tab !== "shirking" && error && (
+      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && error && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>
       )}
 
       {/* Loading */}
-      {tab !== "advocates" && tab !== "shirking" && loading && (
+      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && loading && (
         <div className="space-y-3">
           {[1, 2, 3].map(i => <div key={i} className="h-14 rounded-2xl shimmer" />)}
         </div>
@@ -945,8 +1108,19 @@ export default function JusticePage() {
       {/* Shirking tab — independent of justice loading */}
       {tab === "shirking" && <ShirkingSection search={search} volunteerData={data} />}
 
+      {/* Daytype tab */}
+      {tab === "daytype" && (
+        daytypeLoading ? (
+          <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer"/>)}</div>
+        ) : daytypeError ? (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{daytypeError}</div>
+        ) : daytypeData ? (
+          <DayTypeJusticeSection data={daytypeData} view={daytypeView} onViewChange={setDaytypeView} search={search} />
+        ) : null
+      )}
+
       {/* Content for justice/volunteer/combined */}
-      {tab !== "advocates" && tab !== "shirking" && !loading && !error && (
+      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && !loading && !error && (
         <div className="space-y-6">
           {tab === "justice" && <JusticeSection data={data} view={view} search={search} />}
           {tab === "volunteer" && <VolunteerSection data={data} view={view} search={search} />}

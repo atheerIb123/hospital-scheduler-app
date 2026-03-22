@@ -306,13 +306,13 @@ export const getJustice = (startDate?: string, endDate?: string) => {
 
 export const getDayTypes = () => request<DayType[]>("/day-types");
 
-export const createDayType = (data: { name: string; color: string }) =>
+export const createDayType = (data: { name: string; color: string; score?: number }) =>
   request<DayType>("/day-types", {
     method: "POST",
     body: JSON.stringify(data),
   });
 
-export const updateDayType = (id: string, data: { name?: string; color?: string }) =>
+export const updateDayType = (id: string, data: { name?: string; color?: string; score?: number }) =>
   request<DayType>(`/day-types/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
@@ -329,3 +329,29 @@ export const setDaySetting = (date: string, day_type_id: string | null) =>
     method: "POST",
     body: JSON.stringify({ date, day_type_id }),
   });
+
+export const getShabbatScore = () =>
+  request<{ score: number }>("/config/shabbat-score");
+
+export const setShabbatScore = (score: number) =>
+  request<{ score: number }>("/config/shabbat-score", {
+    method: "PUT",
+    body: JSON.stringify({ score }),
+  });
+
+export interface DayTypeJusticeEntry {
+  name: string;
+  shabbat_count: number;
+  shabbat_score: number;
+  by_type: Record<string, { count: number; score: number }>;
+  total_score: number;
+}
+
+export interface DayTypeJusticeData {
+  day_types: { id: string; name: string; color: string; score: number }[];
+  shabbat_score: number;
+  employees: DayTypeJusticeEntry[];
+}
+
+export const getDayTypeJustice = (startDate: string, endDate: string) =>
+  request<DayTypeJusticeData>(`/day-type-justice?start_date=${startDate}&end_date=${endDate}`);

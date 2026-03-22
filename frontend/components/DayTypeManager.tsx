@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DayType } from "@/lib/types";
+import { getShabbatScore, setShabbatScore as saveShabbatScore } from "@/lib/api";
 
 const COLOR_OPTIONS = [
   "bg-slate-100 text-slate-700 border-slate-200",
@@ -16,23 +17,31 @@ const COLOR_OPTIONS = [
 interface Props {
   dayTypes: DayType[];
   loading: boolean;
-  createDayType: (name: string, color: string) => Promise<any>;
+  createDayType: (name: string, color: string, score?: number) => Promise<any>;
   deleteDayType: (id: string) => Promise<any>;
-  updateDayType: (id: string, data: { name?: string; color?: string }) => Promise<any>;
+  updateDayType: (id: string, data: { name?: string; color?: string; score?: number }) => Promise<any>;
 }
 
 export default function DayTypeManager({ dayTypes, loading, createDayType, deleteDayType, updateDayType }: Props) {
   const [newTypeName, setNewTypeName] = useState("");
   const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
+  const [newScore, setNewScore] = useState(0);
   const [adding, setAdding] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [shabbatScore, setShabbatScore] = useState(2);
+  const [shabbatSaving, setShabbatSaving] = useState(false);
+
+  useEffect(() => {
+    getShabbatScore().then(res => setShabbatScore(res.score)).catch(() => {});
+  }, []);
 
   const handleAdd = async () => {
     if (!newTypeName.trim()) return;
     setAdding(true);
     try {
-      await createDayType(newTypeName, selectedColor);
+      await createDayType(newTypeName, selectedColor, newScore);
       setNewTypeName("");
+      setNewScore(0);
     } finally {
       setAdding(false);
     }
@@ -70,6 +79,30 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
 
       {isExpanded && (
         <div className="p-6 border-t border-slate-100 space-y-6 animate-in slide-in-from-top-2 duration-200">
+          {/* Shabbat score */}
+          <div className="flex items-center gap-3 bg-purple-50 border border-purple-100 rounded-xl px-4 py-3">
+            <span className="text-sm font-semibold text-purple-700">ציון שבת</span>
+            <input
+              type="number"
+              min={0}
+              value={shabbatScore}
+              onChange={(e) => setShabbatScore(Math.max(0, Number(e.target.value)))}
+              className="w-20 text-center text-sm font-bold border border-purple-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
+            />
+            <button
+              type="button"
+              disabled={shabbatSaving}
+              onClick={async () => {
+                setShabbatSaving(true);
+                try { await saveShabbatScore(shabbatScore); } finally { setShabbatSaving(false); }
+              }}
+              className="px-3 py-1 bg-purple-600 text-white text-xs font-semibold rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-all"
+            >
+              {shabbatSaving ? "שומר..." : "שמור"}
+            </button>
+            <span className="text-xs text-purple-500">נקודות לכל משמרת בשבת</span>
+          </div>
+
           {/* Add New */}
           <div className="flex flex-col sm:flex-row gap-4 items-end bg-slate-50/50 p-4 rounded-xl border border-slate-100">
             <div className="flex-1 space-y-1.5 w-full">
@@ -95,6 +128,16 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
                   />
                 ))}
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ציון</label>
+              <input
+                type="number"
+                min={0}
+                value={newScore}
+                onChange={(e) => setNewScore(Math.max(0, Number(e.target.value)))}
+                className="w-20 border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all text-sm font-medium text-center"
+              />
             </div>
             <button
               onClick={handleAdd}
@@ -122,6 +165,17 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
                       defaultValue={dt.name}
                       onBlur={(e) => e.target.value !== dt.name && updateDayType(dt.id, { name: e.target.value })}
                       className="flex-1 text-xs font-semibold text-slate-700 bg-transparent border-none focus:ring-0 p-0"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      defaultValue={dt.score ?? 0}
+                      onBlur={(e) => {
+                        const v = Math.max(0, Number(e.target.value));
+                        if (v !== (dt.score ?? 0)) updateDayType(dt.id, { score: v });
+                      }}
+                      className="w-14 text-center text-xs font-semibold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                      title="ציון"
                     />
                     <button
                       onClick={() => deleteDayType(dt.id)}
