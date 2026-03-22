@@ -386,7 +386,7 @@ export default function ScheduleTable({
           <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-slate-800 text-white">
-                <th className="px-4 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-800 w-14 z-20">יום</th>
+                <th className="px-4 py-3 text-center font-semibold whitespace-nowrap sticky top-0 right-0 bg-slate-800 w-14 z-30">יום</th>
                 {sorted.map((st, i) => (
                   <th key={st.id}
                     className={`px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 z-10 min-w-25 ${
@@ -409,7 +409,7 @@ export default function ScheduleTable({
                   <tr key={day} className={`border-b border-slate-100 transition-colors hover:bg-blue-50/40 ${
                     weekend ? "bg-slate-50" : ""
                   }`}>
-                    <td className={`px-2 py-2 text-center sticky right-0 z-10 ${
+                    <td className={`px-2 py-2 text-center sticky right-0 z-[5] ${
                       weekend ? "bg-slate-100" : "bg-white"
                     }`}>
                       <DayCellSelector
