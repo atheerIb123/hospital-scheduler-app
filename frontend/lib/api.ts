@@ -306,13 +306,13 @@ export const getJustice = (startDate?: string, endDate?: string) => {
 
 export const getDayTypes = () => request<DayType[]>("/day-types");
 
-export const createDayType = (data: { name: string; color: string }) =>
+export const createDayType = (data: { name: string; color: string; score?: number }) =>
   request<DayType>("/day-types", {
     method: "POST",
     body: JSON.stringify(data),
   });
 
-export const updateDayType = (id: string, data: { name?: string; color?: string }) =>
+export const updateDayType = (id: string, data: { name?: string; color?: string; score?: number }) =>
   request<DayType>(`/day-types/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
@@ -324,8 +324,116 @@ export const deleteDayType = (id: string) =>
 export const getDaySettings = (year: number, month: number) =>
   request<DaySetting[]>(`/day-settings/${year}/${month}`);
 
-export const setDaySetting = (date: string, day_type_id: string | null) =>
+export const setDaySetting = (date: string, day_type_id: string | null, score?: number) =>
   request<{ ok: boolean }>("/day-settings", {
     method: "POST",
-    body: JSON.stringify({ date, day_type_id }),
+    body: JSON.stringify({ date, day_type_id, score: score ?? null }),
+  });
+
+export const getShabbatScore = () =>
+  request<{ score: number }>("/config/shabbat-score");
+
+export const setShabbatScore = (score: number) =>
+  request<{ score: number }>("/config/shabbat-score", {
+    method: "PUT",
+    body: JSON.stringify({ score }),
+  });
+
+export interface DayTypeJusticeEntry {
+  name: string;
+  shabbat_count: number;
+  shabbat_score: number;
+  by_type: Record<string, { count: number; score: number }>;
+  total_score: number;
+}
+
+export interface DayTypeJusticeData {
+  day_types: { id: string; name: string; color: string; score: number }[];
+  weekday_scores: Record<string, number>;
+  employees: DayTypeJusticeEntry[];
+}
+
+export const getDayTypeJustice = (startDate: string, endDate: string) =>
+  request<DayTypeJusticeData>(`/day-type-justice?start_date=${startDate}&end_date=${endDate}`);
+
+// ---------------------------------------------------------------------------
+// Weekday Scores
+// ---------------------------------------------------------------------------
+
+export interface BreakdownRow {
+  date: string;
+  day_of_week: string;
+  shift_name: string;
+  desirability: number;
+  desirability_points: number;
+  weekday_score: number;
+  total: number;
+}
+
+export interface JusticeBreakdown {
+  employee: string;
+  rows: BreakdownRow[];
+  total: number;
+}
+
+export const getJusticeBreakdown = (employee: string, startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({ employee });
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return request<JusticeBreakdown>(`/justice/breakdown?${params}`);
+};
+
+export interface VolunteerBreakdownRow {
+  date: string;
+  day_of_week: string;
+  shift_name: string;
+  desirability: number;
+  desirability_points: number;
+  total: number;
+}
+
+export interface VolunteerBreakdown {
+  employee: string;
+  rows: VolunteerBreakdownRow[];
+  total: number;
+}
+
+export const getVolunteerBreakdown = (employee: string, startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({ employee });
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return request<VolunteerBreakdown>(`/justice/volunteer-breakdown?${params}`);
+};
+
+export interface DayTypeBreakdownRow {
+  date: string;
+  day_of_week: string;
+  shift_name: string;
+  is_shabbat: boolean;
+  shabbat_score: number;
+  day_type: string | null;
+  day_type_color: string | null;
+  day_type_score: number;
+  total: number;
+}
+
+export interface DayTypeBreakdown {
+  employee: string;
+  rows: DayTypeBreakdownRow[];
+  total: number;
+}
+
+export const getDayTypeBreakdown = (employee: string, startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({ employee });
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return request<DayTypeBreakdown>(`/day-type-justice/breakdown?${params}`);
+};
+
+export const getWeekdayScores = () => request<Record<string, number>>("/config/weekday-scores");
+
+export const setWeekdayScores = (scores: Record<string, number>) =>
+  request<Record<string, number>>("/config/weekday-scores", {
+    method: "PUT",
+    body: JSON.stringify(scores),
   });

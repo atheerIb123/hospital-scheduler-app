@@ -1,5 +1,62 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DayType } from "@/lib/types";
+
+// ── Controlled score input cell ───────────────────────────────────────────────
+function ScoreCell({
+  value,
+  onSave,
+}: {
+  value: number;
+  onSave: (v: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+
+  // keep in sync if parent updates
+  useEffect(() => { setDraft(String(value)); }, [value]);
+
+  const commit = async () => {
+    const v = Math.max(0, Number(draft) || 0);
+    setDraft(String(v));
+    if (v === value) return;
+    setSaving(true);
+    try {
+      await onSave(v);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="relative flex items-center">
+      <input
+        ref={ref}
+        type="number"
+        min={0}
+        value={draft}
+        onChange={(e) => { setDraft(e.target.value); setSaved(false); }}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") ref.current?.blur(); }}
+        disabled={saving}
+        className={`w-14 text-center text-xs font-semibold border rounded-lg px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300 transition-all ${
+          saved ? "bg-emerald-50 border-emerald-300 text-emerald-700" :
+          "bg-slate-50 border-slate-200 text-slate-600"
+        } disabled:opacity-50`}
+        title="ציון"
+      />
+      {saving && (
+        <svg className="absolute -left-4 w-3 h-3 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+        </svg>
+      )}
+    </div>
+  );
+}
 
 const COLOR_OPTIONS = [
   "bg-slate-100 text-slate-700 border-slate-200",
@@ -16,14 +73,15 @@ const COLOR_OPTIONS = [
 interface Props {
   dayTypes: DayType[];
   loading: boolean;
-  createDayType: (name: string, color: string) => Promise<any>;
+  createDayType: (name: string, color: string, score?: number) => Promise<any>;
   deleteDayType: (id: string) => Promise<any>;
-  updateDayType: (id: string, data: { name?: string; color?: string }) => Promise<any>;
+  updateDayType: (id: string, data: { name?: string; color?: string; score?: number }) => Promise<any>;
 }
 
 export default function DayTypeManager({ dayTypes, loading, createDayType, deleteDayType, updateDayType }: Props) {
   const [newTypeName, setNewTypeName] = useState("");
   const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
+  const [newScore, setNewScore] = useState(0);
   const [adding, setAdding] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -31,8 +89,9 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
     if (!newTypeName.trim()) return;
     setAdding(true);
     try {
-      await createDayType(newTypeName, selectedColor);
+      await createDayType(newTypeName, selectedColor, newScore);
       setNewTypeName("");
+      setNewScore(0);
     } finally {
       setAdding(false);
     }
@@ -96,6 +155,16 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
                 ))}
               </div>
             </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ציון</label>
+              <input
+                type="number"
+                min={0}
+                value={newScore}
+                onChange={(e) => setNewScore(Math.max(0, Number(e.target.value)))}
+                className="w-20 border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all text-sm font-medium text-center"
+              />
+            </div>
             <button
               onClick={handleAdd}
               disabled={adding || !newTypeName.trim()}
@@ -122,6 +191,10 @@ export default function DayTypeManager({ dayTypes, loading, createDayType, delet
                       defaultValue={dt.name}
                       onBlur={(e) => e.target.value !== dt.name && updateDayType(dt.id, { name: e.target.value })}
                       className="flex-1 text-xs font-semibold text-slate-700 bg-transparent border-none focus:ring-0 p-0"
+                    />
+                    <ScoreCell
+                      value={dt.score ?? 0}
+                      onSave={(v) => updateDayType(dt.id, { score: v })}
                     />
                     <button
                       onClick={() => deleteDayType(dt.id)}

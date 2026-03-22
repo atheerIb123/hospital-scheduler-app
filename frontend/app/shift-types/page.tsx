@@ -6,6 +6,7 @@ import { useShiftTypes } from "@/hooks/useShiftTypes";
 import { useDayTypes } from "@/hooks/useDayTypes";
 import DayTypeManager from "@/components/DayTypeManager";
 import CalendarConfigurator from "@/components/CalendarConfigurator";
+import WeekdayScoreManager from "@/components/WeekdayScoreManager";
 
 export default function ShiftTypesPage() {
   const {
@@ -142,6 +143,9 @@ export default function ShiftTypesPage() {
         />
         <CalendarConfigurator dayTypes={dayTypes} />
       </div>
+
+      {/* ── Weekday Scoring ── */}
+      <WeekdayScoreManager />
 
       {/* ── Manual Add ── */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">

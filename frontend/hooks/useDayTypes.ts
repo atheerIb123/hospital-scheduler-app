@@ -24,9 +24,9 @@ export function useDayTypes() {
     fetchDayTypes();
   }, [fetchDayTypes]);
 
-  const createDayType = async (name: string, color: string) => {
+  const createDayType = async (name: string, color: string, score = 0) => {
     try {
-      const newType = await api.createDayType({ name, color });
+      const newType = await api.createDayType({ name, color, score });
       setDayTypes(prev => [...prev, newType]);
       return newType;
     } catch (e) {
@@ -34,7 +34,7 @@ export function useDayTypes() {
     }
   };
 
-  const updateDayType = async (id: string, data: { name?: string; color?: string }) => {
+  const updateDayType = async (id: string, data: { name?: string; color?: string; score?: number }) => {
     try {
       const updated = await api.updateDayType(id, data);
       setDayTypes(prev => prev.map(dt => dt.id === id ? updated : dt));
