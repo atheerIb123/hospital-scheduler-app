@@ -656,6 +656,7 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
   const [saveError, setSaveError] = useState<string | null>(null);
   const [empSearch, setEmpSearch] = useState("");
   const [empOpen, setEmpOpen] = useState(false);
+  const [descSearch, setDescSearch] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -695,9 +696,13 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
     }
   }
 
-  // Aggregate totals per employee
+  // Filter by description first
+  const dq = descSearch.trim().toLowerCase();
+  const descFiltered = dq ? advocates.filter(a => a.description.toLowerCase().includes(dq)) : advocates;
+
+  // Aggregate totals per employee (from description-filtered list)
   const totals: Record<string, { name: string; points: number; count: number }> = {};
-  for (const a of advocates) {
+  for (const a of descFiltered) {
     totals[a.employee_id] ??= { name: a.employee_name, points: 0, count: 0 };
     totals[a.employee_id].points += a.points;
     totals[a.employee_id].count += 1;
@@ -709,8 +714,8 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
   const maxPts = sorted[0]?.[1].points ?? 1;
 
   const filtered = selectedEmployee
-    ? advocates.filter(a => a.employee_id === selectedEmployee)
-    : advocates;
+    ? descFiltered.filter(a => a.employee_id === selectedEmployee)
+    : descFiltered;
 
   if (loading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer" />)}</div>;
 
@@ -740,8 +745,24 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
           </button>
         </div>
 
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="relative flex-1 max-w-xs">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
+            </svg>
+            <input
+              value={descSearch} onChange={e => setDescSearch(e.target.value)}
+              placeholder="חיפוש לפי סוג סנגור..."
+              className="w-full border border-slate-200 rounded-xl pr-8 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
+            />
+            {descSearch && (
+              <button type="button" onClick={() => setDescSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
+            )}
+          </div>
+        </div>
+
         <button type="button" onClick={() => { setShowForm(v => !v); setSaveError(null); }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-all shadow-sm">
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-all shadow-sm shrink-0">
           <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"/></svg>
           הוסף סנגור
         </button>
