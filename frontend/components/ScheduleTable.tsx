@@ -91,6 +91,14 @@ export default function ScheduleTable({
   const [flagVolunteer, setFlagVolunteer] = useState(false);
   const [flagShirking, setFlagShirking] = useState(false);
 
+  // ── Smart search / filter ─────────────────────────────────────────────────
+  const [searchName, setSearchName] = useState("");
+  const [filterShifts, setFilterShifts] = useState<Set<string>>(new Set());
+  const [filterDays, setFilterDays] = useState<Set<number>>(new Set());
+
+  const toggleShift = (s: string) => setFilterShifts(prev => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
+  const toggleDay   = (d: number) => setFilterDays(prev => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; });
+
   function openSelectPopup(day: number, shiftName: string) {
     setPopup({ stage: "select", day, shiftName });
     setShowIneligible(false);
@@ -163,6 +171,17 @@ export default function ScheduleTable({
 
   const daysInMonth = new Date(schedule.year, schedule.month, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  // Apply filters
+  const q = searchName.trim();
+  const visibleSorted = filterShifts.size > 0 ? sorted.filter(st => filterShifts.has(st.names[0])) : sorted;
+  const visibleDays   = filterDays.size > 0
+    ? days.filter(d => filterDays.has(new Date(schedule.year, schedule.month - 1, d).getDay()))
+    : days;
+  const nameMatch = (name: string) => q && name.toLowerCase().includes(q.toLowerCase());
+  const hasNameFilter = !!q;
+  const hasAnyFilter = hasNameFilter || filterShifts.size > 0 || filterDays.size > 0;
+  const DOW_LABELS = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
 
   // Map of date (YYYY-MM-DD) to day type ID
   const dayTypeOverrides: Record<string, string> = {};
@@ -491,13 +510,70 @@ export default function ScheduleTable({
 
   return (
     <>
+      {/* ── Filter bar ── */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-3" dir="rtl">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Name search */}
+          <div className="relative">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
+            </svg>
+            <input
+              value={searchName} onChange={e => setSearchName(e.target.value)}
+              placeholder="חיפוש עובד..."
+              className="border border-slate-200 rounded-xl pr-8 pl-3 py-1.5 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
+            />
+          </div>
+          {/* Day of week toggles */}
+          <div className="flex gap-1">
+            {DOW_LABELS.map((label, d) => (
+              <button key={d} type="button" onClick={() => toggleDay(d)}
+                className={`w-8 h-8 rounded-lg text-xs font-bold border transition-all ${
+                  filterDays.has(d)
+                    ? d === 5 ? "bg-orange-500 text-white border-orange-500" : d === 6 ? "bg-purple-600 text-white border-purple-600" : "bg-slate-700 text-white border-slate-700"
+                    : "bg-white text-slate-500 border-slate-200 hover:border-slate-400"
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {hasAnyFilter && (
+            <button type="button" onClick={() => { setSearchName(""); setFilterShifts(new Set()); setFilterDays(new Set()); }}
+              className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+              ✕ נקה
+            </button>
+          )}
+          {hasAnyFilter && (
+            <span className="text-xs text-slate-400 mr-auto">
+              {visibleDays.length} ימים · {visibleSorted.length} משמרות
+            </span>
+          )}
+        </div>
+        {/* Shift chips */}
+        <div className="flex flex-wrap gap-1.5">
+          {sorted.map((st, i) => {
+            const active = filterShifts.has(st.names[0]);
+            return (
+              <button key={st.id} type="button" onClick={() => toggleShift(st.names[0])}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                  active
+                    ? `${SHIFT_COLORS[i % SHIFT_COLORS.length]} border-current shadow-sm ring-1 ring-current`
+                    : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-400"
+                }`}>
+                {st.names[0]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto sticky-header" style={{ maxHeight: "600px", overflowY: "auto" }}>
           <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-slate-800 text-white">
                 <th className="px-4 py-3 text-center font-semibold whitespace-nowrap sticky top-0 right-0 bg-slate-800 w-14 z-30">יום</th>
-                {sorted.map((st, i) => (
+                {visibleSorted.map((st, i) => (
                   <th key={st.id}
                     className={`px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 z-10 min-w-25 ${
                       desiredSet.has(st.names[0]) ? "bg-amber-700" : "bg-slate-800"
@@ -513,7 +589,7 @@ export default function ScheduleTable({
               </tr>
             </thead>
             <tbody>
-              {days.map((day) => {
+              {visibleDays.map((day) => {
                 const weekend = isWeekend(schedule.year, schedule.month, day);
                 return (
                   <tr key={day} className={`border-b border-slate-100 transition-colors hover:bg-blue-50/40 ${
@@ -527,9 +603,11 @@ export default function ScheduleTable({
                         currentTypeId={dayTypeOverrides[`${schedule.year}-${String(schedule.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`]}
                       />
                     </td>
-                    {sorted.map((st, i) => {
+                    {visibleSorted.map((st, i) => {
                       const shiftName = st.names[0];
                       const name = lookup[day]?.[shiftName];
+                      const matched = hasNameFilter && nameMatch(name ?? "");
+                      const dimmed  = hasNameFilter && !matched && !!name;
                       const fridayOnly = st.friday_only;
                       const dayIsFriday = isFriday(schedule.year, schedule.month, day);
                       const isInactive = fridayOnly && !dayIsFriday;
@@ -555,12 +633,14 @@ export default function ScheduleTable({
                         <td
                           key={st.id}
                           className={`relative px-3 py-2.5 text-center transition-all select-none cursor-pointer ${
-                            isChanged
+                            matched
+                              ? "ring-2 ring-inset ring-blue-400 bg-blue-50"
+                              : isChanged
                               ? "bg-amber-50 ring-1 ring-inset ring-amber-300"
                               : desiredSet.has(shiftName)
                               ? "bg-amber-50/60"
                               : ""
-                          } ${isDragSrc ? "opacity-40" : ""} ${
+                          } ${dimmed ? "opacity-30" : ""} ${isDragSrc ? "opacity-40" : ""} ${
                             isDragOver && dragValid === true
                               ? "ring-2 ring-inset ring-emerald-400 bg-emerald-50"
                               : isDragOver && dragValid === false
