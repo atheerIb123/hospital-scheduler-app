@@ -8,6 +8,7 @@ const links = [
   { href: "/constraints", label: "הסתייגויות" },
   { href: "/schedule",    label: "סידור עבודה" },
   { href: "/justice",     label: "טבלאות ניקוד" },
+  { href: "/stats",       label: "סטטיסטיקות" },
 ];
 
 export default function Nav() {

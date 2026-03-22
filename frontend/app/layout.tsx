@@ -18,7 +18,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="he">
       <body className={`${heebo.variable} font-[family-name:var(--font-heebo)] antialiased min-h-screen`} dir="rtl"
-        style={{ background: "var(--background)", color: "var(--foreground)" }}>
+        style={{ background: "var(--background)", color: "var(--foreground)" }}
+        suppressHydrationWarning>
         <Nav />
         <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
       </body>
