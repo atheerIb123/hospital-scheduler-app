@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown } from "@/lib/api";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer } from "@/lib/api";
 
 type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype";
 type View = "table" | "chart";
@@ -446,11 +446,36 @@ function JusticeSection({ data, view, search, getDayScore, onEmployeeClick }: { 
 
 // ── Volunteer section ─────────────────────────────────────────────────────────
 function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (name: string) => void }) {
+  const [records, setRecords] = useState<Volunteer[]>([]);
+  const [shiftSearch, setShiftSearch] = useState("");
+
+  useEffect(() => {
+    getVolunteers().then(setRecords).catch(() => {});
+  }, []);
+
   const q = search.trim().toLowerCase();
-  const sorted = [...data]
-    .filter(e => !q || e.employee_name.toLowerCase().includes(q))
-    .sort((a, b) => b.volunteer_score - a.volunteer_score);
-  const max = sorted[0]?.volunteer_score ?? 1;
+  const sq = shiftSearch.trim().toLowerCase();
+
+  // When shift filter active, derive sorted list from raw records
+  const shiftFiltered = sq ? records.filter(r => r.shift_name.toLowerCase().includes(sq)) : null;
+
+  const sorted = shiftFiltered
+    ? (() => {
+        const totals: Record<string, { employee_id: string; employee_name: string; volunteer_count: number; volunteer_score: number }> = {};
+        for (const r of shiftFiltered) {
+          if (q && !r.employee_name.toLowerCase().includes(q)) continue;
+          totals[r.employee_id] ??= { employee_id: r.employee_id, employee_name: r.employee_name, volunteer_count: 0, volunteer_score: 0 };
+          totals[r.employee_id].volunteer_count++;
+        }
+        return Object.values(totals).sort((a, b) => b.volunteer_count - a.volunteer_count);
+      })()
+    : [...data]
+        .filter(e => !q || e.employee_name.toLowerCase().includes(q))
+        .sort((a, b) => b.volunteer_score - a.volunteer_score);
+
+  const max = shiftFiltered
+    ? (sorted[0]?.volunteer_count ?? 1)
+    : (sorted[0]?.volunteer_score ?? 1);
 
   if (view === "chart") {
     return (
@@ -462,10 +487,11 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: 
         <div className="p-6">
           <div className="flex items-end gap-3 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
             {sorted.map((e, i) => {
-              const barH = max > 0 ? Math.max(e.volunteer_score > 0 ? 4 : 0, Math.round((e.volunteer_score / max) * 150)) : 0;
+              const val = shiftFiltered ? e.volunteer_count : (e as JusticeEntry).volunteer_score;
+              const barH = max > 0 ? Math.max(val > 0 ? 4 : 0, Math.round((val / max) * 150)) : 0;
               return (
                 <div key={e.employee_id} className="flex flex-col items-center gap-1 min-w-[52px]">
-                  <span className="text-xs font-bold text-slate-600">{e.volunteer_score}</span>
+                  <span className="text-xs font-bold text-slate-600">{val}</span>
                   <div className="w-10 rounded-t-lg transition-all duration-500"
                     style={{
                       height: `${barH}px`,
@@ -486,43 +512,88 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: 
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100">
-        <h3 className="font-bold text-slate-800">טבלת התנדבות</h3>
-        <p className="text-xs text-slate-400 mt-0.5">ניקוד לפי כמות ואיכות ההתנדבויות — ממשמרת לא רצויה מקבלים יותר נקודות</p>
-      </div>
-      <div className="p-5 space-y-2.5">
-        {sorted.map((e, rank) => (
-          <div
-            key={e.employee_id}
-            className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick ? "cursor-pointer hover:bg-green-50" : ""}`}
-            onClick={() => onEmployeeClick?.(e.employee_name)}
-            title={onEmployeeClick ? "לחץ לפירוט" : undefined}
-          >
-            <RankBadge rank={rank} />
-            <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
-            <Bar value={e.volunteer_score} max={max} color={rank === 0 ? "bg-green-500" : rank === 1 ? "bg-green-300" : "bg-green-200"} />
-            <div className="text-xs text-slate-400 shrink-0 w-24 text-left">{e.volunteer_count} התנדבויות</div>
-            {getDayScore && (
-              <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
-                {getDayScore(e.employee_name)}🕍
-              </div>
-            )}
-            {getDayScore && (
-              <div className="text-sm font-bold text-slate-800 shrink-0 w-16 text-center" title="סה״כ">
-                {e.volunteer_score + getDayScore(e.employee_name)}
-              </div>
-            )}
-          </div>
-        ))}
-        {sorted.length === 0 && (
-          <p className="text-center text-slate-400 text-sm py-8">אין נתוני התנדבויות עדיין</p>
+    <div className="space-y-5">
+      {/* Shift filter */}
+      <div className="relative max-w-xs">
+        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+          <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
+        </svg>
+        <input
+          value={shiftSearch} onChange={e => setShiftSearch(e.target.value)}
+          placeholder="חיפוש לפי משמרת..."
+          className="w-full border border-slate-200 rounded-xl pr-8 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
+        />
+        {shiftSearch && (
+          <button type="button" onClick={() => setShiftSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
         )}
       </div>
-      {getDayScore && (
-        <div className="px-6 pb-3 flex gap-4 text-xs text-slate-400">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"/>ניקוד שבת/חגים</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"/>סה״כ = התנדבות + שבת/חגים</span>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100">
+          <h3 className="font-bold text-slate-800">טבלת התנדבות</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {shiftFiltered ? `סינון לפי משמרת: ${shiftSearch}` : "ניקוד לפי כמות ואיכות ההתנדבויות — ממשמרת לא רצויה מקבלים יותר נקודות"}
+          </p>
+        </div>
+        <div className="p-5 space-y-2.5">
+          {sorted.map((e, rank) => {
+            const displayValue = shiftFiltered ? e.volunteer_count : (e as JusticeEntry).volunteer_score;
+            return (
+              <div
+                key={e.employee_id}
+                className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick && !shiftFiltered ? "cursor-pointer hover:bg-green-50" : ""}`}
+                onClick={() => !shiftFiltered && onEmployeeClick?.(e.employee_name)}
+                title={onEmployeeClick && !shiftFiltered ? "לחץ לפירוט" : undefined}
+              >
+                <RankBadge rank={rank} />
+                <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
+                <Bar value={displayValue} max={max} color={rank === 0 ? "bg-green-500" : rank === 1 ? "bg-green-300" : "bg-green-200"} />
+                <div className="text-xs text-slate-400 shrink-0 w-24 text-left">{e.volunteer_count} התנדבויות</div>
+                {!shiftFiltered && getDayScore && (
+                  <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
+                    {getDayScore(e.employee_name)}🕍
+                  </div>
+                )}
+                {!shiftFiltered && getDayScore && (
+                  <div className="text-sm font-bold text-slate-800 shrink-0 w-16 text-center" title="סה״כ">
+                    {(e as JusticeEntry).volunteer_score + getDayScore(e.employee_name)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {sorted.length === 0 && (
+            <p className="text-center text-slate-400 text-sm py-8">אין נתוני התנדבויות עדיין</p>
+          )}
+        </div>
+        {!shiftFiltered && getDayScore && (
+          <div className="px-6 pb-3 flex gap-4 text-xs text-slate-400">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"/>ניקוד שבת/חגים</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"/>סה״כ = התנדבות + שבת/חגים</span>
+          </div>
+        )}
+      </div>
+
+      {/* Detail list when shift filter active */}
+      {shiftFiltered && shiftFiltered.filter(r => !q || r.employee_name.toLowerCase().includes(q)).length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="px-6 py-3 bg-slate-50 border-b border-slate-100">
+            <p className="text-xs font-semibold text-slate-500">פירוט התנדבויות</p>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {shiftFiltered
+              .filter(r => !q || r.employee_name.toLowerCase().includes(q))
+              .map(r => (
+                <div key={r.id} className="flex items-center gap-3 px-6 py-2.5 hover:bg-slate-50 transition-all">
+                  <div className="flex-1">
+                    <span className="text-sm font-semibold text-slate-800">{r.employee_name}</span>
+                    <span className="text-xs text-slate-400 mx-1.5">—</span>
+                    <span className="text-sm text-slate-600">{r.shift_name}</span>
+                    <span className="text-xs text-slate-400 mx-1.5">יום {r.day}/{r.month}/{r.year}</span>
+                  </div>
+                </div>
+              ))}
+          </div>
         </div>
       )}
     </div>
