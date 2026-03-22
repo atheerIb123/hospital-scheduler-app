@@ -1,9 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { getStats, getScheduleByMonth } from "@/lib/api";
+import { getStats } from "@/lib/api";
 import type { StatsData } from "@/lib/api";
-import { useShiftTypes } from "@/hooks/useShiftTypes";
-import SummaryTable from "@/components/SummaryTable";
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -95,7 +93,7 @@ function EmptyState({ msg }: { msg: string }) {
 
 export default function StatsPage() {
   const [rangeIdx, setRangeIdx] = useState(1);
-  const [tab, setTab] = useState<"general" | "byFilter" | "byEmployee" | "monthly">("general");
+  const [tab, setTab] = useState<"general" | "byFilter" | "byEmployee">("general");
   const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,23 +108,6 @@ export default function StatsPage() {
 
   // global employee search (applies to all tabs)
   const [search, setSearch] = useState("");
-
-  // monthly summary tab state
-  const now = new Date();
-  const [sumMonth, setSumMonth] = useState(now.getMonth() + 1);
-  const [sumYear, setSumYear] = useState(now.getFullYear());
-  const [sumSchedule, setSumSchedule] = useState<import("@/lib/types").Schedule | null>(null);
-  const [sumLoading, setSumLoading] = useState(false);
-  const { shiftTypes } = useShiftTypes();
-
-  useEffect(() => {
-    if (tab !== "monthly") return;
-    setSumLoading(true);
-    getScheduleByMonth(sumMonth, sumYear)
-      .then(setSumSchedule)
-      .catch(() => setSumSchedule(null))
-      .finally(() => setSumLoading(false));
-  }, [tab, sumMonth, sumYear]);
 
   // fetch on range change
   useEffect(() => {
@@ -211,10 +192,7 @@ export default function StatsPage() {
     { id: "general",     label: "כללי" },
     { id: "byFilter",    label: "לפי משמרת / יום" },
     { id: "byEmployee",  label: "לפי עובד" },
-    { id: "monthly",     label: "סיכום חודשי" },
   ] as const;
-
-  const MONTH_NAMES = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 
   return (
     <div className="space-y-6">
@@ -301,27 +279,105 @@ export default function StatsPage() {
       ) : !data ? null : (
 
         <>
-          {/* ── Tab 1: General ─────────────────────────────────────────────── */}
-          {tab === "general" && (
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100">
-                <h2 className="font-semibold text-slate-800">סה"כ משמרות לכל עובד</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {data.assignments.length} משמרות בטווח הנבחר
-                </p>
+          {/* ── Tab 1: General — full breakdown table ──────────────────────── */}
+          {tab === "general" && (() => {
+            if (generalRows.length === 0) return <EmptyState msg="אין נתונים בטווח הזמן הנבחר" />;
+
+            const shiftNames = data.shift_names;
+            // per-employee per-shift counts
+            const empMap: Record<string, Record<string, number>> = {};
+            data.employees.forEach(e => { empMap[e] = {}; });
+            data.assignments.forEach(a => {
+              if (!empMap[a.employee_name]) empMap[a.employee_name] = {};
+              empMap[a.employee_name][a.shift_name] = (empMap[a.employee_name][a.shift_name] ?? 0) + 1;
+            });
+            // filtered + sorted by total desc
+            const rows = data.employees
+              .filter(e => !search || e.includes(search))
+              .map(e => ({ name: e, counts: empMap[e] ?? {}, total: Object.values(empMap[e] ?? {}).reduce((s, v) => s + v, 0) }))
+              .sort((a, b) => b.total - a.total);
+
+            // col stats for high/low highlighting
+            const colStats: Record<string, { min: number; max: number }> = {};
+            shiftNames.forEach(s => {
+              const vals = rows.map(r => r.counts[s] ?? 0);
+              colStats[s] = { min: Math.min(...vals), max: Math.max(...vals) };
+            });
+            const totals = rows.map(r => r.total);
+            const totalStats = { min: Math.min(...totals), max: Math.max(...totals) };
+            const maxTotal = Math.max(...totals, 1);
+
+            const SHIFT_COLORS = [
+              "bg-violet-100 text-violet-700","bg-sky-100 text-sky-700","bg-emerald-100 text-emerald-700",
+              "bg-rose-100 text-rose-700","bg-amber-100 text-amber-700","bg-cyan-100 text-cyan-700",
+              "bg-pink-100 text-pink-700","bg-indigo-100 text-indigo-700","bg-teal-100 text-teal-700",
+              "bg-orange-100 text-orange-700","bg-lime-100 text-lime-700","bg-fuchsia-100 text-fuchsia-700",
+              "bg-red-100 text-red-700","bg-blue-100 text-blue-700",
+            ];
+
+            return (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                  <div>
+                    <h2 className="font-semibold text-slate-800">סיכום משמרות לעובד</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">{data.assignments.length} משמרות בטווח הנבחר</p>
+                  </div>
+                  <span className="text-xs bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full font-medium">גבוה / נמוך</span>
+                </div>
+                <div className="overflow-x-auto" style={{ maxHeight: "560px", overflowY: "auto" }}>
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <th className="px-5 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">#</th>
+                        <th className="px-5 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">עובד</th>
+                        {shiftNames.map((s, i) => (
+                          <th key={s} className="px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-50 z-10">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${SHIFT_COLORS[i % SHIFT_COLORS.length]}`}>{s}</span>
+                          </th>
+                        ))}
+                        <th className="px-5 py-3 text-center font-bold text-slate-700 whitespace-nowrap sticky top-0 bg-slate-50 z-10">סה״כ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row, idx) => (
+                        <tr key={row.name} className={`border-b border-slate-50 hover:bg-blue-50/30 ${idx % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                          <td className="px-5 py-3 text-slate-400 text-xs font-medium">{idx + 1}</td>
+                          <td className="px-5 py-3 font-semibold text-slate-800 whitespace-nowrap">{row.name}</td>
+                          {shiftNames.map(s => {
+                            const val = row.counts[s] ?? 0;
+                            const { min, max } = colStats[s];
+                            const isHigh = val === max && min !== max;
+                            const isLow  = val === min && min !== max;
+                            return (
+                              <td key={s} className="px-3 py-3 text-center">
+                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                                  isHigh ? "bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300" :
+                                  isLow  ? "bg-red-100 text-red-600 ring-2 ring-red-200" :
+                                  "text-slate-600"
+                                }`}>{val}</span>
+                              </td>
+                            );
+                          })}
+                          <td className="px-5 py-3 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              <span className={`text-sm font-bold ${
+                                row.total === totalStats.max && totalStats.min !== totalStats.max ? "text-emerald-600" :
+                                row.total === totalStats.min && totalStats.min !== totalStats.max ? "text-red-500" :
+                                "text-slate-700"
+                              }`}>{row.total}</span>
+                              <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-400 rounded-full" style={{ width: `${(row.total / maxTotal) * 100}%` }} />
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div className="p-6">
-                {generalRows.length === 0 ? (
-                  <EmptyState msg="אין נתונים בטווח הזמן הנבחר" />
-                ) : (() => {
-                  const max = generalRows[0]?.count ?? 0;
-                  return generalRows.map((row, i) => (
-                    <BarRow key={row.name} name={row.name} count={row.count} max={max} rank={i + 1} color="bg-blue-400" />
-                  ));
-                })()}
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ── Tab 2: By shift / day ──────────────────────────────────────── */}
           {tab === "byFilter" && (
@@ -535,52 +591,6 @@ export default function StatsPage() {
         </>
       )}
 
-      {/* ── Tab 4: Monthly summary ───────────────────────────────────────── */}
-      {tab === "monthly" && (
-        <div className="space-y-4">
-          {/* Month / year selector */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-wrap items-center gap-4">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">חודש</label>
-              <select
-                value={sumMonth}
-                onChange={(e) => setSumMonth(Number(e.target.value))}
-                className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
-              >
-                {MONTH_NAMES.map((m, i) => (
-                  <option key={i} value={i + 1}>{m}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">שנה</label>
-              <select
-                value={sumYear}
-                onChange={(e) => setSumYear(Number(e.target.value))}
-                className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
-              >
-                {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {sumLoading ? (
-            <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-12 rounded-xl shimmer" />)}</div>
-          ) : !sumSchedule || sumSchedule.status !== "generated" ? (
-            <div className="text-center py-16 bg-white rounded-2xl border border-slate-100 shadow-sm text-slate-400">
-              <p className="font-medium">אין סידור ל{MONTH_NAMES[sumMonth - 1]} {sumYear}</p>
-            </div>
-          ) : (
-            <SummaryTable
-              schedule={sumSchedule}
-              shiftTypes={shiftTypes}
-              assignments={sumSchedule.assignments ?? []}
-            />
-          )}
-        </div>
-      )}
     </div>
   );
 }
