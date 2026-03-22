@@ -159,7 +159,11 @@ def day_type_justice():
             if s.get("score") is not None:
                 date_score_map[s["date"]] = s["score"]
 
-    schedules = list(db.schedules.find({"status": "generated"}))
+    # Keep only the latest generated schedule per (year, month) — same as /justice
+    latest_map = {}
+    for s in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+        latest_map[(s.get("year"), s.get("month"))] = s
+    schedules = list(latest_map.values())
     emp_data = {}  # {name: {shabbat_count, by_type: {type_id: count}}}
 
     for sched in schedules:
