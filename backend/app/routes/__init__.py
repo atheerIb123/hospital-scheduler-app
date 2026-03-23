@@ -7,6 +7,7 @@ from .volunteers import volunteers_bp
 from .shirking import shirking_bp
 from .advocates import advocates_bp
 from .stats import stats_bp
+from .manual_points import manual_points_bp
 
 
 def register_routes(app):
@@ -19,3 +20,4 @@ def register_routes(app):
     app.register_blueprint(shirking_bp, url_prefix="/api")
     app.register_blueprint(advocates_bp, url_prefix="/api")
     app.register_blueprint(stats_bp, url_prefix="/api")
+    app.register_blueprint(manual_points_bp, url_prefix="/api")

@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer } from "@/lib/api";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, getManualPoints, addManualPoint, removeManualPoint, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer, type ManualPoint, type ManualPointTable } from "@/lib/api";
 
-type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype";
+type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype" | "manual";
 type View = "table" | "chart";
 type RangeType = "week" | "month" | "year";
+type DayTypeFilter = "combined" | "shabbat" | "holidays";
 
 // ── Date range helpers ────────────────────────────────────────────────────────
 function toISO(d: Date) {
@@ -65,15 +66,108 @@ function RankBadge({ rank }: { rank: number }) {
   );
 }
 
-function Bar({ value, max, color }: { value: number; max: number; color: string }) {
+function Bar({ value, max, color, children }: { value: number; max: number; color: string; children?: React.ReactNode }) {
   const pct = max > 0 ? (value / max) * 100 : 0;
   return (
     <div className="flex-1 bg-slate-100 rounded-full h-6 relative overflow-hidden min-w-[80px]">
       <div className={`h-6 rounded-full transition-all duration-500 ${color}`}
         style={{ width: `${pct}%`, minWidth: value > 0 ? "1.5rem" : "0" }} />
-      <span className="absolute inset-y-0 right-2 flex items-center text-xs font-bold text-slate-700">
-        {value}
+      <span className="absolute inset-y-0 right-2 flex items-center text-xs font-bold text-slate-700 gap-1">
+        {children ?? value}
       </span>
+    </div>
+  );
+}
+
+// ── Manual points +/− popover ─────────────────────────────────────────────────
+function PointsButton({ employeeId, employeeName, manualTotal, table, onAdd }: {
+  employeeId: string;
+  employeeName: string;
+  manualTotal: number;
+  table: ManualPointTable;
+  onAdd: (employeeId: string, employeeName: string, points: number, reason: string, table: ManualPointTable, date?: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [points, setPoints] = useState(1);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>({});
+
+  const openPopover = () => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setStyle({ position: "fixed", top: r.bottom + 6, right: window.innerWidth - r.right });
+    }
+    setOpen(true);
+  };
+
+  const submit = async (sign: 1 | -1) => {
+    if (!points) return;
+    setSaving(true);
+    try {
+      await onAdd(employeeId, employeeName, sign * Math.abs(points), reason, table, new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" }));
+      setReason("");
+      setPoints(1);
+      setOpen(false);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={openPopover}
+        title="הוסף / הורד נקודות"
+        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold border transition-all
+          ${manualTotal > 0 ? "bg-emerald-50 border-emerald-300 text-emerald-700" :
+            manualTotal < 0 ? "bg-rose-50 border-rose-300 text-rose-600" :
+            "bg-slate-50 border-slate-200 text-slate-400 hover:border-blue-300 hover:text-blue-600"}`}
+      >
+        {manualTotal !== 0 && <span>{manualTotal > 0 ? "+" : ""}{manualTotal}</span>}
+        <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+          <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"/>
+        </svg>
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div style={style} className="z-[9999] bg-white rounded-xl shadow-xl border border-slate-200 p-3 w-52" dir="rtl">
+            <p className="text-xs font-bold text-slate-500 mb-2">ניקוד ידני — {employeeName}</p>
+            <div className="flex items-center gap-1.5 mb-2">
+              <button type="button" onClick={() => setPoints(p => Math.max(1, p - 1))}
+                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-slate-600 flex items-center justify-center text-base transition-colors">−</button>
+              <input
+                type="number" min={1} value={points}
+                onChange={e => setPoints(Math.max(1, Number(e.target.value)))}
+                onClick={e => e.stopPropagation()}
+                className="flex-1 text-center text-sm font-bold border border-slate-200 rounded-lg py-1 focus:outline-none focus:ring-1 focus:ring-blue-300"
+              />
+              <button type="button" onClick={() => setPoints(p => p + 1)}
+                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-slate-600 flex items-center justify-center text-base transition-colors">+</button>
+            </div>
+            <input
+              type="text" value={reason} onChange={e => setReason(e.target.value)}
+              placeholder="סיבה (אופציונלי)"
+              onClick={e => e.stopPropagation()}
+              onKeyDown={e => e.stopPropagation()}
+              className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs mb-2 focus:outline-none focus:ring-1 focus:ring-blue-300"
+            />
+            <div className="flex gap-1.5">
+              <button type="button" disabled={saving} onClick={() => submit(1)}
+                className="flex-1 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50">
+                +{points} הוסף
+              </button>
+              <button type="button" disabled={saving} onClick={() => submit(-1)}
+                className="flex-1 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50">
+                −{points} הורד
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -87,11 +181,14 @@ const DES_COLORS: Record<number, string> = {
   5: "bg-emerald-100 text-emerald-700",
 };
 
-function BreakdownModal({ employee, startDate, endDate, onClose }: {
+function BreakdownModal({ employee, employeeId, manualPoints, startDate, endDate, onClose, filter = "combined" }: {
   employee: string;
+  employeeId?: string;
+  manualPoints?: ManualPoint[];
   startDate?: string;
   endDate?: string;
   onClose: () => void;
+  filter?: DayTypeFilter;
 }) {
   const [data, setData] = useState<JusticeBreakdown | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,6 +206,11 @@ function BreakdownModal({ employee, startDate, endDate, onClose }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Calculate manual points for this employee (filter by ID if available)
+  const relevantManual = (manualPoints ?? []).filter(p => p.employee_id === employeeId);
+  const manualSum = relevantManual.reduce((sum, p) => sum + p.points, 0);
+  const displayTotal = (data?.total ?? 0) + manualSum;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
@@ -122,8 +224,8 @@ function BreakdownModal({ employee, startDate, endDate, onClose }: {
             <h2 className="font-bold text-slate-800 text-lg">{employee}</h2>
             <p className="text-xs text-slate-400 mt-0.5">פירוט חישוב ניקוד צדק</p>
           </div>
-          {data && (
-            <div className="text-2xl font-bold text-blue-600 ml-4">{data.total} נק׳</div>
+          {!loading && (
+            <div className="text-2xl font-bold text-blue-600 ml-4">{displayTotal} נק׳</div>
           )}
           <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
@@ -136,7 +238,7 @@ function BreakdownModal({ employee, startDate, endDate, onClose }: {
         <div className="overflow-y-auto flex-1">
           {loading ? (
             <div className="p-8 text-center text-slate-400 text-sm">טוען...</div>
-          ) : !data || data.rows.length === 0 ? (
+          ) : (!data || data.rows.length === 0) && relevantManual.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-sm">אין נתוני משמרות בטווח הנבחר</div>
           ) : (
             <table className="min-w-full text-sm">
@@ -152,7 +254,7 @@ function BreakdownModal({ employee, startDate, endDate, onClose }: {
                 </tr>
               </thead>
               <tbody>
-                {data.rows.map((row, i) => (
+                {data?.rows.map((row, i) => (
                   <tr key={i} className={`border-b border-slate-50 hover:bg-blue-50/30 ${i % 2 === 0 ? "" : "bg-slate-50/40"}`}>
                     <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">{row.date}</td>
                     <td className="px-4 py-2.5 text-slate-700 font-medium whitespace-nowrap">{row.day_of_week}</td>
@@ -169,11 +271,24 @@ function BreakdownModal({ employee, startDate, endDate, onClose }: {
                     <td className="px-4 py-2.5 text-center font-bold text-slate-800">{row.total}</td>
                   </tr>
                 ))}
+                {relevantManual.map((mp) => (
+                  <tr key={mp.id} className="bg-amber-50/40 border-b border-amber-100 hover:bg-amber-50">
+                    <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">
+                      {new Date(mp.created_at).toLocaleDateString("he-IL")}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">-</td>
+                    <td className="px-4 py-2.5 text-slate-700 font-medium">{mp.reason || "ניקוד ידני"}</td>
+                    <td className="px-4 py-2.5 text-center text-xs text-slate-400">-</td>
+                    <td className="px-4 py-2.5 text-center font-semibold text-blue-600" dir="ltr">{mp.points > 0 ? `+${mp.points}` : mp.points}</td>
+                    <td className="px-4 py-2.5 text-center">-</td>
+                    <td className="px-4 py-2.5 text-center font-bold text-slate-800" dir="ltr">{mp.points > 0 ? `+${mp.points}` : mp.points}</td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot className="sticky bottom-0 bg-white border-t-2 border-slate-200">
                 <tr>
                   <td colSpan={6} className="px-4 py-3 text-right font-bold text-slate-700">סה״כ</td>
-                  <td className="px-4 py-3 text-center font-bold text-blue-600 text-base">{data.total}</td>
+                  <td className="px-4 py-3 text-center font-bold text-blue-600 text-base">{displayTotal}</td>
                 </tr>
               </tfoot>
             </table>
@@ -185,8 +300,10 @@ function BreakdownModal({ employee, startDate, endDate, onClose }: {
 }
 
 // ── Volunteer Breakdown modal ──────────────────────────────────────────────────
-function VolunteerBreakdownModal({ employee, startDate, endDate, onClose }: {
+function VolunteerBreakdownModal({ employee, employeeId, manualPoints, startDate, endDate, onClose }: {
   employee: string;
+  employeeId?: string;
+  manualPoints?: ManualPoint[];
   startDate?: string;
   endDate?: string;
   onClose: () => void;
@@ -205,6 +322,11 @@ function VolunteerBreakdownModal({ employee, startDate, endDate, onClose }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Calculate manual points
+  const relevantManual = (manualPoints ?? []).filter(p => p.employee_id === employeeId);
+  const manualSum = relevantManual.reduce((sum, p) => sum + p.points, 0);
+  const displayTotal = (data?.total ?? 0) + manualSum;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
@@ -214,7 +336,7 @@ function VolunteerBreakdownModal({ employee, startDate, endDate, onClose }: {
             <h2 className="font-bold text-slate-800 text-lg">{employee}</h2>
             <p className="text-xs text-slate-400 mt-0.5">פירוט חישוב ניקוד התנדבות</p>
           </div>
-          {data && <div className="text-2xl font-bold text-green-600 ml-4">{data.total} נק׳</div>}
+          {!loading && <div className="text-2xl font-bold text-green-600 ml-4">{displayTotal} נק׳</div>}
           <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
           </button>
@@ -222,7 +344,7 @@ function VolunteerBreakdownModal({ employee, startDate, endDate, onClose }: {
         <div className="overflow-y-auto flex-1">
           {loading ? (
             <div className="p-8 text-center text-slate-400 text-sm">טוען...</div>
-          ) : !data || data.rows.length === 0 ? (
+          ) : (!data || data.rows.length === 0) && relevantManual.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-sm">אין נתוני התנדבויות בטווח הנבחר</div>
           ) : (
             <table className="min-w-full text-sm">
@@ -236,7 +358,7 @@ function VolunteerBreakdownModal({ employee, startDate, endDate, onClose }: {
                 </tr>
               </thead>
               <tbody>
-                {data.rows.map((row, i) => (
+                {data?.rows.map((row, i) => (
                   <tr key={i} className={`border-b border-slate-50 hover:bg-green-50/30 ${i % 2 === 0 ? "" : "bg-slate-50/40"}`}>
                     <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">{row.date}</td>
                     <td className="px-4 py-2.5 text-slate-700 font-medium whitespace-nowrap">{row.day_of_week}</td>
@@ -249,11 +371,22 @@ function VolunteerBreakdownModal({ employee, startDate, endDate, onClose }: {
                     <td className="px-4 py-2.5 text-center font-bold text-green-600">{row.total}</td>
                   </tr>
                 ))}
+                {relevantManual.map((mp) => (
+                  <tr key={mp.id} className="bg-amber-50/40 border-b border-amber-100 hover:bg-amber-50">
+                    <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">
+                      {new Date(mp.created_at).toLocaleDateString("he-IL")}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">-</td>
+                    <td className="px-4 py-2.5 text-slate-700 font-medium">{mp.reason || "ניקוד ידני"}</td>
+                    <td className="px-4 py-2.5 text-center text-xs text-slate-400">-</td>
+                    <td className="px-4 py-2.5 text-center font-bold text-green-600" dir="ltr">{mp.points > 0 ? `+${mp.points}` : mp.points}</td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot className="sticky bottom-0 bg-white border-t-2 border-slate-200">
                 <tr>
                   <td colSpan={4} className="px-4 py-3 text-right font-bold text-slate-700">סה״כ</td>
-                  <td className="px-4 py-3 text-center font-bold text-green-600 text-base">{data.total}</td>
+                  <td className="px-4 py-3 text-center font-bold text-green-600 text-base">{displayTotal}</td>
                 </tr>
               </tfoot>
             </table>
@@ -265,11 +398,14 @@ function VolunteerBreakdownModal({ employee, startDate, endDate, onClose }: {
 }
 
 // ── DayType Breakdown modal ────────────────────────────────────────────────────
-function DayTypeBreakdownModal({ employee, startDate, endDate, onClose }: {
+function DayTypeBreakdownModal({ employee, employeeId, manualPoints, startDate, endDate, onClose, filter }: {
   employee: string;
+  employeeId?: string;
+  manualPoints?: ManualPoint[];
   startDate?: string;
   endDate?: string;
   onClose: () => void;
+  filter: DayTypeFilter;
 }) {
   const [data, setData] = useState<DayTypeBreakdown | null>(null);
   const [loading, setLoading] = useState(true);
@@ -285,6 +421,21 @@ function DayTypeBreakdownModal({ employee, startDate, endDate, onClose }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Filter rows based on view
+  const rows = data?.rows.filter(r => {
+    if (filter === "shabbat") return r.is_shabbat;
+    if (filter === "holidays") return !r.is_shabbat && r.day_type; // Show only non-shabbat day types (holidays)
+    return true; // combined
+  }) ?? [];
+
+  // Calculate manual points
+  // Manual points are only part of the "combined" score in the main table logic, so we hide them in filtered views to match.
+  const relevantManual = filter === "combined" ? (manualPoints ?? []).filter(p => p.employee_id === employeeId) : [];
+  const manualSum = relevantManual.reduce((sum, p) => sum + p.points, 0);
+  
+  const rowsTotal = rows.reduce((sum, r) => sum + r.total, 0);
+  const displayTotal = rowsTotal + manualSum;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
@@ -294,7 +445,12 @@ function DayTypeBreakdownModal({ employee, startDate, endDate, onClose }: {
             <h2 className="font-bold text-slate-800 text-lg">{employee}</h2>
             <p className="text-xs text-slate-400 mt-0.5">פירוט חישוב ניקוד שבתות וחגים</p>
           </div>
-          {data && <div className="text-2xl font-bold text-purple-600 ml-4">{data.total} נק׳</div>}
+          {!loading && (
+            <div className="flex flex-col items-end ml-4">
+              <div className="text-2xl font-bold text-purple-600">{displayTotal} נק׳</div>
+              {filter !== "combined" && <span className="text-[10px] text-slate-400">({filter === "shabbat" ? "שבתות בלבד" : "חגים בלבד"})</span>}
+            </div>
+          )}
           <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
           </button>
@@ -302,7 +458,7 @@ function DayTypeBreakdownModal({ employee, startDate, endDate, onClose }: {
         <div className="overflow-y-auto flex-1">
           {loading ? (
             <div className="p-8 text-center text-slate-400 text-sm">טוען...</div>
-          ) : !data || data.rows.length === 0 ? (
+          ) : rows.length === 0 && relevantManual.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-sm">אין נתוני שבתות / חגים בטווח הנבחר</div>
           ) : (
             <table className="min-w-full text-sm">
@@ -317,7 +473,7 @@ function DayTypeBreakdownModal({ employee, startDate, endDate, onClose }: {
                 </tr>
               </thead>
               <tbody>
-                {data.rows.map((row, i) => (
+                {rows.map((row, i) => (
                   <tr key={i} className={`border-b border-slate-50 hover:bg-purple-50/30 ${i % 2 === 0 ? "" : "bg-slate-50/40"}`}>
                     <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">{row.date}</td>
                     <td className="px-4 py-2.5 text-slate-700 font-medium whitespace-nowrap">{row.day_of_week}</td>
@@ -335,11 +491,23 @@ function DayTypeBreakdownModal({ employee, startDate, endDate, onClose }: {
                     <td className="px-4 py-2.5 text-center font-bold text-purple-700">{row.total}</td>
                   </tr>
                 ))}
+                {relevantManual.map((mp) => (
+                  <tr key={mp.id} className="bg-amber-50/40 border-b border-amber-100 hover:bg-amber-50">
+                    <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">
+                      {new Date(mp.created_at).toLocaleDateString("he-IL")}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">-</td>
+                    <td className="px-4 py-2.5 text-slate-700 font-medium">{mp.reason || "ניקוד ידני"}</td>
+                    <td className="px-4 py-2.5 text-center text-xs text-slate-400">-</td>
+                    <td className="px-4 py-2.5 text-center text-xs text-slate-400">-</td>
+                    <td className="px-4 py-2.5 text-center font-bold text-purple-700" dir="ltr">{mp.points > 0 ? `+${mp.points}` : mp.points}</td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot className="sticky bottom-0 bg-white border-t-2 border-slate-200">
                 <tr>
                   <td colSpan={5} className="px-4 py-3 text-right font-bold text-slate-700">סה״כ</td>
-                  <td className="px-4 py-3 text-center font-bold text-purple-600 text-base">{data.total}</td>
+                  <td className="px-4 py-3 text-center font-bold text-purple-600 text-base">{displayTotal}</td>
                 </tr>
               </tfoot>
             </table>
@@ -351,12 +519,19 @@ function DayTypeBreakdownModal({ employee, startDate, endDate, onClose }: {
 }
 
 // ── Justice section ───────────────────────────────────────────────────────────
-function JusticeSection({ data, view, search, getDayScore, onEmployeeClick }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (name: string) => void }) {
+function JusticeSection({ data, view, search, getDayScore, onEmployeeClick, manualTotals = {} }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (id: string, name: string) => void; manualTotals?: Record<string, number>; }) {
   const q = search.trim().toLowerCase();
   const sorted = [...data]
     .filter(e => !q || e.employee_name.toLowerCase().includes(q))
-    .sort((a, b) => b.justice_score - a.justice_score);
-  const max = sorted[0]?.justice_score ?? 1;
+    .sort((a, b) => {
+      // Use fallback if employee_id is missing/mismatch
+      const manualA = manualTotals[a.employee_id] ?? 0;
+      const manualB = manualTotals[b.employee_id] ?? 0;
+      const scoreA = a.justice_score + manualA;
+      const scoreB = b.justice_score + manualB;
+      return scoreB - scoreA;
+    });
+  const max = sorted.length > 0 ? sorted[0].justice_score + (manualTotals[sorted[0].employee_id] ?? 0) : 1;
 
   if (view === "chart") {
     return (
@@ -411,12 +586,19 @@ function JusticeSection({ data, view, search, getDayScore, onEmployeeClick }: { 
           <div
             key={e.employee_id}
             className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick ? "cursor-pointer hover:bg-blue-50" : ""}`}
-            onClick={() => onEmployeeClick?.(e.employee_name)}
+            onClick={() => onEmployeeClick?.(e.employee_id, e.employee_name)}
             title={onEmployeeClick ? "לחץ לפירוט" : undefined}
           >
+            {(() => {
+              const manual = manualTotals[e.employee_id] ?? 0;
+              const totalScore = e.justice_score + manual;
+              return (
+                <>
             <RankBadge rank={rank} />
             <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
-            <Bar value={e.justice_score} max={max} color={rank === 0 ? "bg-amber-400" : rank === 1 ? "bg-slate-300" : rank === 2 ? "bg-orange-300" : "bg-blue-400"} />
+            <Bar value={totalScore} max={max} color={rank === 0 ? "bg-amber-400" : rank === 1 ? "bg-slate-300" : rank === 2 ? "bg-orange-300" : "bg-blue-400"}>
+              {totalScore}
+            </Bar>
             <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{e.justice_shifts} משמרות</div>
             {getDayScore && (
               <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
@@ -425,9 +607,12 @@ function JusticeSection({ data, view, search, getDayScore, onEmployeeClick }: { 
             )}
             {getDayScore && (
               <div className="text-sm font-bold text-slate-800 shrink-0 w-16 text-center" title="סה״כ">
-                {e.justice_score + getDayScore(e.employee_name)}
+                {totalScore + getDayScore(e.employee_name)}
               </div>
             )}
+                </>
+              );
+            })()}
           </div>
         ))}
         {sorted.length === 0 && (
@@ -445,7 +630,7 @@ function JusticeSection({ data, view, search, getDayScore, onEmployeeClick }: { 
 }
 
 // ── Volunteer section ─────────────────────────────────────────────────────────
-function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (name: string) => void }) {
+function VolunteerSection({ data, view, search, onEmployeeClick, manualTotals = {} }: { data: JusticeEntry[]; view: View; search: string; onEmployeeClick?: (id: string, name: string) => void; manualTotals?: Record<string, number>; }) {
   const [records, setRecords] = useState<Volunteer[]>([]);
   const [shiftSearch, setShiftSearch] = useState("");
 
@@ -471,11 +656,15 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: 
       })()
     : [...data]
         .filter(e => !q || e.employee_name.toLowerCase().includes(q))
-        .sort((a, b) => b.volunteer_score - a.volunteer_score);
+        .sort((a, b) => {
+          const scoreA = a.volunteer_score + (manualTotals[a.employee_id] ?? 0);
+          const scoreB = b.volunteer_score + (manualTotals[b.employee_id] ?? 0);
+          return scoreB - scoreA;
+        });
 
   const max = shiftFiltered
     ? (sorted[0]?.volunteer_count ?? 1)
-    : (sorted[0]?.volunteer_score ?? 1);
+    : (sorted.length > 0 ? sorted[0].volunteer_score + (manualTotals[sorted[0].employee_id] ?? 0) : 1);
 
   if (view === "chart") {
     return (
@@ -537,28 +726,21 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: 
         </div>
         <div className="p-5 space-y-2.5">
           {sorted.map((e, rank) => {
-            const displayValue = shiftFiltered ? e.volunteer_count : (e as JusticeEntry).volunteer_score;
+            const manual = manualTotals[e.employee_id] ?? 0;
+            const displayValue = shiftFiltered ? e.volunteer_count : (e as JusticeEntry).volunteer_score + manual;
             return (
               <div
                 key={e.employee_id}
                 className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick && !shiftFiltered ? "cursor-pointer hover:bg-green-50" : ""}`}
-                onClick={() => !shiftFiltered && onEmployeeClick?.(e.employee_name)}
+                onClick={() => !shiftFiltered && onEmployeeClick?.(e.employee_id, e.employee_name)}
                 title={onEmployeeClick && !shiftFiltered ? "לחץ לפירוט" : undefined}
               >
                 <RankBadge rank={rank} />
                 <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.employee_name}</div>
-                <Bar value={displayValue} max={max} color={rank === 0 ? "bg-green-500" : rank === 1 ? "bg-green-300" : "bg-green-200"} />
+                <Bar value={displayValue} max={max} color={rank === 0 ? "bg-green-500" : rank === 1 ? "bg-green-300" : "bg-green-200"}>
+                  {displayValue}
+                </Bar>
                 <div className="text-xs text-slate-400 shrink-0 w-24 text-left">{e.volunteer_count} התנדבויות</div>
-                {!shiftFiltered && getDayScore && (
-                  <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
-                    {getDayScore(e.employee_name)}🕍
-                  </div>
-                )}
-                {!shiftFiltered && getDayScore && (
-                  <div className="text-sm font-bold text-slate-800 shrink-0 w-16 text-center" title="סה״כ">
-                    {(e as JusticeEntry).volunteer_score + getDayScore(e.employee_name)}
-                  </div>
-                )}
               </div>
             );
           })}
@@ -566,12 +748,6 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: 
             <p className="text-center text-slate-400 text-sm py-8">אין נתוני התנדבויות עדיין</p>
           )}
         </div>
-        {!shiftFiltered && getDayScore && (
-          <div className="px-6 pb-3 flex gap-4 text-xs text-slate-400">
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"/>ניקוד שבת/חגים</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"/>סה״כ = התנדבות + שבת/חגים</span>
-          </div>
-        )}
       </div>
 
       {/* Detail list when shift filter active */}
@@ -600,70 +776,48 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick }: 
   );
 }
 
-// ── Combined chart ────────────────────────────────────────────────────────────
-function CombinedChart({ data, search }: { data: JusticeEntry[]; search: string }) {
+// ── All-in-one Combined table ─────────────────────────────────────────────────
+
+type AllCombinedEntry = {
+  empId: string;
+  name: string;
+  scores: {
+    justice: number;
+    volunteer: number;
+    daytype: number;
+    shirking: number;
+    advocates: number;
+  };
+  total: number;
+  manual: number;
+};
+
+const SCORE_COLS: { key: keyof AllCombinedEntry['scores']; label: string; color: string }[] = [
+  { key: "justice",   label: "צדק",        color: "bg-blue-400" },
+  { key: "volunteer", label: "התנדבות",    color: "bg-green-400" },
+  { key: "daytype",   label: "שבת/חג",     color: "bg-purple-400" },
+  { key: "advocates", label: "סנגורים",     color: "bg-fuchsia-400" },
+  { key: "shirking",  label: "הברזות",     color: "bg-rose-400" },
+];
+
+function AllCombinedTable({ data, search }: {
+  data: AllCombinedEntry[];
+  search: string;
+}) {
   const q = search.trim().toLowerCase();
-  const filtered = data.filter(e => !q || e.employee_name.toLowerCase().includes(q));
-  const maxJ = Math.max(...filtered.map(e => e.justice_score), 1);
-  const maxV = Math.max(...filtered.map(e => e.volunteer_score), 1);
-  const sorted = [...filtered].sort((a, b) => (b.justice_score + b.volunteer_score) - (a.justice_score + a.volunteer_score));
+  const filtered = data.filter(e => !q || e.name.toLowerCase().includes(q));
+
+  // Find max absolute value for each column for bar scaling
+  const maxScores: Record<string, number> = {};
+  SCORE_COLS.forEach(col => {
+    maxScores[col.key] = Math.max(...filtered.map(e => Math.abs(e.scores[col.key])), 1);
+  });
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-100">
-        <h3 className="font-bold text-slate-800">גרף משולב — צדק + התנדבות</h3>
-        <p className="text-xs text-slate-400 mt-0.5">כחול = צדק, ירוק = התנדבות</p>
-      </div>
-      <div className="p-6">
-        <div className="flex items-end gap-4 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
-          {sorted.map((e) => {
-            const barJ = maxJ > 0 ? Math.max(e.justice_score > 0 ? 4 : 0, Math.round((e.justice_score / maxJ) * 100)) : 0;
-            const barV = maxV > 0 ? Math.max(e.volunteer_score > 0 ? 4 : 0, Math.round((e.volunteer_score / maxV) * 100)) : 0;
-            return (
-              <div key={e.employee_id} className="flex flex-col items-center gap-1 min-w-[64px]">
-                <div className="flex items-end gap-1 h-32">
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="text-[10px] text-blue-600 font-bold">{e.justice_score}</span>
-                    <div className="w-5 rounded-t-lg bg-blue-400 transition-all duration-500"
-                      style={{ height: `${barJ}px` }} />
-                  </div>
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="text-[10px] text-green-600 font-bold">{e.volunteer_score}</span>
-                    <div className="w-5 rounded-t-lg bg-green-400 transition-all duration-500"
-                      style={{ height: `${barV}px` }} />
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex gap-4 mt-2 overflow-x-auto">
-          {sorted.map((e) => (
-            <div key={e.employee_id} className="min-w-[64px] text-center text-[10px] text-slate-500 truncate">{e.employee_name}</div>
-          ))}
-        </div>
-        <div className="flex gap-4 mt-3 text-xs">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-400 inline-block"/>צדק</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-400 inline-block"/>התנדבות</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Combined table ────────────────────────────────────────────────────────────
-function CombinedTable({ data, search }: { data: JusticeEntry[]; search: string }) {
-  const q = search.trim().toLowerCase();
-  const filtered = data.filter(e => !q || e.employee_name.toLowerCase().includes(q));
-  const sorted = [...filtered].sort((a, b) => (b.justice_score + b.volunteer_score) - (a.justice_score + a.volunteer_score));
-  const maxJ = Math.max(...filtered.map(e => e.justice_score), 1);
-  const maxV = Math.max(...filtered.map(e => e.volunteer_score), 1);
-
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100">
-        <h3 className="font-bold text-slate-800">טבלה משולבת — צדק + התנדבות</h3>
-        <p className="text-xs text-slate-400 mt-0.5">ממוין לפי סה״כ נקודות (צדק + התנדבות)</p>
+        <h3 className="font-bold text-slate-800">טבלה משולבת כללית</h3>
+        <p className="text-xs text-slate-400 mt-0.5">ממוין לפי סה״כ נקודות משוקלל מכל הטבלאות</p>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
@@ -671,38 +825,35 @@ function CombinedTable({ data, search }: { data: JusticeEntry[]; search: string 
             <tr className="bg-slate-50 border-b border-slate-200">
               <th className="px-4 py-3 font-semibold text-slate-500 w-10 text-center">#</th>
               <th className="px-4 py-3 font-semibold text-slate-600 text-right">עובד</th>
-              <th className="px-4 py-3 font-semibold text-blue-600 text-center">ניקוד צדק</th>
-              <th className="px-4 py-3 font-semibold text-green-600 text-center">ניקוד התנדבות</th>
+              {SCORE_COLS.map(col => (
+                <th key={col.key} className="px-4 py-3 font-semibold text-slate-600 text-center">{col.label}</th>
+              ))}
               <th className="px-4 py-3 font-semibold text-slate-700 text-center">סה״כ</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((e, rank) => {
-              const total = e.justice_score + e.volunteer_score;
-              const pctJ = maxJ > 0 ? (e.justice_score / maxJ) * 100 : 0;
-              const pctV = maxV > 0 ? (e.volunteer_score / maxV) * 100 : 0;
+            {filtered.map((e, rank) => {
               return (
-                <tr key={e.employee_id} className={`border-b border-slate-50 hover:bg-slate-50 ${rank % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                <tr key={e.empId} className={`border-b border-slate-50 hover:bg-slate-50 ${rank % 2 === 0 ? "" : "bg-slate-50/40"}`}>
                   <td className="px-4 py-3 text-center"><RankBadge rank={rank} /></td>
-                  <td className="px-4 py-3 font-semibold text-slate-800">{e.employee_name}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
-                        <div className="h-4 bg-blue-400 rounded-full" style={{ width: `${pctJ}%` }} />
-                      </div>
-                      <span className="text-xs font-bold text-blue-600 w-8 text-left">{e.justice_score}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
-                        <div className="h-4 bg-green-400 rounded-full" style={{ width: `${pctV}%` }} />
-                      </div>
-                      <span className="text-xs font-bold text-green-600 w-8 text-left">{e.volunteer_score}</span>
-                    </div>
-                  </td>
+                  <td className="px-4 py-3 font-semibold text-slate-800">{e.name}</td>
+                  {SCORE_COLS.map(col => {
+                    const value = e.scores[col.key];
+                    const max = maxScores[col.key];
+                    const pct = max > 0 ? (Math.abs(value) / max) * 100 : 0;
+                    return (
+                      <td key={col.key} className="px-4 py-3 min-w-[120px]">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
+                            <div className={`h-4 rounded-full ${col.color}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-xs font-bold text-slate-600 w-8 text-left">{value}</span>
+                        </div>
+                      </td>
+                    );
+                  })}
                   <td className="px-4 py-3 text-center">
-                    <span className="text-sm font-bold text-slate-800">{total}</span>
+                    <span className="text-sm font-bold text-slate-800">{e.total}</span>
                   </td>
                 </tr>
               );
@@ -715,14 +866,14 @@ function CombinedTable({ data, search }: { data: JusticeEntry[]; search: string 
 }
 
 // ── Advocates section ─────────────────────────────────────────────────────────
-function AdvocatesSection({ employees, search }: { employees: Employee[]; search: string }) {
+function AdvocatesSection({ employees, search, manualTotals = {} }: { employees: Employee[]; search: string; manualTotals?: Record<string, number>; }) {
   const [advocates, setAdvocates] = useState<Advocate[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [advView, setAdvView] = useState<View>("table");
-  const [form, setForm] = useState({ employee_id: "", description: "", points: 1, date: new Date().toISOString().slice(0, 10) });
+  const [form, setForm] = useState({ employee_id: "", description: "", points: 1, date: new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" }) });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [empSearch, setEmpSearch] = useState("");
@@ -1009,16 +1160,93 @@ function AdvocatesSection({ employees, search }: { employees: Employee[]; search
   );
 }
 
+// ── Shirking Breakdown modal ──────────────────────────────────────────────────
+function ShirkingBreakdownModal({ 
+  employeeName, 
+  records, 
+  manualPoints, 
+  onClose,
+  onRemoveRecord 
+}: {
+  employeeName: string;
+  records: ShirkingRecord[];
+  manualPoints: ManualPoint[];
+  onClose: () => void;
+  onRemoveRecord: (id: string) => Promise<void>;
+}) {
+  const total = records.length + manualPoints.reduce((sum, p) => sum + p.points, 0);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+           <div>
+            <h2 className="font-bold text-slate-800 text-lg">{employeeName}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">פירוט הברזות</p>
+          </div>
+          <div className="text-2xl font-bold text-rose-600 ml-4">{total} הברזות</div>
+          <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1">
+          {records.length === 0 && manualPoints.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">אין הברזות רשומות</div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {records.map(r => (
+                <div key={r.id} className="flex items-center gap-3 px-6 py-3 hover:bg-slate-50 transition-all">
+                  <div className="flex-1">
+                    <span className="text-sm font-semibold text-slate-800">{r.shift_name}</span>
+                    <span className="text-xs text-slate-400 mx-2">{r.day}/{r.month}/{r.year}</span>
+                    {r.replacement_name && <span className="text-xs text-slate-500 block mt-0.5">הוחלף ע״י {r.replacement_name}</span>}
+                  </div>
+                  <button type="button" onClick={() => onRemoveRecord(r.id)} className="text-slate-300 hover:text-red-400 transition-all shrink-0">
+                    <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd"/></svg>
+                  </button>
+                </div>
+              ))}
+              {manualPoints.map(mp => (
+                <div key={mp.id} className="flex items-center gap-3 px-6 py-3 hover:bg-amber-50 bg-amber-50/40 transition-all">
+                  <div className="flex-1">
+                     <span className="text-sm font-semibold text-slate-800">{mp.reason || "ניקוד ידני"}</span>
+                     <span className="text-xs text-slate-400 mx-2">{new Date(mp.created_at).toLocaleDateString("he-IL")}</span>
+                  </div>
+                  <span className={`text-sm font-bold ${mp.points > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    {mp.points > 0 ? "+" : ""}{mp.points}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Shirking section ──────────────────────────────────────────────────────────
-function ShirkingSection({ search, volunteerData }: {
+function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManualPoint, employees = [], manualPoints = [] }: {
   search: string;
   volunteerData?: JusticeEntry[];
+  manualTotals?: Record<string, number>;
+  onAddManualPoint?: (id: string, name: string, pts: number, reason: string, table: ManualPointTable) => Promise<void>;
+  employees?: Employee[];
+  manualPoints?: ManualPoint[];
 }) {
   const [records, setRecords] = useState<ShirkingRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sideBySide, setSideBySide] = useState(false);
   const [shiftSearch, setShiftSearch] = useState("");
+  const [breakdownEmp, setBreakdownEmp] = useState<{id: string, name: string} | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -1046,10 +1274,24 @@ function ShirkingSection({ search, volunteerData }: {
     totals[r.employee_id] ??= { name: r.employee_name, count: 0 };
     totals[r.employee_id].count++;
   }
+
+  // If no specific shift filter, ensure employees with manual points are included
+  if (!sq) {
+    for (const [empId, pts] of Object.entries(manualTotals)) {
+      if (!totals[empId]) {
+        const emp = employees.find(e => e.id === empId);
+        const vEntry = volunteerData?.find(v => v.employee_id === empId);
+        const name = emp?.name || vEntry?.employee_name;
+        if (name) totals[empId] = { name, count: 0 };
+      }
+    }
+  }
+
   const sorted = Object.entries(totals)
     .filter(([, info]) => !q || info.name.toLowerCase().includes(q))
-    .sort((a, b) => b[1].count - a[1].count);
-  const maxCount = sorted[0]?.[1].count ?? 1;
+    .sort((a, b) => (b[1].count + (manualTotals[b[0]] ?? 0)) - (a[1].count + (manualTotals[a[0]] ?? 0)));
+  
+  const maxCount = Math.max(...sorted.map(([id, info]) => info.count + (manualTotals[id] ?? 0)), 1);
 
   const filteredRecords = shiftFiltered.filter(r => !q || r.employee_name.toLowerCase().includes(q));
 
@@ -1066,44 +1308,31 @@ function ShirkingSection({ search, volunteerData }: {
         ? <p className="text-center text-slate-400 text-sm py-10">אין הברזות רשומות</p>
         : (
           <div className="p-5 space-y-2.5">
-            {sorted.map(([empId, info], rank) => (
-              <div key={empId} className="flex items-center gap-3">
+            {sorted.map(([empId, info], rank) => {
+              const manual = manualTotals[empId] ?? 0;
+              const total = info.count + manual;
+              return (
+              <div key={empId} className="flex items-center gap-3 hover:bg-slate-50 p-2 rounded-xl -mx-2 cursor-pointer transition-colors" onClick={() => setBreakdownEmp({id: empId, name: info.name})}>
                 <RankBadge rank={rank} />
                 <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{info.name}</div>
-                <div className="flex-1 bg-slate-100 rounded-full h-6 relative overflow-hidden min-w-[80px]">
-                  <div className="h-6 rounded-full bg-rose-400 transition-all duration-500"
-                    style={{ width: `${maxCount > 0 ? (info.count / maxCount) * 100 : 0}%`, minWidth: info.count > 0 ? "1.5rem" : "0" }}/>
-                  <span className="absolute inset-y-0 right-2 flex items-center text-xs font-bold text-slate-700">{info.count}</span>
-                </div>
-                <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{info.count} הברזות</div>
+                <Bar value={total} max={maxCount} color="bg-rose-400">
+                  {total}
+                </Bar>
+                <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{total} הברזות</div>
               </div>
-            ))}
+            )})}
           </div>
         )
       }
-      {/* Detail list */}
-      {filteredRecords.length > 0 && (
-        <div className="border-t border-slate-100">
-          <div className="px-6 py-3 bg-slate-50">
-            <p className="text-xs font-semibold text-slate-500">פירוט הברזות</p>
-          </div>
-          <div className="divide-y divide-slate-50">
-            {filteredRecords.map(r => (
-              <div key={r.id} className="flex items-center gap-3 px-6 py-2.5 hover:bg-slate-50 transition-all">
-                <div className="flex-1">
-                  <span className="text-sm font-semibold text-slate-800">{r.employee_name}</span>
-                  <span className="text-xs text-slate-400 mx-1.5">—</span>
-                  <span className="text-sm text-slate-600">{r.shift_name}</span>
-                  <span className="text-xs text-slate-400 mx-1.5">יום {r.day}/{r.month}/{r.year}</span>
-                  {r.replacement_name && <span className="text-xs text-slate-400">(הוחלף ע״י {r.replacement_name})</span>}
-                </div>
-                <button type="button" onClick={() => handleDelete(r.id)} className="text-slate-300 hover:text-red-400 transition-all shrink-0">
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd"/></svg>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+      
+      {breakdownEmp && (
+        <ShirkingBreakdownModal
+          employeeName={breakdownEmp.name}
+          records={filteredRecords.filter(r => r.employee_id === breakdownEmp.id)}
+          manualPoints={manualPoints.filter(p => p.employee_id === breakdownEmp.id)}
+          onClose={() => setBreakdownEmp(null)}
+          onRemoveRecord={handleDelete}
+        />
       )}
     </div>
   );
@@ -1228,17 +1457,43 @@ function ShirkingSection({ search, volunteerData }: {
 
 // ── Day Type Justice section ──────────────────────────────────────────────────
 function DayTypeJusticeSection({
-  data, view, onViewChange, search, onEmployeeClick,
+  data, search, onEmployeeClick, manualTotals = {}, allEmployees = [],
+  filter, onFilterChange
 }: {
   data: DayTypeJusticeData;
-  view: "total" | "breakdown";
-  onViewChange: (v: "total" | "breakdown") => void;
   search: string;
-  onEmployeeClick?: (name: string) => void;
+  onEmployeeClick?: (id: string, name: string) => void;
+  manualTotals?: Record<string, number>;
+  allEmployees?: Employee[];
+  filter: DayTypeFilter;
+  onFilterChange: (f: DayTypeFilter) => void;
 }) {
   const q = search.trim();
-  const employees = data.employees.filter(e => !q || e.name.includes(q));
-  const maxTotal = Math.max(...employees.map(e => e.total_score), 1);
+
+  const employees = data.employees
+    .filter(e => !q || e.name.includes(q))
+    .map(e => {
+      // Fix: Find ID from allEmployees to look up manual totals correctly
+      // Robust matching: trim and lowercase
+      const norm = (s: string) => s.trim().toLowerCase();
+      const targetName = norm(e.name);
+      const empId = allEmployees.find(emp => norm(emp.name) === targetName)?.id || ""; // ensure string
+      const manual = (empId ? manualTotals[empId] : 0) ?? 0;
+      const shabbatScore = e.shabbat_score;
+      const holidaysScore = e.total_score - e.shabbat_score;
+      return { ...e, combined_score: e.total_score + manual, manual, empId, shabbatScore, holidaysScore };
+    })
+    .sort((a, b) => {
+      if (filter === "shabbat") return b.shabbatScore - a.shabbatScore;
+      if (filter === "holidays") return b.holidaysScore - a.holidaysScore;
+      return b.combined_score - a.combined_score;
+    });
+
+  const maxTotal = Math.max(...employees.map(e =>
+    filter === "shabbat" ? e.shabbatScore :
+    filter === "holidays" ? e.holidaysScore :
+    e.combined_score
+  ), 1);
 
   // Which day types actually have any counts in this data
   const activeDayTypes = data.day_types.filter(dt =>
@@ -1249,27 +1504,27 @@ function DayTypeJusticeSection({
   return (
     <div className="space-y-4">
       {/* View toggle */}
-      <div className="flex gap-2">
-        <button type="button" onClick={() => onViewChange("total")}
-          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${view === "total" ? "bg-purple-600 text-white border-purple-600 shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}`}>
-          ציון כולל
-        </button>
-        <button type="button" onClick={() => onViewChange("breakdown")}
-          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${view === "breakdown" ? "bg-purple-600 text-white border-purple-600 shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}`}>
-          פירוט לכל סוג
-        </button>
+      <div className="flex flex-wrap items-center justify-end gap-4">
+
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+        <button onClick={() => onFilterChange("combined")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === "combined" ? "bg-white text-purple-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>משולב</button>
+        <button onClick={() => onFilterChange("shabbat")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === "shabbat" ? "bg-white text-purple-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>שבתות</button>
+        <button onClick={() => onFilterChange("holidays")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === "holidays" ? "bg-white text-purple-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>חגים</button>
+      </div>
       </div>
 
       {employees.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 text-slate-400 text-sm">
           אין נתוני שבתות / חגים בטווח הנבחר
         </div>
-      ) : view === "total" ? (
-        /* Total score view */
+      ) : (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h3 className="font-bold text-slate-800">ציון שבתות וחגים — סה״כ</h3>
+              <h3 className="font-bold text-slate-800">
+                {filter === "combined" ? "ציון שבתות וחגים — משולב" :
+                 filter === "shabbat" ? "טבלת שבתות" : "טבלת חגים"}
+              </h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 שישי: {data.weekday_scores?.["4"] ?? 0} נק׳ · שבת: {data.weekday_scores?.["5"] ?? 0} נק׳ · ציון חג לפי הגדרה
               </p>
@@ -1280,110 +1535,266 @@ function DayTypeJusticeSection({
               <div
                 key={e.name}
                 className={`flex items-center gap-3 rounded-xl px-2 py-1 -mx-2 transition-colors ${onEmployeeClick ? "cursor-pointer hover:bg-purple-50" : ""}`}
-                onClick={() => onEmployeeClick?.(e.name)}
+                onClick={() => onEmployeeClick?.(e.empId, e.name)}
                 title={onEmployeeClick ? "לחץ לפירוט" : undefined}
               >
                 <RankBadge rank={rank} />
                 <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.name}</div>
-                <Bar value={e.total_score} max={maxTotal}
-                  color={rank === 0 ? "bg-purple-500" : rank === 1 ? "bg-purple-300" : "bg-purple-200"} />
-                <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{e.total_score} נק׳</div>
+                {(() => {
+                  const val = filter === "shabbat" ? e.shabbatScore : filter === "holidays" ? e.holidaysScore : e.combined_score;
+                  return (
+                    <>
+                      <Bar value={val} max={maxTotal} color={rank === 0 ? "bg-purple-500" : rank === 1 ? "bg-purple-300" : "bg-purple-200"}>
+                        {val}
+                      </Bar>
+                      <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{val} נק׳</div>
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>
         </div>
-      ) : (
-        /* Breakdown view */
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-bold text-slate-800">פירוט שבתות וחגים לעובד</h3>
-            <span className="text-xs bg-purple-100 text-purple-600 px-3 py-1 rounded-full font-medium">גבוה / נמוך</span>
-          </div>
-          <div className="overflow-x-auto" style={{ maxHeight: "520px", overflowY: "auto" }}>
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">#</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">עובד</th>
-                  {hasShabbat && (
-                    <th className="px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-50 z-10">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700">
-                        שישי/שבת (ו׳:{data.weekday_scores?.["4"] ?? 0} ש׳:{data.weekday_scores?.["5"] ?? 0} נק׳)
-                      </span>
-                    </th>
-                  )}
-                  {activeDayTypes.map(dt => (
-                    <th key={dt.id} className="px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-50 z-10">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${dt.color}`}>{dt.name} ({dt.score} נק׳)</span>
-                    </th>
+      )}
+    </div>
+  );
+}
+
+const TABLE_LABELS: Partial<Record<ManualPointTable, string>> = {
+  justice:   "⚖️ צדק",
+  volunteer: "🤝 התנדבות",
+  // advocates: "🏆 סנגורים",
+  shirking:  "🚫 הברזות",
+  daytype:   "🕍 שבתות וחגים",
+  // general:   "📋 כללי",
+};
+
+// ── Manual points section (tracking table) ────────────────────────────────────
+function ManualPointsSection({ points, manualTotalsByTable, employees, onAdd, onRemove }: {
+  points: ManualPoint[];
+  manualTotalsByTable: Partial<Record<ManualPointTable, Record<string, number>>>;
+  employees: Employee[];
+  onAdd: (empId: string, empName: string, pts: number, reason: string, table: ManualPointTable, date?: string) => Promise<void>;
+  onRemove: (id: string) => Promise<void>;
+}) {
+  const [empSearch, setEmpSearch] = useState("");
+  const [empOpen, setEmpOpen]     = useState(false);
+  const [selectedEmp, setSelectedEmp] = useState<{ id: string; name: string } | null>(null);
+  const [points_val, setPointsVal] = useState(1);
+  const [reason, setReason]       = useState("");
+  const [customDate, setCustomDate] = useState(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" })); // Default to today
+  const [selectedTable, setSelectedTable] = useState<ManualPointTable>("justice");
+  const [saving, setSaving]       = useState(false);
+  const empBtnRef = useRef<HTMLButtonElement>(null);
+  const [empStyle, setEmpStyle]   = useState<React.CSSProperties>({});
+  const [filterEmp, setFilterEmp] = useState("");
+  const [filterTable, setFilterTable] = useState<ManualPointTable | "all">("all");
+
+  const openEmpDropdown = () => {
+    if (empBtnRef.current) {
+      const r = empBtnRef.current.getBoundingClientRect();
+      setEmpStyle({ position: "fixed", top: r.bottom + 4, right: window.innerWidth - r.right, minWidth: r.width });
+    }
+    setEmpOpen(true);
+  };
+
+  const filteredEmps = employees.filter(e => !empSearch.trim() || e.name.toLowerCase().includes(empSearch.toLowerCase()));
+
+  const handleSubmit = async (sign: 1 | -1) => {
+    if (!selectedEmp || !points_val) return;
+    setSaving(true);
+    try {
+      await onAdd(selectedEmp.id, selectedEmp.name, sign * Math.abs(points_val), reason, selectedTable, customDate);
+      setReason(""); setPointsVal(1);
+    } finally { setSaving(false); }
+  };
+
+  const fq = filterEmp.trim().toLowerCase();
+  const filtered = points
+    .filter(p => filterTable === "all" || p.table === filterTable)
+    .filter(p => !fq || p.employee_name.toLowerCase().includes(fq));
+
+  // Aggregate per employee (all tables combined) for summary
+  const globalTotals: Record<string, { name: string; total: number }> = {};
+  for (const mp of points) {
+    globalTotals[mp.employee_id] ??= { name: mp.employee_name, total: 0 };
+    globalTotals[mp.employee_id].total += mp.points;
+  }
+  const summary = Object.entries(globalTotals)
+    .map(([id, v]) => ({ id, name: v.name, total: v.total }))
+    .sort((a, b) => b.total - a.total);
+
+  return (
+    <div className="space-y-6" dir="rtl">
+      {/* Add form */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100">
+          <h3 className="font-bold text-slate-800">הוסף / הורד נקודות ידנית</h3>
+          <p className="text-xs text-slate-400 mt-0.5">בחר עובד, תאריך וטבלה — הניקוד יתווסף לטבלאות הרלוונטיות</p>
+        </div>
+        <div className="p-5 flex flex-wrap gap-3 items-end">
+          {/* Employee picker */}
+          <div className="relative">
+            <label className="block text-xs font-medium text-slate-500 mb-1">עובד</label>
+            <button ref={empBtnRef} type="button" onClick={openEmpDropdown}
+              className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 text-sm font-semibold text-slate-700 hover:border-blue-300 min-w-[160px]">
+              {selectedEmp ? selectedEmp.name : <span className="text-slate-400">בחר עובד</span>}
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-slate-400 mr-auto"><path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd"/></svg>
+            </button>
+            {empOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setEmpOpen(false)} />
+                <div style={empStyle} className="z-[9999] bg-white rounded-xl shadow-xl border border-slate-200 max-h-60 overflow-y-auto" dir="rtl">
+                  <div className="p-2 border-b border-slate-100 sticky top-0 bg-white">
+                    <input autoFocus value={empSearch} onChange={e => setEmpSearch(e.target.value)}
+                      placeholder="חיפוש עובד..." onClick={e => e.stopPropagation()}
+                      className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                  </div>
+                  {filteredEmps.map(e => (
+                    <button key={e.id} type="button"
+                      onClick={() => { setSelectedEmp({ id: e.id, name: e.name }); setEmpSearch(""); setEmpOpen(false); }}
+                      className="w-full text-right px-3 py-2 text-sm hover:bg-blue-50 transition-colors text-slate-700">
+                      {e.name}
+                    </button>
                   ))}
-                  <th className="px-4 py-3 text-center font-bold text-slate-700 whitespace-nowrap sticky top-0 bg-slate-50 z-10">סה״כ נק׳</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((row, idx) => {
-                  // column stats for highlighting
-                  const shabbatVals = employees.map(e => e.shabbat_count);
-                  const shabbatMin = Math.min(...shabbatVals);
-                  const shabbatMax = Math.max(...shabbatVals);
-                  const totalVals = employees.map(e => e.total_score);
-                  const totalMin = Math.min(...totalVals);
-                  const totalMax = Math.max(...totalVals);
-                  return (
-                    <tr
-                      key={row.name}
-                      className={`border-b border-slate-50 hover:bg-purple-50/20 ${idx % 2 === 0 ? "" : "bg-slate-50/40"} ${onEmployeeClick ? "cursor-pointer" : ""}`}
-                      onClick={() => onEmployeeClick?.(row.name)}
-                    >
-                      <td className="px-4 py-3 text-slate-400 text-xs font-medium">{idx + 1}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{row.name}</td>
-                      {hasShabbat && (() => {
-                        const isHigh = row.shabbat_count === shabbatMax && shabbatMin !== shabbatMax;
-                        const isLow = row.shabbat_count === shabbatMin && shabbatMin !== shabbatMax;
-                        return (
-                          <td className="px-3 py-3 text-center">
-                            <span className={`inline-flex flex-col items-center justify-center w-12 h-10 rounded-lg text-xs font-bold ${isHigh ? "bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300" : isLow ? "bg-red-100 text-red-600 ring-2 ring-red-200" : "text-slate-600"}`}>
-                              <span>{row.shabbat_count}</span>
-                              <span className="text-[10px] font-normal opacity-70">{row.shabbat_score} נק׳</span>
-                            </span>
-                          </td>
-                        );
-                      })()}
-                      {activeDayTypes.map(dt => {
-                        const entry = row.by_type[dt.id];
-                        const count = entry?.count ?? 0;
-                        const score = entry?.score ?? 0;
-                        const vals = employees.map(e => e.by_type[dt.id]?.count ?? 0);
-                        const min = Math.min(...vals); const max = Math.max(...vals);
-                        const isHigh = count === max && min !== max;
-                        const isLow = count === min && min !== max;
-                        return (
-                          <td key={dt.id} className="px-3 py-3 text-center">
-                            <span className={`inline-flex flex-col items-center justify-center w-12 h-10 rounded-lg text-xs font-bold ${isHigh ? "bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300" : isLow ? "bg-red-100 text-red-600 ring-2 ring-red-200" : "text-slate-600"}`}>
-                              <span>{count}</span>
-                              <span className="text-[10px] font-normal opacity-70">{score} נק׳</span>
-                            </span>
-                          </td>
-                        );
-                      })}
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className={`text-sm font-bold ${row.total_score === totalMax && totalMin !== totalMax ? "text-purple-600" : row.total_score === totalMin && totalMin !== totalMax ? "text-red-500" : "text-slate-700"}`}>
-                            {row.total_score}
-                          </span>
-                          <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-purple-400 rounded-full" style={{ width: `${(row.total_score / maxTotal) * 100}%` }} />
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                </div>
+              </>
+            )}
+          </div>
+          {/* Table selector */}
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">טבלה</label>
+            <select value={selectedTable} onChange={e => setSelectedTable(e.target.value as ManualPointTable)}
+              className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100">
+              {(Object.entries(TABLE_LABELS) as [ManualPointTable, string][]).map(([val, label]) => (
+                <option key={val} value={val}>{label}</option>
+              ))}
+            </select>
+          </div>
+          {/* Date Picker */}
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">תאריך לחישוב</label>
+            <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)}
+              className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+          </div>
+          {/* Points stepper */}
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">נקודות</label>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => setPointsVal(p => Math.max(1, p - 1))}
+                className="w-8 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-slate-600 flex items-center justify-center transition-colors">−</button>
+              <input type="number" min={1} value={points_val}
+                onChange={e => setPointsVal(Math.max(1, Number(e.target.value)))}
+                className="w-16 text-center text-sm font-bold border border-slate-200 rounded-lg py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+              <button type="button" onClick={() => setPointsVal(p => p + 1)}
+                className="w-8 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-slate-600 flex items-center justify-center transition-colors">+</button>
+            </div>
+          </div>
+          {/* Reason */}
+          <div className="flex-1 min-w-[160px]">
+            <label className="block text-xs font-medium text-slate-500 mb-1">סיבה (אופציונלי)</label>
+            <input type="text" value={reason} onChange={e => setReason(e.target.value)}
+              placeholder="סיבה לניקוד ידני..."
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50" />
+          </div>
+          {/* Buttons */}
+          <div className="flex gap-2">
+            <button type="button" disabled={saving || !selectedEmp} onClick={() => handleSubmit(1)}
+              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-40">
+              +{points_val} הוסף
+            </button>
+            <button type="button" disabled={saving || !selectedEmp} onClick={() => handleSubmit(-1)}
+              className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-40">
+              −{points_val} הורד
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Summary per employee */}
+      {summary.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h3 className="font-bold text-slate-800">סיכום ניקוד ידני לפי עובד</h3>
+          </div>
+          <div className="p-5 space-y-2">
+            {summary.map(row => (
+              <div key={row.id} className="flex items-center gap-3">
+                <div className="w-40 text-sm font-semibold text-slate-800 shrink-0 truncate">{row.name}</div>
+                <span className={`text-base font-bold shrink-0 w-16 text-center ${row.total > 0 ? "text-emerald-600" : row.total < 0 ? "text-rose-500" : "text-slate-400"}`}>
+                  {row.total > 0 ? "+" : ""}{row.total}
+                </span>
+                <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden relative">
+                  <div className={`h-4 rounded-full transition-all duration-500 ${row.total > 0 ? "bg-emerald-400" : "bg-rose-400"}`}
+                    style={{ width: `${summary.length > 0 ? (Math.abs(row.total) / Math.max(...summary.map(s => Math.abs(s.total)), 1)) * 100 : 0}%` }} />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
+
+      {/* Log table */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+          <h3 className="font-bold text-slate-800">יומן ניקוד ידני</h3>
+          <input value={filterEmp} onChange={e => setFilterEmp(e.target.value)}
+            placeholder="סנן לפי עובד..."
+            className="border border-slate-200 rounded-lg px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-slate-50" />
+          <select value={filterTable} onChange={e => setFilterTable(e.target.value as ManualPointTable | "all")}
+            className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-slate-50 focus:outline-none focus:ring-1 focus:ring-blue-300">
+            <option value="all">כל הטבלאות</option>
+            {(Object.entries(TABLE_LABELS) as [ManualPointTable, string][]).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+          <span className="text-xs text-slate-400 mr-auto">{filtered.length} רשומות</span>
+        </div>
+        {filtered.length === 0 ? (
+          <p className="text-center text-slate-400 text-sm py-10">אין רשומות ניקוד ידני</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
+                  <th className="px-4 py-2.5 text-right">עובד</th>
+                  <th className="px-4 py-2.5 text-center">נקודות</th>
+                  <th className="px-4 py-2.5 text-right">טבלה</th>
+                  <th className="px-4 py-2.5 text-right">סיבה</th>
+                  <th className="px-4 py-2.5 text-right">תאריך</th>
+                  <th className="px-4 py-2.5 w-10" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filtered.map(p => (
+                  <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3 font-semibold text-slate-800">{p.employee_name}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${p.points > 0 ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-600"}`}>
+                        {p.points > 0 ? "+" : ""}{p.points}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 text-xs">{TABLE_LABELS[p.table ?? "general"]}</td>
+                    <td className="px-4 py-3 text-slate-500">{p.reason || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3 text-slate-400 text-xs tabular-nums">
+                      {p.date
+                        ? new Date(p.date).toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" })
+                        : new Date(p.created_at).toLocaleString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" })
+                      }
+                    </td>
+                    <td className="px-4 py-3">
+                      <button type="button" onClick={() => onRemove(p.id)}
+                        className="text-slate-300 hover:text-red-400 transition-colors">
+                        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd"/></svg>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1397,19 +1808,29 @@ export default function JusticePage() {
   const [view, setView] = useState<View>("table");
   const [employees, setEmployees] = useState<Employee[]>([]);
 
-  const [rangeType, setRangeType] = useState<RangeType>("month");
-  const [refDate, setRefDate] = useState<Date>(() => new Date());
+  // Extra data for combined tab
+  const [advocates, setAdvocates] = useState<Advocate[]>([]);
+  const [shirkingRecords, setShirkingRecords] = useState<ShirkingRecord[]>([]);
 
-  const { start, end } = getRangeBounds(rangeType, refDate);
-  const startISO = toISO(start);
-  const endISO = toISO(end);
-  const rangeLabel = formatRange(rangeType, start, end);
+  const [rangeType, setRangeType] = useState<RangeType>("month");
+  const [refDate, setRefDate] = useState<Date | null>(null);
 
   useEffect(() => {
     getEmployees().then(setEmployees).catch(() => {});
+    setRefDate(new Date());
+    // Fetch non-date-ranged data once
+    getAdvocates().then(setAdvocates).catch(() => {});
+    getShirking().then(setShirkingRecords).catch(() => {});
   }, []);
 
+  // Derived values with null check
+  const rangeData = refDate ? getRangeBounds(rangeType, refDate) : null;
+  const startISO = rangeData ? toISO(rangeData.start) : "";
+  const endISO = rangeData ? toISO(rangeData.end) : "";
+  const rangeLabel = rangeData ? formatRange(rangeType, rangeData.start, rangeData.end) : "";
+
   useEffect(() => {
+    if (!startISO || !endISO) return;
     setLoading(true);
     setError(null);
     getJustice(startISO, endISO)
@@ -1419,28 +1840,115 @@ export default function JusticePage() {
   }, [startISO, endISO]);
 
   useEffect(() => {
-    if (tab !== "daytype") return;
+    if (!startISO || !endISO) return;
     setDaytypeLoading(true);
     setDaytypeError(null);
     getDayTypeJustice(startISO, endISO)
       .then(setDaytypeData)
       .catch(e => setDaytypeError((e as Error).message))
       .finally(() => setDaytypeLoading(false));
-  }, [tab, startISO, endISO]);
+  }, [startISO, endISO]);
 
   const [search, setSearch] = useState("");
   const [daytypeData, setDaytypeData] = useState<DayTypeJusticeData | null>(null);
   const [daytypeLoading, setDaytypeLoading] = useState(false);
   const [daytypeError, setDaytypeError] = useState<string | null>(null);
-  const [daytypeView, setDaytypeView] = useState<"total" | "breakdown">("total");
+  const [dayTypeFilter, setDayTypeFilter] = useState<DayTypeFilter>("combined");
 
   const [showDayScores, setShowDayScores] = useState(false);
   const [dayScoreData, setDayScoreData] = useState<DayTypeJusticeData | null>(null);
-  const [breakdownEmployee, setBreakdownEmployee] = useState<string | null>(null);
-  const [volunteerBreakdownEmployee, setVolunteerBreakdownEmployee] = useState<string | null>(null);
-  const [daytypeBreakdownEmployee, setDaytypeBreakdownEmployee] = useState<string | null>(null);
+  const [breakdownEmployee, setBreakdownEmployee] = useState<{id: string, name: string} | null>(null);
+  const [volunteerBreakdownEmployee, setVolunteerBreakdownEmployee] = useState<{id: string, name: string} | null>(null);
+  const [daytypeBreakdownEmployee, setDaytypeBreakdownEmployee] = useState<{id: string, name: string} | null>(null);
+
+  // Manual points
+  const [manualPoints, setManualPoints] = useState<ManualPoint[]>([]);
+  useEffect(() => {
+    if (!startISO || !endISO) return;
+    getManualPoints(startISO, endISO).then(setManualPoints).catch(() => {});
+  }, [startISO, endISO]);
+
+  // Filter manual points based on current date range (using created_at)
+  const effectiveManualPoints = manualPoints.filter(mp => {
+    if (!startISO || !endISO) return false;
+    // Prefer logical date 'date', fallback to 'created_at' if missing
+    const targetDate = mp.date || mp.created_at;
+    const d = targetDate.slice(0, 10);
+    return d >= startISO && d <= endISO;
+  });
+
+  // Per-table totals: { justice: { empId: total }, volunteer: { empId: total }, ... }
+  const manualTotalsByTable: Partial<Record<ManualPointTable, Record<string, number>>> = {};
+  for (const mp of effectiveManualPoints) {
+    const t = mp.table ?? "general";
+    if (!manualTotalsByTable[t]) manualTotalsByTable[t] = {};
+    manualTotalsByTable[t]![mp.employee_id] = (manualTotalsByTable[t]![mp.employee_id] ?? 0) + mp.points;
+  }
+  // Combined totals across all tables (for CombinedTable)
+  const allManualTotals: Record<string, number> = {};
+  for (const mp of effectiveManualPoints) {
+    allManualTotals[mp.employee_id] = (allManualTotals[mp.employee_id] ?? 0) + mp.points;
+  }
+
+  const allCombinedData = useMemo(() => {
+    // shirking totals (count)
+    const shirkingMap: Record<string, number> = {};
+    for (const r of shirkingRecords) {
+      shirkingMap[r.employee_id] = (shirkingMap[r.employee_id] ?? 0) + 1;
+    }
+
+    // advocates totals (points)
+    const advocateMap: Record<string, number> = {};
+    for (const a of advocates) {
+      advocateMap[a.employee_id] = (advocateMap[a.employee_id] ?? 0) + a.points;
+    }
+
+    return employees.map(emp => {
+      const justiceEntry = data.find(d => d.employee_id === emp.id);
+      const daytypeEntry = daytypeData?.employees.find(d => d.name === emp.name);
+
+      const justiceScore = justiceEntry?.justice_score ?? 0;
+      const volunteerScore = justiceEntry?.volunteer_score ?? 0;
+      const daytypeScore = daytypeEntry?.total_score ?? 0;
+      const shirkingCount = shirkingMap[emp.id] ?? 0;
+      const advocateScore = advocateMap[emp.id] ?? 0;
+
+      const finalJustice = justiceScore + (manualTotalsByTable.justice?.[emp.id] ?? 0);
+      const finalVolunteer = volunteerScore + (manualTotalsByTable.volunteer?.[emp.id] ?? 0);
+      const finalDaytype = daytypeScore + (manualTotalsByTable.daytype?.[emp.id] ?? 0);
+      const finalShirking = shirkingCount + (manualTotalsByTable.shirking?.[emp.id] ?? 0);
+      const finalAdvocate = advocateScore + (manualTotalsByTable.advocates?.[emp.id] ?? 0);
+
+      const totalScore = finalJustice + finalVolunteer + finalDaytype + finalAdvocate - finalShirking;
+
+      return {
+        empId: emp.id,
+        name: emp.name,
+        scores: {
+          justice: finalJustice,
+          volunteer: finalVolunteer,
+          daytype: finalDaytype,
+          shirking: -finalShirking,
+          advocates: finalAdvocate,
+        },
+        total: totalScore,
+        manual: allManualTotals[emp.id] ?? 0,
+      };
+    }).sort((a, b) => b.total - a.total);
+  }, [employees, data, daytypeData, shirkingRecords, advocates, manualTotalsByTable, allManualTotals]);
+
+  const handleAddManualPoint = async (empId: string, empName: string, pts: number, reason: string, table: ManualPointTable = "general", date?: string) => {
+    // Pass optional date to API
+    const created = await addManualPoint({ employee_id: empId, employee_name: empName, points: pts, reason, table, date } as any);
+    setManualPoints(prev => [created, ...prev]);
+  };
+  const handleRemoveManualPoint = async (id: string) => {
+    await removeManualPoint(id);
+    setManualPoints(prev => prev.filter(p => p.id !== id));
+  };
 
   useEffect(() => {
+    if (!startISO || !endISO) return;
     if (!showDayScores) return;
     getDayTypeJustice(startISO, endISO)
       .then(setDayScoreData)
@@ -1450,11 +1958,23 @@ export default function JusticePage() {
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "justice",   label: "טבלת צדק",         icon: "⚖️" },
     { id: "volunteer", label: "טבלת התנדבות",     icon: "🤝" },
-    { id: "combined",  label: "שניהם",             icon: "📊" },
     { id: "shirking",  label: "הברזות",            icon: "🚫" },
     { id: "advocates", label: "סנגורים",           icon: "🏆" },
     { id: "daytype",   label: "שבתות וחגים",       icon: "🕍" },
+    { id: "combined",  label: "טבלה משולבת",       icon: "📊" },
+    { id: "manual",    label: "ניקוד ידני",        icon: "✏️" },
   ];
+
+  // Show loading state until date is set on client (prevents hydration mismatch)
+  if (!refDate) {
+    return (
+      <div className="space-y-6 fade-in">
+        <div className="h-10 w-64 rounded-lg shimmer" />
+        <div className="h-8 w-full rounded-lg shimmer" />
+        <div className="h-64 w-full rounded-2xl shimmer" />
+      </div>
+    );
+  }
 
   const rangeTypes: { id: RangeType; label: string }[] = [
     { id: "week",  label: "שבוע" },
@@ -1509,7 +2029,7 @@ export default function JusticePage() {
         </div>
 
         {/* View toggle — hidden on advocates/shirking/daytype tabs */}
-        <div className={`flex gap-1 bg-slate-100 rounded-xl p-1 ${(tab === "advocates" || tab === "shirking" || tab === "daytype") ? "invisible" : ""}`}>
+        <div className={`flex gap-1 bg-slate-100 rounded-xl p-1 ${(tab === "advocates" || tab === "shirking" || tab === "daytype" || tab === "combined") ? "invisible" : ""}`}>
           <button type="button" onClick={() => setView("table")}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
               view === "table" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
@@ -1534,7 +2054,7 @@ export default function JusticePage() {
       </div>
 
       {/* Day scores toggle — visible on justice/volunteer/combined tabs */}
-      {(tab === "justice" || tab === "volunteer" || tab === "combined") && (
+      {(tab === "justice" || tab === "combined") && (
         <button
           type="button"
           onClick={() => { setShowDayScores(v => !v); }}
@@ -1567,7 +2087,7 @@ export default function JusticePage() {
         {/* Prev / label / next */}
         <div className="flex items-center gap-2">
           <button type="button"
-            onClick={() => setRefDate(shiftRef(rangeType, refDate, 1))}
+            onClick={() => refDate && setRefDate(shiftRef(rangeType, refDate, 1))}
             className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all"
             title="קודם"
           >
@@ -1575,7 +2095,7 @@ export default function JusticePage() {
           </button>
           <span className="text-sm font-semibold text-slate-700 min-w-[160px] text-center">{rangeLabel}</span>
           <button type="button"
-            onClick={() => setRefDate(shiftRef(rangeType, refDate, -1))}
+            onClick={() => refDate && setRefDate(shiftRef(rangeType, refDate, -1))}
             className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all"
             title="הבא"
           >
@@ -1591,22 +2111,22 @@ export default function JusticePage() {
       </div>
 
       {/* Error */}
-      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && error && (
+      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && error && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>
       )}
 
       {/* Loading */}
-      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && loading && (
+      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && loading && (
         <div className="space-y-3">
           {[1, 2, 3].map(i => <div key={i} className="h-14 rounded-2xl shimmer" />)}
         </div>
       )}
 
       {/* Advocates tab — independent of justice loading */}
-      {tab === "advocates" && <AdvocatesSection employees={employees} search={search} />}
+      {tab === "advocates" && <AdvocatesSection employees={employees} search={search} manualTotals={manualTotalsByTable["advocates"] ?? {}} />}
 
       {/* Shirking tab — independent of justice loading */}
-      {tab === "shirking" && <ShirkingSection search={search} volunteerData={data} />}
+      {tab === "shirking" && <ShirkingSection search={search} volunteerData={data} manualTotals={manualTotalsByTable["shirking"] ?? {}} employees={employees} onAddManualPoint={handleAddManualPoint} manualPoints={effectiveManualPoints.filter(p => p.table === "shirking")} />}
 
       {/* Daytype tab */}
       {tab === "daytype" && (
@@ -1615,14 +2135,27 @@ export default function JusticePage() {
         ) : daytypeError ? (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{daytypeError}</div>
         ) : daytypeData ? (
-          <DayTypeJusticeSection data={daytypeData} view={daytypeView} onViewChange={setDaytypeView} search={search} onEmployeeClick={setDaytypeBreakdownEmployee} />
+          <DayTypeJusticeSection data={daytypeData} search={search} onEmployeeClick={(id, name) => setDaytypeBreakdownEmployee({ id, name })} manualTotals={manualTotalsByTable["daytype"] ?? {}} allEmployees={employees} filter={dayTypeFilter} onFilterChange={setDayTypeFilter} />
         ) : null
       )}
 
-      {/* Breakdown modal */}
+      {/* Manual points tab */}
+      {tab === "manual" && (
+        <ManualPointsSection
+          points={manualPoints}
+          manualTotalsByTable={manualTotalsByTable}
+          employees={employees}
+          onAdd={handleAddManualPoint}
+          onRemove={handleRemoveManualPoint}
+        />
+      )}
+
+      {/* Breakdown modals */}
       {breakdownEmployee && (
         <BreakdownModal
-          employee={breakdownEmployee}
+          employee={breakdownEmployee.name}
+          employeeId={breakdownEmployee.id}
+          manualPoints={effectiveManualPoints.filter(p => p.table === "justice")}
           startDate={startISO}
           endDate={endISO}
           onClose={() => setBreakdownEmployee(null)}
@@ -1630,7 +2163,9 @@ export default function JusticePage() {
       )}
       {volunteerBreakdownEmployee && (
         <VolunteerBreakdownModal
-          employee={volunteerBreakdownEmployee}
+          employee={volunteerBreakdownEmployee.name}
+          employeeId={volunteerBreakdownEmployee.id}
+          manualPoints={effectiveManualPoints.filter(p => p.table === "volunteer")}
           startDate={startISO}
           endDate={endISO}
           onClose={() => setVolunteerBreakdownEmployee(null)}
@@ -1638,15 +2173,18 @@ export default function JusticePage() {
       )}
       {daytypeBreakdownEmployee && (
         <DayTypeBreakdownModal
-          employee={daytypeBreakdownEmployee}
+          employee={daytypeBreakdownEmployee.name}
+          employeeId={daytypeBreakdownEmployee.id}
+          manualPoints={effectiveManualPoints.filter(p => p.table === "daytype")}
           startDate={startISO}
           endDate={endISO}
           onClose={() => setDaytypeBreakdownEmployee(null)}
+          filter={dayTypeFilter}
         />
       )}
 
       {/* Content for justice/volunteer/combined */}
-      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && !loading && !error && (
+      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && !loading && !error && (
         <div className="space-y-6">
           {(() => {
             const getDayScoreForEmployee = (name: string) => {
@@ -1661,7 +2199,8 @@ export default function JusticePage() {
                     view={view}
                     search={search}
                     getDayScore={showDayScores ? getDayScoreForEmployee : undefined}
-                    onEmployeeClick={view === "table" ? setBreakdownEmployee : undefined}
+                    onEmployeeClick={view === "table" ? (id, name) => setBreakdownEmployee({ id, name }) : undefined}
+                    manualTotals={manualTotalsByTable["justice"] ?? {}}
                   />
                 )}
                 {tab === "volunteer" && (
@@ -1669,14 +2208,12 @@ export default function JusticePage() {
                     data={data}
                     view={view}
                     search={search}
-                    getDayScore={showDayScores ? getDayScoreForEmployee : undefined}
-                    onEmployeeClick={view === "table" ? setVolunteerBreakdownEmployee : undefined}
+                    onEmployeeClick={view === "table" ? (id, name) => setVolunteerBreakdownEmployee({ id, name }) : undefined}
+                    manualTotals={manualTotalsByTable["volunteer"] ?? {}}
                   />
                 )}
                 {tab === "combined" && (
-                  view === "chart"
-                    ? <CombinedChart data={data} search={search} />
-                    : <CombinedTable data={data} search={search} />
+                  <AllCombinedTable data={allCombinedData} search={search} />
                 )}
               </>
             );

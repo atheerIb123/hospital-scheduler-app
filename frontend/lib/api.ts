@@ -442,3 +442,31 @@ export const setWeekdayScores = (scores: Record<string, number>) =>
     method: "PUT",
     body: JSON.stringify(scores),
   });
+
+// ---------------------------------------------------------------------------
+// Manual points
+// ---------------------------------------------------------------------------
+
+export type ManualPointTable = "justice" | "volunteer" | "shirking" | "daytype" | "advocates" | "general";
+
+export interface ManualPoint {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  points: number;
+  reason: string;
+  table: ManualPointTable;
+  created_at: string;
+}
+
+export const getManualPoints = () => request<ManualPoint[]>("/manual-points");
+
+export const addManualPoint = (data: Omit<ManualPoint, "id" | "created_at">) =>
+  request<ManualPoint>("/manual-points", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const removeManualPoint = (id: string) =>
+  request<{ ok: boolean }>(`/manual-points/${id}`, { method: "DELETE" });
+
