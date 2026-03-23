@@ -5,6 +5,7 @@ from bson import ObjectId
 from ..db import get_db
 from ..scheduler.solver import generate_schedule
 from .day_management import _get_weekday_scores
+from ..constants import JUSTICE_PTS
 
 schedule_bp = Blueprint("schedule", __name__)
 
@@ -28,7 +29,7 @@ def generate():
 
         # Load constraints and day settings for the requested month/year
         month_prefix = f"{year:04d}-{month:02d}-"
-        constraints = list(db.constraints.find({"date": {"$regex": f"^{month_prefix}"}}))
+        constraints  = list(db.constraints.find({"date": {"$regex": f"^{month_prefix}"}}))
         day_settings = list(db.day_settings.find({"date": {"$regex": f"^{month_prefix}"}}))
 
         if not employees:
@@ -36,7 +37,80 @@ def generate():
         if not shift_types:
             return jsonify({"status": "failed", "reason": "אין סוגי משמרות מוגדרים."}), 400
 
-        result = generate_schedule(employees, shift_types, rules, month, year, constraints, day_settings)
+        # ── Weekday scores from DB (configurable via day-management UI) ──────
+        weekday_scores = _get_weekday_scores(db)
+
+        # ── Day-type extra scores (holidays, special days) ───────────────────
+        # day_type_score_map: {day_type_id_str: score}
+        day_type_score_map: dict = {
+            str(dt["_id"]): int(dt.get("score", 0))
+            for dt in db.day_types.find()
+        }
+
+        # day_extra_by_date: {date_str: extra_score}
+        # Built from all day_settings ever recorded — used for historical justice
+        # and also filtered to the current month for the solver.
+        day_extra_by_date: dict = {}
+        for ds in db.day_settings.find():
+            dt_id = ds.get("day_type_id", "")
+            # Per-date score override takes priority over the day-type default
+            extra = ds["score"] if ds.get("score") is not None else day_type_score_map.get(dt_id, 0)
+            day_extra_by_date[ds["date"]] = extra
+
+        # day_extra_scores for the solver: {day_num (1-31): extra_score}
+        day_extra_scores: dict = {}
+        for ds in day_settings:          # already filtered to current month
+            dnum = int(ds["date"].split("-")[-1])
+            dt_id = ds.get("day_type_id", "")
+            extra = ds["score"] if ds.get("score") is not None else day_type_score_map.get(dt_id, 0)
+            day_extra_scores[dnum] = extra
+
+        # ── Historical justice scores (all sources) ──────────────────────────
+        # Full formula per assignment:
+        #   pts = JUSTICE_PTS[desirability]
+        #       + weekday_scores[weekday]          (ALL days including Fri/Sat)
+        #       + day_extra_by_date[date]          (holiday / special day bonus)
+        des_map: dict = {}
+        for st in db.shift_types.find():
+            des = int(st.get("desirability", 3))
+            pts = JUSTICE_PTS.get(des, 4)
+            for name in st.get("names", []):
+                des_map[name] = pts
+
+        name_to_eid = {str(e["name"]): str(e["_id"]) for e in employees}
+
+        historical_justice: dict = {}
+        latest_per_month: dict = {}
+        for sched in db.schedules.find(
+            {"status": "generated", "year": year, "month": {"$lt": month}},
+            sort=[("generated_at", 1)],
+        ):
+            latest_per_month[sched.get("month")] = sched
+
+        for sched in latest_per_month.values():
+            sched_year  = sched.get("year")
+            sched_month = sched.get("month")
+            for a in sched.get("assignments", []):
+                emp_name = a.get("employee_name", "")
+                eid = name_to_eid.get(emp_name)
+                if not eid:
+                    continue
+                try:
+                    a_date = date_type(sched_year, sched_month, int(a["day"]))
+                except (ValueError, TypeError, KeyError):
+                    continue
+                pts  = des_map.get(a.get("shift_name", ""), 4)
+                pts += weekday_scores.get(str(a_date.weekday()), 0)   # all days
+                pts += day_extra_by_date.get(a_date.isoformat(), 0)   # holidays
+                historical_justice[eid] = historical_justice.get(eid, 0) + pts
+
+        result = generate_schedule(
+            employees, shift_types, rules, month, year,
+            constraints, day_settings,
+            historical_justice=historical_justice,
+            weekday_scores=weekday_scores,
+            day_extra_scores=day_extra_scores,
+        )
 
         doc = {
             "month": month,
@@ -121,9 +195,6 @@ def get_justice():
             end_date = date_type.fromisoformat(end_str)
         except ValueError:
             pass
-
-    # Non-linear justice points per desirability level (mirrors frontend DESIRABILITY_POINTS)
-    JUSTICE_PTS = {1: 10, 2: 7, 3: 4, 4: 2, 5: 1}
 
     # Build desirability map: shift_name → justice points
     des_map: dict = {}
@@ -218,7 +289,6 @@ def get_justice_breakdown():
         try: end_date = date_type.fromisoformat(end_str)
         except ValueError: pass
 
-    JUSTICE_PTS = {1: 10, 2: 7, 3: 4, 4: 2, 5: 1}
     des_map: dict = {}
     des_level_map: dict = {}
     for st in db.shift_types.find():
@@ -285,7 +355,6 @@ def get_volunteer_breakdown():
         try: end_date = date_type.fromisoformat(end_str)
         except ValueError: pass
 
-    JUSTICE_PTS = {1: 10, 2: 7, 3: 4, 4: 2, 5: 1}
     des_map: dict = {}
     des_level_map: dict = {}
     for st in db.shift_types.find():

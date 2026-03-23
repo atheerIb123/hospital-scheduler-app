@@ -156,7 +156,7 @@ function AddColumnHeader({ onAdd }: { onAdd: (name: string) => Promise<void> }) 
 export default function EmployeeTable() {
   const {
     employees, columnHeaders, loading, error,
-    importCsv, updateEmployee, removeEmployee,
+    importCsv, updateEmployee, activateEmployee, deactivateEmployee, removeEmployee,
     renameColumnHeader, addColumnHeader, deleteColumnHeader,
   } = useEmployees();
 
@@ -384,15 +384,46 @@ export default function EmployeeTable() {
                 {filteredEmployees.map((emp, idx) => (
                   <tr
                     key={emp.id}
-                    className={`border-b border-slate-50 transition-colors hover:bg-blue-50/30 ${idx % 2 === 0 ? "" : "bg-slate-50/50"}`}
+                    className={`border-b border-slate-50 transition-colors hover:bg-blue-50/30 ${
+                      emp.active === false ? "opacity-50" : idx % 2 === 0 ? "" : "bg-slate-50/50"
+                    }`}
                   >
-                    {/* Editable name */}
+                    {/* Active toggle + editable name */}
                     <td className="px-5 py-2.5">
-                      <EmployeeNameCell
-                        empId={emp.id}
-                        name={emp.name}
-                        onRename={(id, name) => updateEmployee(id, { name })}
-                      />
+                      <div className="flex items-start gap-2">
+                        <div className="pt-1.5">
+                          <ActiveToggle
+                            empId={emp.id}
+                            active={emp.active !== false}
+                            inactiveReason={emp.inactive_reason}
+                            inactiveSince={emp.inactive_since}
+                            onActivate={activateEmployee}
+                            onDeactivate={deactivateEmployee}
+                          />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <EmployeeNameCell
+                            empId={emp.id}
+                            name={emp.name}
+                            inactive={emp.active === false}
+                            onRename={(id, name) => updateEmployee(id, { name })}
+                          />
+                          {emp.active === false && (emp.inactive_reason || emp.inactive_since) && (
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              {emp.inactive_since && (
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  מאז {emp.inactive_since}
+                                </span>
+                              )}
+                              {emp.inactive_reason && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-red-50 text-red-400 border border-red-100 font-medium truncate max-w-[160px]">
+                                  {emp.inactive_reason}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </td>
 
                     {/* Attribute toggle cells */}
@@ -479,14 +510,137 @@ export default function EmployeeTable() {
   );
 }
 
+// ── Active / inactive toggle with reason popover ──────────────────────────────
+function ActiveToggle({
+  empId,
+  active,
+  inactiveReason,
+  inactiveSince,
+  onActivate,
+  onDeactivate,
+}: {
+  empId: string;
+  active: boolean;
+  inactiveReason?: string;
+  inactiveSince?: string;
+  onActivate: (id: string) => Promise<void>;
+  onDeactivate: (id: string, reason: string) => Promise<void>;
+}) {
+  const [showPopover, setShowPopover] = useState(false);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { if (showPopover) inputRef.current?.focus(); }, [showPopover]);
+
+  // Close popover on outside click
+  useEffect(() => {
+    if (!showPopover) return;
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setShowPopover(false); setReason("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showPopover]);
+
+  const handleDeactivate = async () => {
+    setSaving(true);
+    try { await onDeactivate(empId, reason.trim()); setShowPopover(false); setReason(""); }
+    finally { setSaving(false); }
+  };
+
+  const handleActivate = async () => {
+    setSaving(true);
+    try { await onActivate(empId); } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="relative shrink-0" ref={popoverRef}>
+      {/* Dot button */}
+      {active ? (
+        <button
+          type="button"
+          onClick={() => setShowPopover((v) => !v)}
+          disabled={saving}
+          title="פעיל — לחץ להשבתה"
+          className="w-3 h-3 rounded-full bg-emerald-400 hover:bg-emerald-500 transition-colors shadow-sm focus:outline-none disabled:opacity-50"
+        />
+      ) : (
+        <div className="group/inactive">
+          <button
+            type="button"
+            onClick={handleActivate}
+            disabled={saving}
+            title="לא פעיל — לחץ להפעלה"
+            className="w-3 h-3 rounded-full bg-red-300 hover:bg-emerald-400 transition-colors focus:outline-none disabled:opacity-50"
+          />
+          {/* Tooltip — shown on hover when there is a reason or date */}
+          {(inactiveReason || inactiveSince) && (
+            <div className="absolute right-5 top-0 z-30 pointer-events-none opacity-0 group-hover/inactive:opacity-100 transition-opacity duration-150">
+              <div className="bg-slate-800 text-white rounded-xl shadow-xl px-3 py-2 text-xs min-w-[160px] max-w-[220px]">
+                {inactiveReason && <p className="font-medium leading-snug">{inactiveReason}</p>}
+                {inactiveSince && (
+                  <p className={`text-slate-400 ${inactiveReason ? "mt-1" : ""}`}>
+                    מאז {inactiveSince}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Deactivate popover */}
+      {showPopover && (
+        <div className="absolute right-0 top-5 z-40 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 min-w-[220px]">
+          {/* Arrow */}
+          <div className="absolute -top-2 right-1 w-4 h-4 bg-white border-l border-t border-slate-200 rotate-45" />
+          <p className="text-xs font-bold text-slate-700 mb-1">השבתת עובד</p>
+          <p className="text-[11px] text-slate-500 mb-3">העובד לא יקבל שיבוצים. ניתן להפעיל מחדש בכל עת.</p>
+          <label className="block text-[11px] font-semibold text-slate-500 mb-1">סיבה (אופציונלי)</label>
+          <input
+            ref={inputRef}
+            dir="rtl"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleDeactivate(); if (e.key === "Escape") { setShowPopover(false); setReason(""); } }}
+            placeholder="חופשה, מחלה, סיום עבודה…"
+            className="w-full text-xs border border-slate-200 rounded-lg px-3 py-1.5 mb-3 focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-300 bg-slate-50"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleDeactivate}
+              disabled={saving}
+              className="flex-1 text-xs py-1.5 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition-colors disabled:opacity-50"
+            >
+              {saving ? "…" : "השבת"}
+            </button>
+            <button
+              onClick={() => { setShowPopover(false); setReason(""); }}
+              className="flex-1 text-xs py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              ביטול
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Employee name cell ────────────────────────────────────────────────────────
 function EmployeeNameCell({
   empId,
   name,
+  inactive,
   onRename,
 }: {
   empId: string;
   name: string;
+  inactive?: boolean;
   onRename: (id: string, name: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(name);
@@ -505,7 +659,9 @@ function EmployeeNameCell({
       onChange={(e) => setDraft(e.target.value)}
       onBlur={save}
       onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setDraft(name); }}
-      className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 focus:bg-white rounded-lg px-2 py-1 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all whitespace-nowrap"
+      className={`w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 focus:bg-white rounded-lg px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all whitespace-nowrap ${
+        inactive ? "text-slate-400 line-through" : "text-slate-800"
+      }`}
     />
   );
 }

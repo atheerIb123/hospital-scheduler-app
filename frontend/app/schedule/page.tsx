@@ -222,6 +222,36 @@ export default function SchedulePage() {
         </div>
       )}
 
+      {/* Unfilled shift warnings */}
+      {schedule?.warnings && schedule.warnings.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+          <div className="flex items-start gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-amber-500 shrink-0 mt-0.5">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+            </svg>
+            <div className="flex-1">
+              <p className="font-semibold text-amber-800">
+                {schedule.warnings.length === 1
+                  ? "משמרת אחת לא אוישה"
+                  : `${schedule.warnings.length} משמרות לא אוישו`}
+              </p>
+              <p className="text-sm text-amber-700 mt-0.5">
+                הסולבר לא הצליח למצוא עובד זכאי לאותן משמרות. ניתן לאייש אותן ידנית בטבלה.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {schedule.warnings.map((w, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                    <span className="font-bold">יום {w.day}</span>
+                    <span className="text-amber-500">·</span>
+                    {w.shift_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Loading */}
       {loading && (
         <div className="space-y-3">

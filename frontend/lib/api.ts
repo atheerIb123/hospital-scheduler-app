@@ -20,7 +20,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const getEmployees = () => request<Employee[]>("/employees");
 
-export const updateEmployee = (id: string, data: { name?: string; attributes?: string[] }) =>
+export const updateEmployee = (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string }) =>
   request<Employee>(`/employees/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
