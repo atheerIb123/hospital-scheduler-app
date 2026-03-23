@@ -5,12 +5,7 @@ import type { StatsData } from "@/lib/api";
 
 // ── constants ────────────────────────────────────────────────────────────────
 
-const RANGES = [
-  { label: "שבוע",    days: 7 },
-  { label: "חודש",    days: 30 },
-  { label: "שנה",     days: 365 },
-  { label: "5 שנים",  days: 5 * 365 },
-] as const;
+const HE_MONTHS = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
 
 const DOW_LABELS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 const DOW_COLORS = [
@@ -29,13 +24,42 @@ const DOW_BAR_COLORS = [
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function getRangeDates(days: number): { startDate: string; endDate: string } {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(end.getDate() - days + 1);
+function toLocalISO(d: Date) {
+  const offset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function getRangeBounds(type: "week" | "month" | "year" | "all", ref: Date): { start: string; end: string; label: string } {
+  const d = new Date(ref);
+  const now = new Date();
+
+  if (type === "all") {
+    return { start: "2000-01-01", end: "2100-01-01", label: "כל הזמנים" };
+  }
+
+  if (type === "week") {
+    const day = d.getDay(); // 0=Sun
+    const start = new Date(d); start.setDate(d.getDate() - day);
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    return { 
+      start: toLocalISO(start), 
+      end: toLocalISO(end), 
+      label: `${start.getDate()}/${start.getMonth()+1} – ${end.getDate()}/${end.getMonth()+1} ${end.getFullYear()}`
+    };
+  }
+  if (type === "month") {
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    const monthName = start.toLocaleString("he-IL", { month: "long" });
+    return { start: toLocalISO(start), end: toLocalISO(end), label: `${monthName} ${start.getFullYear()}` };
+  }
+  // year
+  const start = new Date(d.getFullYear(), 0, 1);
+  const end = new Date(d.getFullYear(), 11, 31);
   return {
-    startDate: start.toISOString().split("T")[0],
-    endDate: end.toISOString().split("T")[0],
+    start: toLocalISO(start), 
+    end: toLocalISO(end), 
+    label: `${start.getFullYear()}` 
   };
 }
 
@@ -92,7 +116,10 @@ function EmptyState({ msg }: { msg: string }) {
 // ── main page ────────────────────────────────────────────────────────────────
 
 export default function StatsPage() {
-  const [rangeIdx, setRangeIdx] = useState(1);
+  const [rangeType, setRangeType] = useState<"week" | "month" | "year" | "all" | "custom">("month");
+  const [refDate, setRefDate] = useState(new Date());
+  const [customRange, setCustomRange] = useState({ start: "", end: "" });
+
   const [tab, setTab] = useState<"general" | "byFilter" | "byEmployee">("general");
   const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,16 +136,36 @@ export default function StatsPage() {
   // global employee search (applies to all tabs)
   const [search, setSearch] = useState("");
 
+  // Calculate actual dates based on state
+  const { start: activeStart, end: activeEnd, label: dateLabel } = useMemo(() => {
+    if (rangeType === "custom") {
+      return { 
+        start: customRange.start, 
+        end: customRange.end, 
+        label: "טווח מותאם אישית" 
+      };
+    }
+    return getRangeBounds(rangeType, refDate);
+  }, [rangeType, refDate, customRange]);
+
+  const shiftDate = (dir: 1 | -1) => {
+    const d = new Date(refDate);
+    if (rangeType === "week") d.setDate(d.getDate() + (dir * 7));
+    if (rangeType === "month") d.setMonth(d.getMonth() + dir);
+    if (rangeType === "year") d.setFullYear(d.getFullYear() + dir);
+    setRefDate(d);
+  };
+
   // fetch on range change
   useEffect(() => {
-    const { startDate, endDate } = getRangeDates(RANGES[rangeIdx].days);
+    if (!activeStart || !activeEnd) return;
     setLoading(true);
     setError(null);
-    getStats(startDate, endDate)
+    getStats(activeStart, activeEnd)
       .then((d) => { setData(d); })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
-  }, [rangeIdx]);
+  }, [activeStart, activeEnd]);
 
   // ── aggregations ──────────────────────────────────────────────────────────
 
@@ -181,6 +228,17 @@ export default function StatsPage() {
     return DOW_LABELS.map((label, i) => ({ label, count: counts[i], dow: i }));
   }, [data, selectedEmployee]);
 
+  const empAssignments = useMemo(() => {
+    if (!data || !selectedEmployee) return [];
+    return data.assignments
+      .filter((a) => a.employee_name === selectedEmployee)
+      .sort((a, b) => {
+        const da = a.date ? a.date : "";
+        const db = b.date ? b.date : "";
+        return da.localeCompare(db);
+      });
+  }, [data, selectedEmployee]);
+
   const filteredEmployees = useMemo(
     () => (data?.employees ?? []).filter((e) => !search || e.includes(search)),
     [data, search]
@@ -194,31 +252,127 @@ export default function StatsPage() {
     { id: "byEmployee",  label: "לפי עובד" },
   ] as const;
 
+  const rangeOptions: { id: typeof rangeType; label: string }[] = [
+    { id: "week",   label: "שבוע" },
+    { id: "month",  label: "חודש" },
+    { id: "year",   label: "שנה" },
+    { id: "all",    label: "הכל" },
+    { id: "custom", label: "מותאם אישית" },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="space-y-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">סטטיסטיקות</h1>
           <p className="text-slate-500 mt-1 text-sm">נתוני משמרות לפי טווח זמן</p>
         </div>
 
-        {/* Range selector */}
-        <div className="flex gap-1.5">
-          {RANGES.map((r, i) => (
-            <button
-              key={r.label}
-              type="button"
-              onClick={() => setRangeIdx(i)}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                rangeIdx === i
-                  ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                  : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-4 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
+          {/* Range Type Toggles */}
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+            {rangeOptions.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => { setRangeType(opt.id); setRefDate(new Date()); }}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                  rangeType === opt.id
+                    ? "bg-white text-blue-600 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+
+          {/* Date Controls */}
+          {rangeType === "custom" ? (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-slate-500">מ:</span>
+                <input 
+                  type="date" 
+                  value={customRange.start}
+                  onChange={e => setCustomRange(p => ({ ...p, start: e.target.value }))}
+                  className="border border-slate-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-slate-500">עד:</span>
+                <input 
+                  type="date" 
+                  value={customRange.end}
+                  onChange={e => setCustomRange(p => ({ ...p, end: e.target.value }))}
+                  className="border border-slate-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+            </div>
+          ) : rangeType !== "all" ? (
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => shiftDate(-1)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors"
+              >
+                ←
+              </button>
+              
+              {rangeType === "month" ? (
+                <div className="flex items-center gap-1 bg-slate-50 rounded-lg px-2 py-1 border border-transparent hover:border-slate-200 transition-colors">
+                  <select
+                    value={refDate.getMonth()}
+                    onChange={(e) => {
+                      const d = new Date(refDate);
+                      d.setDate(1); // Prevent month overflow
+                      d.setMonth(parseInt(e.target.value));
+                      setRefDate(d);
+                    }}
+                    className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer hover:text-blue-600 py-0.5"
+                    dir="rtl"
+                  >
+                    {HE_MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                  </select>
+                  <input
+                    type="number"
+                    value={refDate.getFullYear()}
+                    onChange={(e) => { const d = new Date(refDate); d.setFullYear(parseInt(e.target.value)); setRefDate(d); }}
+                    className="w-14 bg-transparent text-sm font-bold text-slate-700 text-center outline-none hover:text-blue-600 focus:ring-0 p-0"
+                  />
+                </div>
+              ) : rangeType === "year" ? (
+                <div className="bg-slate-50 rounded-lg px-2 py-1 border border-transparent hover:border-slate-200 transition-colors">
+                  <input
+                    type="number"
+                    value={refDate.getFullYear()}
+                    onChange={(e) => { const d = new Date(refDate); d.setFullYear(parseInt(e.target.value)); setRefDate(d); }}
+                    className="w-16 bg-transparent text-sm font-bold text-slate-700 text-center outline-none hover:text-blue-600 focus:ring-0 p-0"
+                  />
+                </div>
+              ) : (
+                <span className="text-sm font-bold text-slate-700 min-w-[140px] text-center px-2">
+                  {dateLabel}
+                </span>
+              )}
+
+              <button 
+                onClick={() => shiftDate(1)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors"
+              >
+                →
+              </button>
+              <button 
+                onClick={() => setRefDate(new Date())}
+                className="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded-lg hover:bg-blue-100 transition-colors"
+              >
+                היום
+              </button>
+            </div>
+          ) : (
+            <span className="text-sm font-medium text-slate-500 px-2">מציג את כל הנתונים</span>
+          )}
         </div>
       </div>
 
@@ -334,7 +488,7 @@ export default function StatsPage() {
               </div>
 
               {/* Per-shift breakdown table */}
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden fade-in">
                 <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                   <div>
                     <h2 className="font-semibold text-slate-800">סיכום משמרות לעובד</h2>
@@ -600,6 +754,44 @@ export default function StatsPage() {
                             <BarRow key={row.dow} name={row.label} count={row.count} max={max || 1} rank={i + 1} color={DOW_BAR_COLORS[row.dow]} />
                           ));
                         })()}
+                      </div>
+                    </div>
+
+                    {/* Shift List Breakdown */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                      <div className="px-6 py-4 border-b border-slate-100">
+                        <h3 className="font-semibold text-slate-800">פירוט רשימת משמרות</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">כל המשמרות בטווח הזמן שנבחר</p>
+                      </div>
+                      <div className="max-h-96 overflow-y-auto">
+                        {empAssignments.length === 0 ? (
+                          <EmptyState msg="אין משמרות להצגה" />
+                        ) : (
+                          <table className="min-w-full text-sm">
+                            <thead className="bg-slate-50 sticky top-0 border-b border-slate-100">
+                              <tr>
+                                <th className="px-6 py-3 text-right font-medium text-slate-500">תאריך</th>
+                                <th className="px-6 py-3 text-right font-medium text-slate-500">יום</th>
+                                <th className="px-6 py-3 text-right font-medium text-slate-500">משמרת</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                              {empAssignments.map((a, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-6 py-3 text-slate-700 tabular-nums">
+                                    {a.date ? new Date(a.date).toLocaleDateString("he-IL") : "—"}
+                                  </td>
+                                  <td className="px-6 py-3 text-slate-600">
+                                    {DOW_LABELS[a.day_of_week]}
+                                  </td>
+                                  <td className="px-6 py-3 font-semibold text-slate-800">
+                                    {a.shift_name}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
                       </div>
                     </div>
                   </>
