@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, getManualPoints, addManualPoint, removeManualPoint, type JusticeEntry, type Advocate, type Employee, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer, type ManualPoint, type ManualPointTable } from "@/lib/api";
 
 type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype" | "manual";
@@ -501,7 +501,7 @@ function DayTypeBreakdownModal({ employee, employeeId, manualPoints, startDate, 
 }
 
 // ── Justice section ───────────────────────────────────────────────────────────
-function JusticeSection({ data, view, search, getDayScore, onEmployeeClick, manualTotals = {}, onAddManualPoint }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (id: string, name: string) => void; manualTotals?: Record<string, number>; onAddManualPoint?: (id: string, name: string, pts: number, reason: string, table: ManualPointTable) => Promise<void> }) {
+function JusticeSection({ data, view, search, getDayScore, onEmployeeClick, manualTotals = {} }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (id: string, name: string) => void; manualTotals?: Record<string, number>; }) {
   const q = search.trim().toLowerCase();
   const sorted = [...data]
     .filter(e => !q || e.employee_name.toLowerCase().includes(q))
@@ -592,15 +592,6 @@ function JusticeSection({ data, view, search, getDayScore, onEmployeeClick, manu
                 {totalScore + getDayScore(e.employee_name)}
               </div>
             )}
-            {onAddManualPoint && (
-              <PointsButton
-                employeeId={e.employee_id}
-                employeeName={e.employee_name}
-                manualTotal={manual}
-                table="justice"
-                onAdd={onAddManualPoint}
-              />
-            )}
                 </>
               );
             })()}
@@ -621,7 +612,7 @@ function JusticeSection({ data, view, search, getDayScore, onEmployeeClick, manu
 }
 
 // ── Volunteer section ─────────────────────────────────────────────────────────
-function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick, manualTotals = {}, onAddManualPoint }: { data: JusticeEntry[]; view: View; search: string; getDayScore?: (name: string) => number; onEmployeeClick?: (id: string, name: string) => void; manualTotals?: Record<string, number>; onAddManualPoint?: (id: string, name: string, pts: number, reason: string, table: ManualPointTable) => Promise<void> }) {
+function VolunteerSection({ data, view, search, onEmployeeClick, manualTotals = {} }: { data: JusticeEntry[]; view: View; search: string; onEmployeeClick?: (id: string, name: string) => void; manualTotals?: Record<string, number>; }) {
   const [records, setRecords] = useState<Volunteer[]>([]);
   const [shiftSearch, setShiftSearch] = useState("");
 
@@ -732,25 +723,6 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick, ma
                   {displayValue}
                 </Bar>
                 <div className="text-xs text-slate-400 shrink-0 w-24 text-left">{e.volunteer_count} התנדבויות</div>
-                {!shiftFiltered && getDayScore && (
-                  <div className="text-sm font-bold text-purple-600 shrink-0 w-16 text-center" title="ניקוד שבת/חגים">
-                    {getDayScore(e.employee_name)}🕍
-                  </div>
-                )}
-                {!shiftFiltered && getDayScore && (
-                  <div className="text-sm font-bold text-slate-800 shrink-0 w-16 text-center" title="סה״כ">
-                    {displayValue + getDayScore(e.employee_name)}
-                  </div>
-                )}
-                {onAddManualPoint && (
-                  <PointsButton
-                    employeeId={e.employee_id}
-                    employeeName={e.employee_name}
-                    manualTotal={manual}
-                    table="volunteer"
-                    onAdd={onAddManualPoint}
-                  />
-                )}
               </div>
             );
           })}
@@ -758,12 +730,6 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick, ma
             <p className="text-center text-slate-400 text-sm py-8">אין נתוני התנדבויות עדיין</p>
           )}
         </div>
-        {!shiftFiltered && getDayScore && (
-          <div className="px-6 pb-3 flex gap-4 text-xs text-slate-400">
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"/>ניקוד שבת/חגים</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"/>סה״כ = התנדבות + שבת/חגים</span>
-          </div>
-        )}
       </div>
 
       {/* Detail list when shift filter active */}
@@ -792,74 +758,48 @@ function VolunteerSection({ data, view, search, getDayScore, onEmployeeClick, ma
   );
 }
 
-// ── Combined chart ────────────────────────────────────────────────────────────
-function CombinedChart({ data, search }: { data: JusticeEntry[]; search: string }) {
-  const q = search.trim().toLowerCase();
-  const filtered = data.filter(e => !q || e.employee_name.toLowerCase().includes(q));
-  const maxJ = Math.max(...filtered.map(e => e.justice_score), 1);
-  const maxV = Math.max(...filtered.map(e => e.volunteer_score), 1);
-  const sorted = [...filtered].sort((a, b) => (b.justice_score + b.volunteer_score) - (a.justice_score + a.volunteer_score));
+// ── All-in-one Combined table ─────────────────────────────────────────────────
 
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100">
-        <h3 className="font-bold text-slate-800">גרף משולב — צדק + התנדבות</h3>
-        <p className="text-xs text-slate-400 mt-0.5">כחול = צדק, ירוק = התנדבות</p>
-      </div>
-      <div className="p-6">
-        <div className="flex items-end gap-4 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
-          {sorted.map((e) => {
-            const barJ = maxJ > 0 ? Math.max(e.justice_score > 0 ? 4 : 0, Math.round((e.justice_score / maxJ) * 100)) : 0;
-            const barV = maxV > 0 ? Math.max(e.volunteer_score > 0 ? 4 : 0, Math.round((e.volunteer_score / maxV) * 100)) : 0;
-            return (
-              <div key={e.employee_id} className="flex flex-col items-center gap-1 min-w-[64px]">
-                <div className="flex items-end gap-1 h-32">
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="text-[10px] text-blue-600 font-bold">{e.justice_score}</span>
-                    <div className="w-5 rounded-t-lg bg-blue-400 transition-all duration-500"
-                      style={{ height: `${barJ}px` }} />
-                  </div>
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="text-[10px] text-green-600 font-bold">{e.volunteer_score}</span>
-                    <div className="w-5 rounded-t-lg bg-green-400 transition-all duration-500"
-                      style={{ height: `${barV}px` }} />
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex gap-4 mt-2 overflow-x-auto">
-          {sorted.map((e) => (
-            <div key={e.employee_id} className="min-w-[64px] text-center text-[10px] text-slate-500 truncate">{e.employee_name}</div>
-          ))}
-        </div>
-        <div className="flex gap-4 mt-3 text-xs">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-400 inline-block"/>צדק</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-400 inline-block"/>התנדבות</span>
-        </div>
-      </div>
-    </div>
-  );
-}
+type AllCombinedEntry = {
+  empId: string;
+  name: string;
+  scores: {
+    justice: number;
+    volunteer: number;
+    daytype: number;
+    shirking: number;
+    advocates: number;
+  };
+  total: number;
+  manual: number;
+};
 
-// ── Combined table ────────────────────────────────────────────────────────────
-function CombinedTable({ data, search, manualTotals = {}, onAddManualPoint }: { data: JusticeEntry[]; search: string; manualTotals?: Record<string, number>; onAddManualPoint?: (id: string, name: string, pts: number, reason: string, table: ManualPointTable) => Promise<void> }) {
+const SCORE_COLS: { key: keyof AllCombinedEntry['scores']; label: string; color: string }[] = [
+  { key: "justice",   label: "צדק",        color: "bg-blue-400" },
+  { key: "volunteer", label: "התנדבות",    color: "bg-green-400" },
+  { key: "daytype",   label: "שבת/חג",     color: "bg-purple-400" },
+  { key: "advocates", label: "סנגורים",     color: "bg-fuchsia-400" },
+  { key: "shirking",  label: "הברזות",     color: "bg-rose-400" },
+];
+
+function AllCombinedTable({ data, search }: {
+  data: AllCombinedEntry[];
+  search: string;
+}) {
   const q = search.trim().toLowerCase();
-  const filtered = data.filter(e => !q || e.employee_name.toLowerCase().includes(q));
-  const sorted = [...filtered].sort((a, b) => {
-    const totalA = a.justice_score + a.volunteer_score + (manualTotals[a.employee_id] ?? 0);
-    const totalB = b.justice_score + b.volunteer_score + (manualTotals[b.employee_id] ?? 0);
-    return totalB - totalA;
+  const filtered = data.filter(e => !q || e.name.toLowerCase().includes(q));
+
+  // Find max absolute value for each column for bar scaling
+  const maxScores: Record<string, number> = {};
+  SCORE_COLS.forEach(col => {
+    maxScores[col.key] = Math.max(...filtered.map(e => Math.abs(e.scores[col.key])), 1);
   });
-  const maxJ = Math.max(...filtered.map(e => e.justice_score), 1);
-  const maxV = Math.max(...filtered.map(e => e.volunteer_score), 1);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-100">
-        <h3 className="font-bold text-slate-800">טבלה משולבת — צדק + התנדבות</h3>
-        <p className="text-xs text-slate-400 mt-0.5">ממוין לפי סה״כ נקודות (צדק + התנדבות)</p>
+        <h3 className="font-bold text-slate-800">טבלה משולבת כללית</h3>
+        <p className="text-xs text-slate-400 mt-0.5">ממוין לפי סה״כ נקודות משוקלל מכל הטבלאות</p>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
@@ -867,52 +807,36 @@ function CombinedTable({ data, search, manualTotals = {}, onAddManualPoint }: { 
             <tr className="bg-slate-50 border-b border-slate-200">
               <th className="px-4 py-3 font-semibold text-slate-500 w-10 text-center">#</th>
               <th className="px-4 py-3 font-semibold text-slate-600 text-right">עובד</th>
-              <th className="px-4 py-3 font-semibold text-blue-600 text-center">ניקוד צדק</th>
-              <th className="px-4 py-3 font-semibold text-green-600 text-center">ניקוד התנדבות</th>
+              {SCORE_COLS.map(col => (
+                <th key={col.key} className="px-4 py-3 font-semibold text-slate-600 text-center">{col.label}</th>
+              ))}
               <th className="px-4 py-3 font-semibold text-slate-700 text-center">סה״כ</th>
-              {onAddManualPoint && <th className="px-4 py-3 font-semibold text-violet-600 text-center">ניקוד ידני</th>}
             </tr>
           </thead>
           <tbody>
-            {sorted.map((e, rank) => {
-              const total = e.justice_score + e.volunteer_score;
-              const manual = manualTotals[e.employee_id] ?? 0;
-              const pctJ = maxJ > 0 ? (e.justice_score / maxJ) * 100 : 0;
-              const pctV = maxV > 0 ? (e.volunteer_score / maxV) * 100 : 0;
+            {filtered.map((e, rank) => {
               return (
-                <tr key={e.employee_id} className={`border-b border-slate-50 hover:bg-slate-50 ${rank % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                <tr key={e.empId} className={`border-b border-slate-50 hover:bg-slate-50 ${rank % 2 === 0 ? "" : "bg-slate-50/40"}`}>
                   <td className="px-4 py-3 text-center"><RankBadge rank={rank} /></td>
-                  <td className="px-4 py-3 font-semibold text-slate-800">{e.employee_name}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
-                        <div className="h-4 bg-blue-400 rounded-full" style={{ width: `${pctJ}%` }} />
-                      </div>
-                      <span className="text-xs font-bold text-blue-600 w-8 text-left">{e.justice_score}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
-                        <div className="h-4 bg-green-400 rounded-full" style={{ width: `${pctV}%` }} />
-                      </div>
-                      <span className="text-xs font-bold text-green-600 w-8 text-left">{e.volunteer_score}</span>
-                    </div>
-                  </td>
+                  <td className="px-4 py-3 font-semibold text-slate-800">{e.name}</td>
+                  {SCORE_COLS.map(col => {
+                    const value = e.scores[col.key];
+                    const max = maxScores[col.key];
+                    const pct = max > 0 ? (Math.abs(value) / max) * 100 : 0;
+                    return (
+                      <td key={col.key} className="px-4 py-3 min-w-[120px]">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
+                            <div className={`h-4 rounded-full ${col.color}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-xs font-bold text-slate-600 w-8 text-left">{value}</span>
+                        </div>
+                      </td>
+                    );
+                  })}
                   <td className="px-4 py-3 text-center">
-                    <span className="text-sm font-bold text-slate-800">{total + manual}</span>
+                    <span className="text-sm font-bold text-slate-800">{e.total}</span>
                   </td>
-                  {onAddManualPoint && (
-                    <td className="px-4 py-3 text-center">
-                      <PointsButton
-                        employeeId={e.employee_id}
-                        employeeName={e.employee_name}
-                        manualTotal={manual}
-                        table="general"
-                        onAdd={onAddManualPoint}
-                      />
-                    </td>
-                  )}
                 </tr>
               );
             })}
@@ -924,7 +848,7 @@ function CombinedTable({ data, search, manualTotals = {}, onAddManualPoint }: { 
 }
 
 // ── Advocates section ─────────────────────────────────────────────────────────
-function AdvocatesSection({ employees, search, manualTotals = {}, onAddManualPoint }: { employees: Employee[]; search: string; manualTotals?: Record<string, number>; onAddManualPoint?: (id: string, name: string, pts: number, reason: string, table: ManualPointTable) => Promise<void> }) {
+function AdvocatesSection({ employees, search, manualTotals = {} }: { employees: Employee[]; search: string; manualTotals?: Record<string, number>; }) {
   const [advocates, setAdvocates] = useState<Advocate[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -1179,9 +1103,6 @@ function AdvocatesSection({ employees, search, manualTotals = {}, onAddManualPoi
                   <span className="absolute inset-y-0 right-2 flex items-center text-xs font-bold text-slate-700">{info.points}</span>
                 </div>
                 <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{info.count} סנגורים</div>
-                {onAddManualPoint && (
-                  <PointsButton employeeId={empId} employeeName={info.name} manualTotal={manualTotals[empId] ?? 0} table="advocates" onAdd={onAddManualPoint} />
-                )}
               </div>
             ))}
           </div>
@@ -1518,7 +1439,7 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
 
 // ── Day Type Justice section ──────────────────────────────────────────────────
 function DayTypeJusticeSection({
-  data, view, onViewChange, search, onEmployeeClick, manualTotals = {}, onAddManualPoint, allEmployees = []
+  data, view, onViewChange, search, onEmployeeClick, manualTotals = {}, allEmployees = []
 }: {
   data: DayTypeJusticeData;
   view: "total" | "breakdown";
@@ -1526,7 +1447,6 @@ function DayTypeJusticeSection({
   search: string;
   onEmployeeClick?: (id: string, name: string) => void;
   manualTotals?: Record<string, number>;
-  onAddManualPoint?: (id: string, name: string, pts: number, reason: string, table: ManualPointTable, date?: string) => Promise<void>;
   allEmployees?: Employee[];
 }) {
   const q = search.trim();
@@ -1594,9 +1514,6 @@ function DayTypeJusticeSection({
                   {e.combined_score}
                 </Bar>
                 <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{e.combined_score} נק׳</div>
-                {onAddManualPoint && (
-                  <PointsButton employeeId={e.empId} employeeName={e.name} manualTotal={e.manual} table="daytype" onAdd={onAddManualPoint} />
-                )}
               </div>
             ))}
           </div>
@@ -1945,12 +1862,19 @@ export default function JusticePage() {
   const [view, setView] = useState<View>("table");
   const [employees, setEmployees] = useState<Employee[]>([]);
 
+  // Extra data for combined tab
+  const [advocates, setAdvocates] = useState<Advocate[]>([]);
+  const [shirkingRecords, setShirkingRecords] = useState<ShirkingRecord[]>([]);
+
   const [rangeType, setRangeType] = useState<RangeType>("month");
   const [refDate, setRefDate] = useState<Date | null>(null);
 
   useEffect(() => {
     getEmployees().then(setEmployees).catch(() => {});
     setRefDate(new Date());
+    // Fetch non-date-ranged data once
+    getAdvocates().then(setAdvocates).catch(() => {});
+    getShirking().then(setShirkingRecords).catch(() => {});
   }, []);
 
   // Derived values with null check
@@ -1971,14 +1895,13 @@ export default function JusticePage() {
 
   useEffect(() => {
     if (!startISO || !endISO) return;
-    if (tab !== "daytype") return;
     setDaytypeLoading(true);
     setDaytypeError(null);
     getDayTypeJustice(startISO, endISO)
       .then(setDaytypeData)
       .catch(e => setDaytypeError((e as Error).message))
       .finally(() => setDaytypeLoading(false));
-  }, [tab, startISO, endISO]);
+  }, [startISO, endISO]);
 
   const [search, setSearch] = useState("");
   const [daytypeData, setDaytypeData] = useState<DayTypeJusticeData | null>(null);
@@ -2021,6 +1944,53 @@ export default function JusticePage() {
     allManualTotals[mp.employee_id] = (allManualTotals[mp.employee_id] ?? 0) + mp.points;
   }
 
+  const allCombinedData = useMemo(() => {
+    // shirking totals (count)
+    const shirkingMap: Record<string, number> = {};
+    for (const r of shirkingRecords) {
+      shirkingMap[r.employee_id] = (shirkingMap[r.employee_id] ?? 0) + 1;
+    }
+
+    // advocates totals (points)
+    const advocateMap: Record<string, number> = {};
+    for (const a of advocates) {
+      advocateMap[a.employee_id] = (advocateMap[a.employee_id] ?? 0) + a.points;
+    }
+
+    return employees.map(emp => {
+      const justiceEntry = data.find(d => d.employee_id === emp.id);
+      const daytypeEntry = daytypeData?.employees.find(d => d.name === emp.name);
+
+      const justiceScore = justiceEntry?.justice_score ?? 0;
+      const volunteerScore = justiceEntry?.volunteer_score ?? 0;
+      const daytypeScore = daytypeEntry?.total_score ?? 0;
+      const shirkingCount = shirkingMap[emp.id] ?? 0;
+      const advocateScore = advocateMap[emp.id] ?? 0;
+
+      const finalJustice = justiceScore + (manualTotalsByTable.justice?.[emp.id] ?? 0);
+      const finalVolunteer = volunteerScore + (manualTotalsByTable.volunteer?.[emp.id] ?? 0);
+      const finalDaytype = daytypeScore + (manualTotalsByTable.daytype?.[emp.id] ?? 0);
+      const finalShirking = shirkingCount + (manualTotalsByTable.shirking?.[emp.id] ?? 0);
+      const finalAdvocate = advocateScore + (manualTotalsByTable.advocates?.[emp.id] ?? 0);
+
+      const totalScore = finalJustice + finalVolunteer + finalDaytype + finalAdvocate - finalShirking;
+
+      return {
+        empId: emp.id,
+        name: emp.name,
+        scores: {
+          justice: finalJustice,
+          volunteer: finalVolunteer,
+          daytype: finalDaytype,
+          shirking: -finalShirking,
+          advocates: finalAdvocate,
+        },
+        total: totalScore,
+        manual: allManualTotals[emp.id] ?? 0,
+      };
+    }).sort((a, b) => b.total - a.total);
+  }, [employees, data, daytypeData, shirkingRecords, advocates, manualTotalsByTable, allManualTotals]);
+
   const handleAddManualPoint = async (empId: string, empName: string, pts: number, reason: string, table: ManualPointTable = "general", date?: string) => {
     // Pass optional date to API
     const created = await addManualPoint({ employee_id: empId, employee_name: empName, points: pts, reason, table, date } as any);
@@ -2042,10 +2012,10 @@ export default function JusticePage() {
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "justice",   label: "טבלת צדק",         icon: "⚖️" },
     { id: "volunteer", label: "טבלת התנדבות",     icon: "🤝" },
-    { id: "combined",  label: "שניהם",             icon: "📊" },
     { id: "shirking",  label: "הברזות",            icon: "🚫" },
     { id: "advocates", label: "סנגורים",           icon: "🏆" },
     { id: "daytype",   label: "שבתות וחגים",       icon: "🕍" },
+    { id: "combined",  label: "טבלה משולבת",       icon: "📊" },
     { id: "manual",    label: "ניקוד ידני",        icon: "✏️" },
   ];
 
@@ -2113,7 +2083,7 @@ export default function JusticePage() {
         </div>
 
         {/* View toggle — hidden on advocates/shirking/daytype tabs */}
-        <div className={`flex gap-1 bg-slate-100 rounded-xl p-1 ${(tab === "advocates" || tab === "shirking" || tab === "daytype") ? "invisible" : ""}`}>
+        <div className={`flex gap-1 bg-slate-100 rounded-xl p-1 ${(tab === "advocates" || tab === "shirking" || tab === "daytype" || tab === "combined") ? "invisible" : ""}`}>
           <button type="button" onClick={() => setView("table")}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
               view === "table" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
@@ -2138,7 +2108,7 @@ export default function JusticePage() {
       </div>
 
       {/* Day scores toggle — visible on justice/volunteer/combined tabs */}
-      {(tab === "justice" || tab === "volunteer" || tab === "combined") && (
+      {(tab === "justice" || tab === "combined") && (
         <button
           type="button"
           onClick={() => { setShowDayScores(v => !v); }}
@@ -2291,15 +2261,12 @@ export default function JusticePage() {
                     data={data}
                     view={view}
                     search={search}
-                    getDayScore={showDayScores ? getDayScoreForEmployee : undefined}
                     onEmployeeClick={view === "table" ? (id, name) => setVolunteerBreakdownEmployee({ id, name }) : undefined}
                     manualTotals={manualTotalsByTable["volunteer"] ?? {}}
                   />
                 )}
                 {tab === "combined" && (
-                  view === "chart"
-                    ? <CombinedChart data={data} search={search} />
-                    : <CombinedTable data={data} search={search} manualTotals={allManualTotals} />
+                  <AllCombinedTable data={allCombinedData} search={search} />
                 )}
               </>
             );
