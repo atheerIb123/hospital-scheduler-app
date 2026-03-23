@@ -5,7 +5,6 @@ import datetime
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
 from ..db import get_db
-from ..constants import col_attr
 
 ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".ods"}
 
@@ -97,6 +96,9 @@ def _serialize(doc):
 
 
 TICKED_VALUES = {"v", "✓", "✔", "x", "yes", "כן", "1", "true"}
+
+def col_attr(i):
+    return f"col_{i}"
 
 
 def _parse_rows(rows: list[list[str]]) -> tuple[list[str], list[dict]]:
