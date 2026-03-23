@@ -5,6 +5,7 @@ import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, ge
 type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype" | "manual";
 type View = "table" | "chart";
 type RangeType = "week" | "month" | "year";
+type DayTypeFilter = "combined" | "shabbat" | "holidays";
 
 // ── Date range helpers ────────────────────────────────────────────────────────
 function toISO(d: Date) {
@@ -180,13 +181,14 @@ const DES_COLORS: Record<number, string> = {
   5: "bg-emerald-100 text-emerald-700",
 };
 
-function BreakdownModal({ employee, employeeId, manualPoints, startDate, endDate, onClose }: {
+function BreakdownModal({ employee, employeeId, manualPoints, startDate, endDate, onClose, filter = "combined" }: {
   employee: string;
   employeeId?: string;
   manualPoints?: ManualPoint[];
   startDate?: string;
   endDate?: string;
   onClose: () => void;
+  filter?: DayTypeFilter;
 }) {
   const [data, setData] = useState<JusticeBreakdown | null>(null);
   const [loading, setLoading] = useState(true);
@@ -396,13 +398,14 @@ function VolunteerBreakdownModal({ employee, employeeId, manualPoints, startDate
 }
 
 // ── DayType Breakdown modal ────────────────────────────────────────────────────
-function DayTypeBreakdownModal({ employee, employeeId, manualPoints, startDate, endDate, onClose }: {
+function DayTypeBreakdownModal({ employee, employeeId, manualPoints, startDate, endDate, onClose, filter }: {
   employee: string;
   employeeId?: string;
   manualPoints?: ManualPoint[];
   startDate?: string;
   endDate?: string;
   onClose: () => void;
+  filter: DayTypeFilter;
 }) {
   const [data, setData] = useState<DayTypeBreakdown | null>(null);
   const [loading, setLoading] = useState(true);
@@ -418,10 +421,20 @@ function DayTypeBreakdownModal({ employee, employeeId, manualPoints, startDate, 
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Filter rows based on view
+  const rows = data?.rows.filter(r => {
+    if (filter === "shabbat") return r.is_shabbat;
+    if (filter === "holidays") return !r.is_shabbat && r.day_type; // Show only non-shabbat day types (holidays)
+    return true; // combined
+  }) ?? [];
+
   // Calculate manual points
-  const relevantManual = (manualPoints ?? []).filter(p => p.employee_id === employeeId);
+  // Manual points are only part of the "combined" score in the main table logic, so we hide them in filtered views to match.
+  const relevantManual = filter === "combined" ? (manualPoints ?? []).filter(p => p.employee_id === employeeId) : [];
   const manualSum = relevantManual.reduce((sum, p) => sum + p.points, 0);
-  const displayTotal = (data?.total ?? 0) + manualSum;
+  
+  const rowsTotal = rows.reduce((sum, r) => sum + r.total, 0);
+  const displayTotal = rowsTotal + manualSum;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -432,7 +445,12 @@ function DayTypeBreakdownModal({ employee, employeeId, manualPoints, startDate, 
             <h2 className="font-bold text-slate-800 text-lg">{employee}</h2>
             <p className="text-xs text-slate-400 mt-0.5">פירוט חישוב ניקוד שבתות וחגים</p>
           </div>
-          {!loading && <div className="text-2xl font-bold text-purple-600 ml-4">{displayTotal} נק׳</div>}
+          {!loading && (
+            <div className="flex flex-col items-end ml-4">
+              <div className="text-2xl font-bold text-purple-600">{displayTotal} נק׳</div>
+              {filter !== "combined" && <span className="text-[10px] text-slate-400">({filter === "shabbat" ? "שבתות בלבד" : "חגים בלבד"})</span>}
+            </div>
+          )}
           <button onClick={onClose} className="ml-3 text-slate-400 hover:text-slate-600 transition-colors">
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
           </button>
@@ -440,7 +458,7 @@ function DayTypeBreakdownModal({ employee, employeeId, manualPoints, startDate, 
         <div className="overflow-y-auto flex-1">
           {loading ? (
             <div className="p-8 text-center text-slate-400 text-sm">טוען...</div>
-          ) : (!data || data.rows.length === 0) && relevantManual.length === 0 ? (
+          ) : rows.length === 0 && relevantManual.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-sm">אין נתוני שבתות / חגים בטווח הנבחר</div>
           ) : (
             <table className="min-w-full text-sm">
@@ -455,7 +473,7 @@ function DayTypeBreakdownModal({ employee, employeeId, manualPoints, startDate, 
                 </tr>
               </thead>
               <tbody>
-                {data?.rows.map((row, i) => (
+                {rows.map((row, i) => (
                   <tr key={i} className={`border-b border-slate-50 hover:bg-purple-50/30 ${i % 2 === 0 ? "" : "bg-slate-50/40"}`}>
                     <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap tabular-nums">{row.date}</td>
                     <td className="px-4 py-2.5 text-slate-700 font-medium whitespace-nowrap">{row.day_of_week}</td>
@@ -1439,17 +1457,19 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
 
 // ── Day Type Justice section ──────────────────────────────────────────────────
 function DayTypeJusticeSection({
-  data, view, onViewChange, search, onEmployeeClick, manualTotals = {}, allEmployees = []
+  data, search, onEmployeeClick, manualTotals = {}, allEmployees = [],
+  filter, onFilterChange
 }: {
   data: DayTypeJusticeData;
-  view: "total" | "breakdown";
-  onViewChange: (v: "total" | "breakdown") => void;
   search: string;
   onEmployeeClick?: (id: string, name: string) => void;
   manualTotals?: Record<string, number>;
   allEmployees?: Employee[];
+  filter: DayTypeFilter;
+  onFilterChange: (f: DayTypeFilter) => void;
 }) {
   const q = search.trim();
+
   const employees = data.employees
     .filter(e => !q || e.name.includes(q))
     .map(e => {
@@ -1459,11 +1479,21 @@ function DayTypeJusticeSection({
       const targetName = norm(e.name);
       const empId = allEmployees.find(emp => norm(emp.name) === targetName)?.id || ""; // ensure string
       const manual = (empId ? manualTotals[empId] : 0) ?? 0;
-      return { ...e, combined_score: e.total_score + manual, manual, empId };
+      const shabbatScore = e.shabbat_score;
+      const holidaysScore = e.total_score - e.shabbat_score;
+      return { ...e, combined_score: e.total_score + manual, manual, empId, shabbatScore, holidaysScore };
     })
-    .sort((a, b) => b.combined_score - a.combined_score);
+    .sort((a, b) => {
+      if (filter === "shabbat") return b.shabbatScore - a.shabbatScore;
+      if (filter === "holidays") return b.holidaysScore - a.holidaysScore;
+      return b.combined_score - a.combined_score;
+    });
 
-  const maxTotal = Math.max(...employees.map(e => e.combined_score), 1);
+  const maxTotal = Math.max(...employees.map(e =>
+    filter === "shabbat" ? e.shabbatScore :
+    filter === "holidays" ? e.holidaysScore :
+    e.combined_score
+  ), 1);
 
   // Which day types actually have any counts in this data
   const activeDayTypes = data.day_types.filter(dt =>
@@ -1474,27 +1504,27 @@ function DayTypeJusticeSection({
   return (
     <div className="space-y-4">
       {/* View toggle */}
-      <div className="flex gap-2">
-        <button type="button" onClick={() => onViewChange("total")}
-          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${view === "total" ? "bg-purple-600 text-white border-purple-600 shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}`}>
-          ציון כולל
-        </button>
-        <button type="button" onClick={() => onViewChange("breakdown")}
-          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${view === "breakdown" ? "bg-purple-600 text-white border-purple-600 shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}`}>
-          פירוט לכל סוג
-        </button>
+      <div className="flex flex-wrap items-center justify-end gap-4">
+
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+        <button onClick={() => onFilterChange("combined")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === "combined" ? "bg-white text-purple-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>משולב</button>
+        <button onClick={() => onFilterChange("shabbat")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === "shabbat" ? "bg-white text-purple-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>שבתות</button>
+        <button onClick={() => onFilterChange("holidays")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === "holidays" ? "bg-white text-purple-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>חגים</button>
+      </div>
       </div>
 
       {employees.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 text-slate-400 text-sm">
           אין נתוני שבתות / חגים בטווח הנבחר
         </div>
-      ) : view === "total" ? (
-        /* Total score view */
+      ) : (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h3 className="font-bold text-slate-800">ציון שבתות וחגים — סה״כ</h3>
+              <h3 className="font-bold text-slate-800">
+                {filter === "combined" ? "ציון שבתות וחגים — משולב" :
+                 filter === "shabbat" ? "טבלת שבתות" : "טבלת חגים"}
+              </h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 שישי: {data.weekday_scores?.["4"] ?? 0} נק׳ · שבת: {data.weekday_scores?.["5"] ?? 0} נק׳ · ציון חג לפי הגדרה
               </p>
@@ -1510,103 +1540,19 @@ function DayTypeJusticeSection({
               >
                 <RankBadge rank={rank} />
                 <div className="w-28 text-sm font-semibold text-slate-800 shrink-0 truncate">{e.name}</div>
-                <Bar value={e.combined_score} max={maxTotal} color={rank === 0 ? "bg-purple-500" : rank === 1 ? "bg-purple-300" : "bg-purple-200"}>
-                  {e.combined_score}
-                </Bar>
-                <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{e.combined_score} נק׳</div>
+                {(() => {
+                  const val = filter === "shabbat" ? e.shabbatScore : filter === "holidays" ? e.holidaysScore : e.combined_score;
+                  return (
+                    <>
+                      <Bar value={val} max={maxTotal} color={rank === 0 ? "bg-purple-500" : rank === 1 ? "bg-purple-300" : "bg-purple-200"}>
+                        {val}
+                      </Bar>
+                      <div className="text-xs text-slate-400 shrink-0 w-20 text-left">{val} נק׳</div>
+                    </>
+                  );
+                })()}
               </div>
             ))}
-          </div>
-        </div>
-      ) : (
-        /* Breakdown view */
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-bold text-slate-800">פירוט שבתות וחגים לעובד</h3>
-            <span className="text-xs bg-purple-100 text-purple-600 px-3 py-1 rounded-full font-medium">גבוה / נמוך</span>
-          </div>
-          <div className="overflow-x-auto" style={{ maxHeight: "520px", overflowY: "auto" }}>
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">#</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">עובד</th>
-                  {hasShabbat && (
-                    <th className="px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-50 z-10">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700">
-                        שישי/שבת (ו׳:{data.weekday_scores?.["4"] ?? 0} ש׳:{data.weekday_scores?.["5"] ?? 0} נק׳)
-                      </span>
-                    </th>
-                  )}
-                  {activeDayTypes.map(dt => (
-                    <th key={dt.id} className="px-3 py-3 text-center font-semibold whitespace-nowrap sticky top-0 bg-slate-50 z-10">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${dt.color}`}>{dt.name} ({dt.score} נק׳)</span>
-                    </th>
-                  ))}
-                  <th className="px-4 py-3 text-center font-bold text-slate-700 whitespace-nowrap sticky top-0 bg-slate-50 z-10">סה״כ נק׳</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((row, idx) => {
-                  // column stats for highlighting
-                  const shabbatVals = employees.map(e => e.shabbat_count);
-                  const shabbatMin = Math.min(...shabbatVals);
-                  const shabbatMax = Math.max(...shabbatVals);
-                  const totalVals = employees.map(e => e.total_score);
-                  const totalMin = Math.min(...totalVals);
-                  const totalMax = Math.max(...totalVals);
-                  return (
-                    <tr
-                      key={row.name}
-                      className={`border-b border-slate-50 hover:bg-purple-50/20 ${idx % 2 === 0 ? "" : "bg-slate-50/40"} ${onEmployeeClick ? "cursor-pointer" : ""}`}
-                      onClick={() => onEmployeeClick?.(row.empId, row.name)}
-                    >
-                      <td className="px-4 py-3 text-slate-400 text-xs font-medium">{idx + 1}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{row.name}</td>
-                      {hasShabbat && (() => {
-                        const isHigh = row.shabbat_count === shabbatMax && shabbatMin !== shabbatMax;
-                        const isLow = row.shabbat_count === shabbatMin && shabbatMin !== shabbatMax;
-                        return (
-                          <td className="px-3 py-3 text-center">
-                            <span className={`inline-flex flex-col items-center justify-center w-12 h-10 rounded-lg text-xs font-bold ${isHigh ? "bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300" : isLow ? "bg-red-100 text-red-600 ring-2 ring-red-200" : "text-slate-600"}`}>
-                              <span>{row.shabbat_count}</span>
-                              <span className="text-[10px] font-normal opacity-70">{row.shabbat_score} נק׳</span>
-                            </span>
-                          </td>
-                        );
-                      })()}
-                      {activeDayTypes.map(dt => {
-                        const entry = row.by_type[dt.id];
-                        const count = entry?.count ?? 0;
-                        const score = entry?.score ?? 0;
-                        const vals = employees.map(e => e.by_type[dt.id]?.count ?? 0);
-                        const min = Math.min(...vals); const max = Math.max(...vals);
-                        const isHigh = count === max && min !== max;
-                        const isLow = count === min && min !== max;
-                        return (
-                          <td key={dt.id} className="px-3 py-3 text-center">
-                            <span className={`inline-flex flex-col items-center justify-center w-12 h-10 rounded-lg text-xs font-bold ${isHigh ? "bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300" : isLow ? "bg-red-100 text-red-600 ring-2 ring-red-200" : "text-slate-600"}`}>
-                              <span>{count}</span>
-                              <span className="text-[10px] font-normal opacity-70">{score} נק׳</span>
-                            </span>
-                          </td>
-                        );
-                      })}
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className={`text-sm font-bold ${row.combined_score === totalMax && totalMin !== totalMax ? "text-purple-600" : row.combined_score === totalMin && totalMin !== totalMax ? "text-red-500" : "text-slate-700"}`}>
-                            {row.combined_score}
-                          </span>
-                          <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-purple-400 rounded-full" style={{ width: `${(row.combined_score / maxTotal) * 100}%` }} />
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
           </div>
         </div>
       )}
@@ -1907,7 +1853,7 @@ export default function JusticePage() {
   const [daytypeData, setDaytypeData] = useState<DayTypeJusticeData | null>(null);
   const [daytypeLoading, setDaytypeLoading] = useState(false);
   const [daytypeError, setDaytypeError] = useState<string | null>(null);
-  const [daytypeView, setDaytypeView] = useState<"total" | "breakdown">("total");
+  const [dayTypeFilter, setDayTypeFilter] = useState<DayTypeFilter>("combined");
 
   const [showDayScores, setShowDayScores] = useState(false);
   const [dayScoreData, setDayScoreData] = useState<DayTypeJusticeData | null>(null);
@@ -2189,7 +2135,7 @@ export default function JusticePage() {
         ) : daytypeError ? (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{daytypeError}</div>
         ) : daytypeData ? (
-          <DayTypeJusticeSection data={daytypeData} view={daytypeView} onViewChange={setDaytypeView} search={search} onEmployeeClick={(id, name) => setDaytypeBreakdownEmployee({ id, name })} manualTotals={manualTotalsByTable["daytype"] ?? {}} allEmployees={employees} />
+          <DayTypeJusticeSection data={daytypeData} search={search} onEmployeeClick={(id, name) => setDaytypeBreakdownEmployee({ id, name })} manualTotals={manualTotalsByTable["daytype"] ?? {}} allEmployees={employees} filter={dayTypeFilter} onFilterChange={setDayTypeFilter} />
         ) : null
       )}
 
@@ -2233,6 +2179,7 @@ export default function JusticePage() {
           startDate={startISO}
           endDate={endISO}
           onClose={() => setDaytypeBreakdownEmployee(null)}
+          filter={dayTypeFilter}
         />
       )}
 
