@@ -1,11 +1,18 @@
-import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload } from "./types";
+import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload, DayType, DaySetting } from "./types";
 
 const BASE = "/api";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (mode) headers["X-App-Mode"] = mode;
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: {
+      ...headers,
+      ...options?.headers,
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -50,7 +57,9 @@ export const clearEmployees = () =>
 export const importEmployeesCsv = async (file: File): Promise<ImportResult> => {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/employees/import`, { method: "POST", body: form });
+  const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+  const headers: Record<string, string> = mode ? { "X-App-Mode": mode } : {};
+  const res = await fetch(`${BASE}/employees/import`, { method: "POST", body: form, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
@@ -96,9 +105,12 @@ export const importShiftTypesCsv = async (
 ): Promise<ShiftTypeImportResult> => {
   const form = new FormData();
   form.append("file", file);
+  const appMode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+  const headers: Record<string, string> = appMode ? { "X-App-Mode": appMode } : {};
   const res = await fetch(`${BASE}/shift-types/import?mode=${mode}`, {
     method: "POST",
     body: form,
+    headers,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -168,9 +180,12 @@ export const importConstraintsCsv = async (
 ): Promise<ConstraintImportResult> => {
   const form = new FormData();
   form.append("file", file);
+  const appMode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+  const headers: Record<string, string> = appMode ? { "X-App-Mode": appMode } : {};
   const res = await fetch(`${BASE}/constraints/import?mode=${mode}`, {
     method: "POST",
     body: form,
+    headers,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

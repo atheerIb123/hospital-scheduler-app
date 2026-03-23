@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useMode } from "@/components/ModeProvider";
 
 const links = [
   { href: "/employees",   label: "עובדים" },
@@ -13,6 +14,19 @@ const links = [
 
 export default function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { mode, setMode } = useMode();
+
+  const modeNames = {
+    doctors: "רופאים",
+    nursing: "סיעוד",
+    cleaning: "ניקיון",
+  };
+
+  if (!mode && pathname === "/") {
+    return null;
+  }
+
   return (
     <nav className="sticky top-0 z-50 border-b border-blue-800/30"
       style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 100%)" }}>
@@ -25,26 +39,41 @@ export default function Nav() {
             </svg>
           </div>
           <div>
-            <p className="text-white font-bold text-base leading-tight tracking-wide">מתזמן משמרות</p>
+            <p className="text-white font-bold text-base leading-tight tracking-wide">
+              מתזמן משמרות {mode ? `- ${modeNames[mode]}` : ""}
+            </p>
             <p className="text-blue-200 text-xs leading-tight">Hospital Scheduler</p>
           </div>
         </div>
 
         {/* Links */}
-        <div className="flex items-center gap-1">
-          {links.map(({ href, label }) => {
-            const active = pathname.startsWith(href);
-            return (
-              <Link key={href} href={href}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
-                  active
-                    ? "bg-white text-blue-700 shadow-md"
-                    : "text-blue-100 hover:bg-white/10 hover:text-white"
-                }`}>
-                {label}
-              </Link>
-            );
-          })}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1">
+            {links.map(({ href, label }) => {
+              const active = pathname.startsWith(href);
+              return (
+                <Link key={href} href={href}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    active
+                      ? "bg-white text-blue-700 shadow-md"
+                      : "text-blue-100 hover:bg-white/10 hover:text-white"
+                  }`}>
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+          {mode && (
+            <button
+              onClick={() => {
+                setMode(null);
+                router.push("/");
+              }}
+              className="text-xs bg-white/10 text-white border border-white/20 px-3 py-1.5 rounded-lg hover:bg-white/20 hover:border-white/40 transition-colors font-semibold"
+            >
+              החלף תצוגה
+            </button>
+          )}
         </div>
       </div>
     </nav>
