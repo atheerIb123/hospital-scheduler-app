@@ -1,7 +1,9 @@
 from pymongo import MongoClient
 from flask import request, current_app, has_request_context
+from urllib.parse import unquote
 
 _client = None
+
 
 def init_db(app):
     global _client
@@ -11,12 +13,14 @@ def init_db(app):
 def get_db():
     mode = None
     if has_request_context():
-        mode = request.headers.get("X-App-Mode", "").strip().lower()
-    
+        raw = request.headers.get("X-App-Mode", "").strip()
+        if raw:
+            # Decode URI component and sanitize string for MongoDB
+            mode = unquote(raw).replace(" ", "_").replace("-", "_")
+
     base_name = current_app.config["MONGO_DB_NAME"]
-    if mode in ["doctors", "nursing", "cleaning"]:
-        db_name = f"{base_name}_{mode}"
-    else:
-        db_name = base_name
-        
+    if not mode:
+        mode = "doctors"
+
+    db_name = f"{base_name}_{mode}"
     return _client[db_name]

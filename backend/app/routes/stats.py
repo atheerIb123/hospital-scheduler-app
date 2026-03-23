@@ -37,17 +37,21 @@ def get_stats():
                 continue
             shift_names_set.add(a["shift_name"])
             # isoweekday(): Mon=1 … Sun=7  →  % 7 gives Sun=0, Mon=1 … Sat=6
-            assignments.append({
-                "employee_name": a["employee_name"],
-                "shift_name": a["shift_name"],
-                "date": d.isoformat(),
-                "day_of_week": d.isoweekday() % 7,
-            })
+            assignments.append(
+                {
+                    "employee_name": a["employee_name"],
+                    "shift_name": a["shift_name"],
+                    "date": d.isoformat(),
+                    "day_of_week": d.isoweekday() % 7,
+                }
+            )
 
     employees = [e["name"] for e in db.employees.find()]
 
-    return jsonify({
-        "assignments": assignments,
-        "employees": employees,
-        "shift_names": sorted(shift_names_set),
-    })
+    return jsonify(
+        {
+            "assignments": assignments,
+            "employees": employees,
+            "shift_names": sorted(shift_names_set),
+        }
+    )

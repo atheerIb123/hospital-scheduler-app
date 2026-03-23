@@ -17,6 +17,7 @@ def _file_extension(filename: str) -> str:
 def _rows_from_xlsx(file_bytes: bytes) -> list[list[str]]:
     """Parse .xlsx using openpyxl."""
     import openpyxl
+
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb.active
     rows = []
@@ -30,6 +31,7 @@ def _rows_from_xlsx(file_bytes: bytes) -> list[list[str]]:
 def _rows_from_xls(file_bytes: bytes) -> list[list[str]]:
     """Parse legacy .xls using xlrd."""
     import xlrd
+
     wb = xlrd.open_workbook(file_contents=file_bytes)
     ws = wb.sheet_by_index(0)
     rows = []
@@ -56,7 +58,9 @@ def _rows_from_ods(file_bytes: bytes) -> list[list[str]]:
             cells = []
             for cell in row_el.getElementsByType(TableCell):
                 paragraphs = cell.getElementsByType(P)
-                text = " ".join(str(p) for p in paragraphs).strip() if paragraphs else ""
+                text = (
+                    " ".join(str(p) for p in paragraphs).strip() if paragraphs else ""
+                )
                 repeat = int(cell.getAttribute("numbercolumnsrepeated") or 1)
                 cells.extend([text] * repeat)
             # Trim trailing empty cells
@@ -86,7 +90,10 @@ def _get_rows(file_bytes: bytes, ext: str) -> list[list[str]]:
     else:
         return _rows_from_csv(file_bytes)
 
-_DEFAULTS_CSV = os.path.join(os.path.dirname(__file__), "..", "..", "data", "default_shift_types.csv")
+
+_DEFAULTS_CSV = os.path.join(
+    os.path.dirname(__file__), "..", "..", "data", "default_shift_types.csv"
+)
 
 employees_bp = Blueprint("employees", __name__)
 
@@ -145,6 +152,7 @@ def _parse_rows(rows: list[list[str]]) -> tuple[list[str], list[dict]]:
 # Employees — list / delete
 # ---------------------------------------------------------------------------
 
+
 @employees_bp.get("/employees")
 def list_employees():
     db = get_db()
@@ -175,7 +183,7 @@ def update_employee(emp_id):
         else:
             # Clear deactivation metadata when reactivating
             patch["inactive_reason"] = None
-            patch["inactive_since"]  = None
+            patch["inactive_since"] = None
     if "inactive_reason" in data:
         patch["inactive_reason"] = (data["inactive_reason"] or "").strip() or None
     if not patch:
@@ -204,6 +212,7 @@ def clear_employees():
 # CSV import
 # ---------------------------------------------------------------------------
 
+
 @employees_bp.post("/employees/import")
 def import_employees():
     """
@@ -217,9 +226,11 @@ def import_employees():
     file = request.files["file"]
     ext = _file_extension(file.filename or "")
     if not file.filename or ext not in ALLOWED_EXTENSIONS:
-        return jsonify({
-            "error": f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
-        }), 400
+        return jsonify(
+            {
+                "error": f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            }
+        ), 400
 
     file_bytes = file.read()
     try:
@@ -255,6 +266,7 @@ def import_employees():
         csv_path = os.path.normpath(_DEFAULTS_CSV)
         if os.path.exists(csv_path):
             from .shift_types import _parse_shift_types_csv, _header_to_attr_map
+
             with open(csv_path, encoding="utf-8-sig") as f:
                 text = f.read()
             parsed_shifts, _ = _parse_shift_types_csv(text, _header_to_attr_map(db))
@@ -262,12 +274,14 @@ def import_employees():
                 db.shift_types.insert_many(parsed_shifts)
                 auto_seeded = True
 
-    return jsonify({
-        "imported": len(employees),
-        "employees": employees,
-        "column_headers": col_headers,
-        "shift_types_auto_seeded": auto_seeded,
-    }), 201
+    return jsonify(
+        {
+            "imported": len(employees),
+            "employees": employees,
+            "column_headers": col_headers,
+            "shift_types_auto_seeded": auto_seeded,
+        }
+    ), 201
 
 
 @employees_bp.get("/employees/column-headers")
@@ -353,7 +367,9 @@ def delete_column_header(col_index):
             else:
                 new_attrs.append(a)
         if changed:
-            db.employees.update_one({"_id": emp["_id"]}, {"$set": {"attributes": new_attrs}})
+            db.employees.update_one(
+                {"_id": emp["_id"]}, {"$set": {"attributes": new_attrs}}
+            )
 
     # Also shift required_attributes in shift_types
     for st in db.shift_types.find():
@@ -377,7 +393,9 @@ def delete_column_header(col_index):
             else:
                 new_req.append(a)
         if changed:
-            db.shift_types.update_one({"_id": st["_id"]}, {"$set": {"required_attributes": new_req}})
+            db.shift_types.update_one(
+                {"_id": st["_id"]}, {"$set": {"required_attributes": new_req}}
+            )
 
     # Remove the header and persist
     headers.pop(col_index)

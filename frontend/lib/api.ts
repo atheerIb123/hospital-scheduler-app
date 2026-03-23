@@ -5,7 +5,7 @@ const BASE = "/api";
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (mode) headers["X-App-Mode"] = mode;
+  if (mode) headers["X-App-Mode"] = encodeURIComponent(mode);
 
   const res = await fetch(`${BASE}${path}`, {
     ...options,
@@ -20,6 +20,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+// ---------------------------------------------------------------------------
+// Departments (Global File Config)
+// ---------------------------------------------------------------------------
+
+export const getDepartments = () => request<string[]>("/departments");
+export const addDepartment = (name: string) =>
+  request<string[]>("/departments", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
 
 // ---------------------------------------------------------------------------
 // Employees
@@ -58,7 +69,7 @@ export const importEmployeesCsv = async (file: File): Promise<ImportResult> => {
   const form = new FormData();
   form.append("file", file);
   const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
-  const headers: Record<string, string> = mode ? { "X-App-Mode": mode } : {};
+  const headers: Record<string, string> = mode ? { "X-App-Mode": encodeURIComponent(mode) } : {};
   const res = await fetch(`${BASE}/employees/import`, { method: "POST", body: form, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -106,7 +117,7 @@ export const importShiftTypesCsv = async (
   const form = new FormData();
   form.append("file", file);
   const appMode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
-  const headers: Record<string, string> = appMode ? { "X-App-Mode": appMode } : {};
+  const headers: Record<string, string> = appMode ? { "X-App-Mode": encodeURIComponent(appMode) } : {};
   const res = await fetch(`${BASE}/shift-types/import?mode=${mode}`, {
     method: "POST",
     body: form,
@@ -181,7 +192,7 @@ export const importConstraintsCsv = async (
   const form = new FormData();
   form.append("file", file);
   const appMode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
-  const headers: Record<string, string> = appMode ? { "X-App-Mode": appMode } : {};
+  const headers: Record<string, string> = appMode ? { "X-App-Mode": encodeURIComponent(appMode) } : {};
   const res = await fetch(`${BASE}/constraints/import?mode=${mode}`, {
     method: "POST",
     body: form,

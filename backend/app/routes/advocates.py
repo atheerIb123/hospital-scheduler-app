@@ -21,8 +21,14 @@ def list_advocates():
 def add_advocate():
     db = get_db()
     data = request.get_json()
-    if not data.get("employee_id") or not data.get("description") or data.get("points") is None:
-        return jsonify({"error": "employee_id, description and points are required"}), 400
+    if (
+        not data.get("employee_id")
+        or not data.get("description")
+        or data.get("points") is None
+    ):
+        return jsonify(
+            {"error": "employee_id, description and points are required"}
+        ), 400
     doc = {
         "employee_id": data["employee_id"],
         "employee_name": data["employee_name"],
