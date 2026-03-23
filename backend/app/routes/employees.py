@@ -157,7 +157,7 @@ def list_employees():
 
 @employees_bp.put("/employees/<emp_id>")
 def update_employee(emp_id):
-    """Update an employee's name and/or attributes."""
+    """Update an employee's name, attributes, and/or active status."""
     db = get_db()
     data = request.get_json()
     patch = {}
@@ -167,6 +167,17 @@ def update_employee(emp_id):
             patch["name"] = name
     if "attributes" in data:
         patch["attributes"] = [a.strip() for a in data["attributes"] if a.strip()]
+    if "active" in data:
+        patch["active"] = bool(data["active"])
+        if not patch["active"]:
+            # Record when the employee was deactivated
+            patch.setdefault("inactive_since", datetime.date.today().isoformat())
+        else:
+            # Clear deactivation metadata when reactivating
+            patch["inactive_reason"] = None
+            patch["inactive_since"]  = None
+    if "inactive_reason" in data:
+        patch["inactive_reason"] = (data["inactive_reason"] or "").strip() or None
     if not patch:
         return jsonify({"error": "nothing to update"}), 400
     db.employees.update_one({"_id": ObjectId(emp_id)}, {"$set": patch})

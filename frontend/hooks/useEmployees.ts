@@ -34,10 +34,18 @@ export function useEmployees() {
     return result;
   };
 
-  const updateEmployee = async (id: string, data: { name?: string; attributes?: string[] }) => {
+  const updateEmployee = async (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string }) => {
     const emp = await api.updateEmployee(id, data);
     setEmployees((prev) => prev.map((e) => (e.id === id ? emp : e)));
     return emp;
+  };
+
+  const deactivateEmployee = async (id: string, reason: string) => {
+    return updateEmployee(id, { active: false, inactive_reason: reason });
+  };
+
+  const activateEmployee = async (id: string) => {
+    return updateEmployee(id, { active: true });
   };
 
   const removeEmployee = async (id: string) => {
@@ -67,7 +75,7 @@ export function useEmployees() {
 
   return {
     employees, columnHeaders, loading, error, reload,
-    importCsv, updateEmployee, removeEmployee,
+    importCsv, updateEmployee, activateEmployee, deactivateEmployee, removeEmployee,
     renameColumnHeader, addColumnHeader, deleteColumnHeader,
   };
 }

@@ -1,8 +1,14 @@
 import calendar
 from datetime import date
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from ortools.sat.python import cp_model
 from .utils import build_eligibility_matrix
+from ..constants import JUSTICE_PTS
+
+# Penalty per consecutive-day pair in the objective.
+# Kept well below the justice-range terms so the solver prefers spacing employees out,
+# but will happily work consecutive days rather than leave a shift uncovered.
+CONSEC_PENALTY = 30
 
 
 def generate_schedule(
@@ -13,15 +19,51 @@ def generate_schedule(
     year: int,
     constraints: List[Dict[str, Any]] = None,
     day_settings: List[Dict[str, Any]] = None,
+    historical_justice: Optional[Dict[str, int]] = None,
+    weekday_scores: Optional[Dict[str, int]] = None,
+    day_extra_scores: Optional[Dict[int, int]] = None,
 ) -> Dict[str, Any]:
+    """
+    Generate a monthly schedule using OR-Tools CP-SAT.
+
+    Hard constraints
+    ----------------
+    C2  Every shift-day slot that has at least one eligible, unblocked employee
+        must be filled by exactly one such employee (AddExactlyOne).
+        Slots with zero eligible/unblocked employees are left empty and returned
+        as warnings — the solver does NOT fail in that case.
+    C3  Each employee works at most one shift per day.
+
+    Soft constraints (penalised in objective)
+    -----------------------------------------
+    C4  Consecutive working days are discouraged (CONSEC_PENALTY per pair).
+        The solver will avoid them when staffing allows, but will assign
+        consecutive days rather than leave a shift empty.
+
+    Objective (minimise weighted sum)
+    ----------------------------------
+    1.  Spread of cumulative justice scores (historical + this month).
+        Each assignment (e, shift, day) contributes:
+            JUSTICE_PTS[shift.desirability] + weekday_scores[weekday(day)]
+        which exactly mirrors the /justice endpoint so the solver directly
+        optimises the metric shown to users.  Historical scores from earlier
+        months of the same year are included so year-to-date burden is balanced.
+    2.  3 × spread of scoped-shift counts per eligible employee
+        (distributes כונן / weekend / friday slots evenly).
+    3.  CONSEC_PENALTY × number of consecutive working-day pairs (soft C4).
+
+    Parameters
+    ----------
+    historical_justice  {emp_id: accumulated_justice_score from past months}
+    weekday_scores      {str(weekday 0-6): bonus score}  (from DB config)
+    """
     days_in_month = calendar.monthrange(year, month)[1]
     days = list(range(1, days_in_month + 1))
 
-    # Actual settings map: {day_num: day_type_id}
+    # ── Day-category sets ────────────────────────────────────────────────────
     day_overrides: Dict[int, str] = {}
     if day_settings:
         for ds in day_settings:
-            # ds["date"] is "YYYY-MM-DD"
             try:
                 dnum = int(ds["date"].split("-")[-1])
                 day_overrides[dnum] = ds["day_type_id"]
@@ -34,18 +76,11 @@ def generate_schedule(
     weekday_days  = set(days) - weekend_days
 
     def applicable_days(shift: dict) -> set:
-        """Return the set of days this shift should be scheduled on."""
         scope = shift.get("schedule_on")
-        # Backwards compat: if schedule_on absent or string, normalize to list
-        if not (isinstance(scope, list) or isinstance(scope, tuple)):
-            if not scope:
-                scope = ["friday" if shift.get("friday_only") else "all"]
-            else:
-                scope = [scope]
-
+        if not isinstance(scope, (list, tuple)):
+            scope = ["friday" if shift.get("friday_only") else "all"] if not scope else [scope]
         if "all" in scope:
             return set(days)
-
         res = set()
         for d in days:
             override = day_overrides.get(d)
@@ -53,18 +88,12 @@ def generate_schedule(
                 if override in scope:
                     res.add(d)
                 continue
-
-            # Fallback to hardcoded scopes if no override exists for this day
-            if "friday" in scope and d in friday_days:
-                res.add(d)
-            elif "weekend" in scope and d in weekend_days:
-                res.add(d)
-            elif "weekdays" in scope and d in weekday_days:
-                res.add(d)
-
+            if   "friday"   in scope and d in friday_days:   res.add(d)
+            elif "weekend"  in scope and d in weekend_days:  res.add(d)
+            elif "weekdays" in scope and d in weekday_days:  res.add(d)
         return res
 
-    # Normalise MongoDB _id → id string
+    # ── Normalise MongoDB _id → id ───────────────────────────────────────────
     for emp in employees:
         if "_id" in emp:
             emp["id"] = str(emp.pop("_id"))
@@ -72,15 +101,18 @@ def generate_schedule(
         if "_id" in shift:
             shift["id"] = str(shift.pop("_id"))
 
-    eligibility = build_eligibility_matrix(employees, shift_types, rules)
+    # ── Active employees only ────────────────────────────────────────────────
+    active_employees = [e for e in employees if e.get("active", True)]
+    if not active_employees:
+        return {"status": "failed", "reason": "אין עובדים פעילים. הפעל לפחות עובד אחד."}
 
-    # Build blocked days per employee from constraints
-    # constraints = [{ employee_name, date "YYYY-MM-DD", ... }]
-    blocked: Dict[str, set] = {emp["id"]: set() for emp in employees}
+    eligibility = build_eligibility_matrix(active_employees, shift_types, rules)
+
+    # ── Blocked days from constraints (הסתייגויות) ───────────────────────────
+    blocked: Dict[str, set] = {emp["id"]: set() for emp in active_employees}
     if constraints:
-        name_to_id = {emp["name"]: emp["id"] for emp in employees}
+        name_to_id = {emp["name"]: emp["id"] for emp in active_employees}
         for c in constraints:
-            emp_name = c.get("employee_name", "")
             date_str = c.get("date", "")
             if not date_str:
                 continue
@@ -90,124 +122,194 @@ def generate_schedule(
                 continue
             if cdate.year != year or cdate.month != month:
                 continue
-            day_num = cdate.day
-            eid = name_to_id.get(emp_name)
+            eid = name_to_id.get(c.get("employee_name", ""))
             if eid:
-                blocked[eid].add(day_num)
+                blocked[eid].add(cdate.day)
 
-    # Skip shift types with no eligible employees (e.g. no required_attributes configured yet)
+    # ── Keep shift types with ≥1 eligible active employee ────────────────────
     schedulable = [
         shift for shift in shift_types
-        if any(eligibility[e["id"]][shift["id"]] for e in employees)
+        if any(eligibility[e["id"]][shift["id"]] for e in active_employees)
     ]
-
     if not schedulable:
         return {
             "status": "failed",
-            "reason": "אין סוגי משמרות עם עובדים זכאים. בדוק שהוגדרו תכונות נדרשות לכל משמרת.",
+            "reason": (
+                "אין סוגי משמרות עם עובדים פעילים זכאים. "
+                "בדוק שהוגדרו תכונות נדרשות לכל משמרת."
+            ),
         }
 
     shift_types = schedulable
+    shift_ids   = [s["id"] for s in shift_types]
+    hist        = historical_justice or {}
+    wd_scores   = weekday_scores or {}
+    day_extra   = day_extra_scores or {}
 
+    # Per-(shift, day) justice weight — full formula matching historical_justice:
+    #   base    = JUSTICE_PTS[desirability]   (from constants / DB-driven via shift_types)
+    #   weekday = weekday_scores[weekday]     (ALL days including Fri/Sat — from DB config)
+    #   holiday = day_extra_scores[day]       (special day-type bonus for holidays etc.)
+    shift_des: Dict[str, int] = {
+        s["id"]: JUSTICE_PTS.get(int(s.get("desirability", 3)), 4)
+        for s in shift_types
+    }
+
+    def justice_weight(sid: str, day: int) -> int:
+        wd = date(year, month, day).weekday()
+        return shift_des[sid] + wd_scores.get(str(wd), 0) + day_extra.get(day, 0)
+
+    # ── Build CP-SAT model ───────────────────────────────────────────────────
     model = cp_model.CpModel()
 
-    # Decision variables: x[(emp_id, shift_id, day)] = 1 iff that employee works that shift that day
+    # Decision variables: x[(emp_id, shift_id, day)] ∈ {0, 1}
     x: Dict = {}
-    for emp in employees:
+    for emp in active_employees:
         eid = emp["id"]
+        emp_blocked = blocked.get(eid, set())
         for shift in shift_types:
             sid = shift["id"]
-            app_days = applicable_days(shift)
-            if eligibility[eid][sid]:
-                for day in days:
-                    if day not in app_days:
-                        continue
-                    if day in blocked.get(eid, set()):
-                        continue  # employee has a constraint on this day
+            if not eligibility[eid][sid]:
+                continue
+            for day in applicable_days(shift):
+                if day not in emp_blocked:
                     x[(eid, sid, day)] = model.NewBoolVar(f"x_{eid}_{sid}_{day}")
 
-    # C2 – exactly one eligible employee covers each shift each applicable day
+    # C2 – Hard coverage: exactly one employee per shift-day slot
+    #   Exception: if no eligible unblocked employee exists for a slot, it is
+    #   left empty and reported as a warning (the model stays feasible).
+    warnings: List[Dict] = []
     for shift in shift_types:
-        sid = shift["id"]
+        sid  = shift["id"]
+        name = shift["names"][0] if shift.get("names") else sid
         for day in applicable_days(shift):
-            covering = [x[(e["id"], sid, day)] for e in employees if (e["id"], sid, day) in x]
+            covering = [
+                x[(e["id"], sid, day)]
+                for e in active_employees
+                if (e["id"], sid, day) in x
+            ]
+            if not covering:
+                # Truly impossible to staff — report and move on
+                warnings.append({"day": day, "shift_type_id": sid, "shift_name": name})
+                continue
             model.AddExactlyOne(covering)
 
-    # C3 – each employee works at most one shift per day
-    for emp in employees:
+    # C3 – Each employee works at most one shift per day
+    for emp in active_employees:
         eid = emp["id"]
         for day in days:
-            day_vars = [x[(eid, shift["id"], day)] for shift in shift_types if (eid, shift["id"], day) in x]
+            day_vars = [x[(eid, sid, day)] for sid in shift_ids if (eid, sid, day) in x]
             if len(day_vars) > 1:
                 model.Add(cp_model.LinearExpr.Sum(day_vars) <= 1)
 
-    max_possible = days_in_month * len(shift_types)
+    # ── Objective ────────────────────────────────────────────────────────────
+    obj_terms:   List[Any] = []
+    obj_weights: List[int] = []
 
-    # Per-employee total shift counts
-    emp_total: Dict[str, Any] = {}
-    for emp in employees:
+    # Term 1 – Justice table fairness (historical + this month, per /justice formula)
+    max_w_per_slot = (
+        max(JUSTICE_PTS.values())
+        + max((v for v in wd_scores.values() if v), default=0)
+        + max((v for v in day_extra.values() if v), default=0)
+    )
+    max_pts_month  = days_in_month * len(shift_types) * max_w_per_slot + 1
+    max_hist_score = max(hist.values()) if hist else 0
+    max_justice    = max_pts_month + max_hist_score
+
+    emp_justice_month: Dict[str, Any] = {}
+    for emp in active_employees:
         eid = emp["id"]
-        all_vars = [x[(eid, shift["id"], day)] for shift in shift_types for day in days if (eid, shift["id"], day) in x]
-        v = model.NewIntVar(0, max_possible, f"total_{eid}")
-        model.Add(v == cp_model.LinearExpr.Sum(all_vars))
-        emp_total[eid] = v
+        terms_j:   List[Any] = []
+        weights_j: List[int] = []
+        for shift in shift_types:
+            sid = shift["id"]
+            for day in days:
+                if (eid, sid, day) in x:
+                    terms_j.append(x[(eid, sid, day)])
+                    weights_j.append(justice_weight(sid, day))
+        v = model.NewIntVar(0, max_pts_month, f"jm_{eid}")
+        if terms_j:
+            model.Add(v == cp_model.LinearExpr.WeightedSum(terms_j, weights_j))
+        else:
+            model.Add(v == 0)
+        emp_justice_month[eid] = v
 
-    max_total = model.NewIntVar(0, max_possible, "max_total")
-    min_total = model.NewIntVar(0, max_possible, "min_total")
-    model.AddMaxEquality(max_total, list(emp_total.values()))
-    model.AddMinEquality(min_total, list(emp_total.values()))
-    range_total = model.NewIntVar(0, max_possible, "range_total")
-    model.Add(range_total == max_total - min_total)
+    emp_justice_total: Dict[str, Any] = {}
+    for emp in active_employees:
+        eid        = emp["id"]
+        hist_score = hist.get(eid, 0)
+        v = model.NewIntVar(hist_score, hist_score + max_pts_month, f"jt_{eid}")
+        model.Add(v == emp_justice_month[eid] + hist_score)
+        emp_justice_total[eid] = v
 
-    objective_vars: List[Any] = [range_total]
+    if len(emp_justice_total) >= 2:
+        max_jt   = model.NewIntVar(0, max_justice, "max_jt")
+        min_jt   = model.NewIntVar(0, max_justice, "min_jt")
+        range_jt = model.NewIntVar(0, max_justice, "range_jt")
+        model.AddMaxEquality(max_jt, list(emp_justice_total.values()))
+        model.AddMinEquality(min_jt, list(emp_justice_total.values()))
+        model.Add(range_jt == max_jt - min_jt)
+        obj_terms.append(range_jt)
+        obj_weights.append(1)
 
-    # Fairness for scoped shifts (non-"all") — weighted 3× because slots are scarce
-    scoped_types = [s for s in shift_types if s.get("schedule_on", "friday" if s.get("friday_only") else "all") != "all"]
+    # Term 2 – Scoped-shift fairness (כונן / weekend / friday — weighted 3×)
+    all_days_set = set(days)
+    scoped_types = [s for s in shift_types if applicable_days(s) != all_days_set]
     for fs in scoped_types:
         fsid = fs["id"]
-        app = applicable_days(fs)
-        eligible = [e for e in employees if any((e["id"], fsid, d) in x for d in app)]
-        if len(eligible) < 2:
+        app  = applicable_days(fs)
+        eligible_emp = [e for e in active_employees if any((e["id"], fsid, d) in x for d in app)]
+        if len(eligible_emp) < 2:
             continue
         max_app = len(app)
         emp_scoped: Dict[str, Any] = {}
-        for emp in eligible:
-            eid = emp["id"]
+        for emp in eligible_emp:
+            eid         = emp["id"]
             scoped_vars = [x[(eid, fsid, d)] for d in app if (eid, fsid, d) in x]
-            v = model.NewIntVar(0, max_app, f"scoped_{fsid}_{eid}")
+            v = model.NewIntVar(0, max_app, f"sc_{fsid}_{eid}")
             model.Add(v == cp_model.LinearExpr.Sum(scoped_vars))
             emp_scoped[eid] = v
-        max_s = model.NewIntVar(0, max_app, f"max_s_{fsid}")
-        min_s = model.NewIntVar(0, max_app, f"min_s_{fsid}")
-        model.AddMaxEquality(max_s, list(emp_scoped.values()))
-        model.AddMinEquality(min_s, list(emp_scoped.values()))
-        range_s = model.NewIntVar(0, max_app, f"range_s_{fsid}")
-        model.Add(range_s == max_s - min_s)
-        objective_vars += [range_s, range_s, range_s]
+        if len(emp_scoped) >= 2:
+            max_s   = model.NewIntVar(0, max_app, f"mxs_{fsid}")
+            min_s   = model.NewIntVar(0, max_app, f"mns_{fsid}")
+            range_s = model.NewIntVar(0, max_app, f"rng_{fsid}")
+            model.AddMaxEquality(max_s, list(emp_scoped.values()))
+            model.AddMinEquality(min_s, list(emp_scoped.values()))
+            model.Add(range_s == max_s - min_s)
+            obj_terms.append(range_s)
+            obj_weights.append(3)
 
-    # Desired shift fairness (weighted 2×)
-    desired_types = [s for s in shift_types if s.get("is_desired", False)]
-    if desired_types:
-        max_des = days_in_month * len(desired_types)
-        emp_desired: Dict[str, Any] = {}
-        for emp in employees:
-            eid = emp["id"]
-            des_vars = [x[(eid, s["id"], day)] for s in desired_types for day in days if (eid, s["id"], day) in x]
-            v = model.NewIntVar(0, max_des, f"desired_{eid}")
-            model.Add(v == cp_model.LinearExpr.Sum(des_vars))
-            emp_desired[eid] = v
+    # Term 3 – Soft C4: penalise consecutive working days
+    #   consec_violation[e,d] >= worked(e,d) + worked(e,d+1) - 1
+    #   When both days are worked this forces the var ≥ 1 (violation).
+    #   Minimising it means the solver spaces employees out when possible,
+    #   but will assign consecutive days rather than leave a shift uncovered.
+    consec_violation_vars: List[Any] = []
+    for emp in active_employees:
+        eid = emp["id"]
+        for day in days[:-1]:
+            today_vars    = [x[(eid, sid, day)]     for sid in shift_ids if (eid, sid, day)     in x]
+            tomorrow_vars = [x[(eid, sid, day + 1)] for sid in shift_ids if (eid, sid, day + 1) in x]
+            if not today_vars or not tomorrow_vars:
+                continue
+            cv = model.NewBoolVar(f"cv_{eid}_{day}")
+            # cv ≥ worked_today + worked_tomorrow - 1
+            model.Add(
+                cv >= cp_model.LinearExpr.Sum(today_vars) +
+                      cp_model.LinearExpr.Sum(tomorrow_vars) - 1
+            )
+            consec_violation_vars.append(cv)
 
-        max_desired = model.NewIntVar(0, max_des, "max_desired")
-        min_desired = model.NewIntVar(0, max_des, "min_desired")
-        model.AddMaxEquality(max_desired, list(emp_desired.values()))
-        model.AddMinEquality(min_desired, list(emp_desired.values()))
-        range_desired = model.NewIntVar(0, max_des, "range_desired")
-        model.Add(range_desired == max_desired - min_desired)
-        objective_vars.append(range_desired)
-        objective_vars.append(range_desired)  # weight 2× by adding twice
+    if consec_violation_vars:
+        total_consec = model.NewIntVar(0, len(consec_violation_vars), "total_consec")
+        model.Add(total_consec == cp_model.LinearExpr.Sum(consec_violation_vars))
+        obj_terms.append(total_consec)
+        obj_weights.append(CONSEC_PENALTY)
 
-    model.Minimize(cp_model.LinearExpr.Sum(objective_vars))
+    if obj_terms:
+        model.Minimize(cp_model.LinearExpr.WeightedSum(obj_terms, obj_weights))
 
+    # ── Solve ────────────────────────────────────────────────────────────────
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 30.0
     status = solver.Solve(model)
@@ -215,34 +317,40 @@ def generate_schedule(
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return {
             "status": "failed",
-            "reason": "הסולבר לא מצא סידור אפשרי. ודא שיש מספיק עובדים זכאים לכל סוג משמרת.",
+            "reason": (
+                "הסולבר לא מצא סידור אפשרי. "
+                "ודא שיש מספיק עובדים זכאים לכל סוג משמרת."
+            ),
         }
 
-    # Extract assignments
+    # ── Extract assignments ──────────────────────────────────────────────────
     assignments = []
     for shift in shift_types:
-        sid = shift["id"]
+        sid  = shift["id"]
         name = shift["names"][0] if shift.get("names") else sid
         for day in days:
-            for emp in employees:
+            for emp in active_employees:
                 eid = emp["id"]
                 if (eid, sid, day) in x and solver.Value(x[(eid, sid, day)]) == 1:
                     assignments.append({
-                        "day": day,
+                        "day":           day,
                         "shift_type_id": sid,
-                        "shift_name": name,
-                        "employee_id": eid,
+                        "shift_name":    name,
+                        "employee_id":   eid,
                         "employee_name": emp["name"],
                     })
 
-    # Build per-employee summary
+    # Sort warnings by day
+    warnings.sort(key=lambda w: (w["day"], w["shift_name"]))
+
+    # ── Per-employee summary ─────────────────────────────────────────────────
     summary = []
     for emp in employees:
         eid = emp["id"]
-        shift_counts: Dict[str, int] = {}
+        shift_counts:  Dict[str, int] = {}
         desired_count = 0
         for shift in shift_types:
-            sid = shift["id"]
+            sid  = shift["id"]
             name = shift["names"][0] if shift.get("names") else sid
             count = sum(
                 1 for day in days
@@ -252,11 +360,16 @@ def generate_schedule(
             if shift.get("is_desired", False):
                 desired_count += count
         summary.append({
-            "employee_id": eid,
-            "employee_name": emp["name"],
-            "shift_counts": shift_counts,
+            "employee_id":         eid,
+            "employee_name":       emp["name"],
+            "shift_counts":        shift_counts,
             "desired_shift_count": desired_count,
-            "total_shifts": sum(shift_counts.values()),
+            "total_shifts":        sum(shift_counts.values()),
         })
 
-    return {"status": "generated", "assignments": assignments, "summary": summary}
+    return {
+        "status":      "generated",
+        "assignments": assignments,
+        "summary":     summary,
+        "warnings":    warnings,
+    }

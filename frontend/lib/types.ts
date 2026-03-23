@@ -2,6 +2,9 @@ export interface Employee {
   id: string;
   name: string;
   attributes: string[]; // e.g. ["col_1", "col_3"] — which CSV columns are ticked
+  active?: boolean;          // defaults to true if absent; false = excluded from scheduling
+  inactive_reason?: string;  // optional note explaining why the employee is inactive
+  inactive_since?: string;   // ISO date string of when they were deactivated
 }
 
 export type ScheduleOn = string[];
@@ -48,6 +51,12 @@ export interface EmployeeSummary {
   total_shifts: number;
 }
 
+export interface ScheduleWarning {
+  day: number;
+  shift_type_id: string;
+  shift_name: string;
+}
+
 export interface Schedule {
   id: string;
   month: number;
@@ -57,6 +66,7 @@ export interface Schedule {
   assignments?: Assignment[];
   summary?: EmployeeSummary[];
   reason?: string;
+  warnings?: ScheduleWarning[]; // unfilled shift-day slots the solver could not cover
 }
 
 export interface ImportResult {

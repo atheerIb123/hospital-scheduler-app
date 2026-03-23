@@ -1,5 +1,5 @@
 "use client";
-import type { Schedule, ShiftType, Assignment } from "@/lib/types";
+import type { Schedule, ShiftType, Assignment, Employee } from "@/lib/types";
 
 const SHIFT_COLORS = [
   "bg-violet-100 text-violet-700","bg-sky-100 text-sky-700","bg-emerald-100 text-emerald-700",
@@ -9,9 +9,19 @@ const SHIFT_COLORS = [
   "bg-red-100 text-red-700","bg-blue-100 text-blue-700",
 ];
 
-interface Props { schedule: Schedule; shiftTypes: ShiftType[]; assignments: Assignment[]; }
+interface Props {
+  schedule: Schedule;
+  shiftTypes: ShiftType[];
+  assignments: Assignment[];
+  employees?: Employee[];
+}
 
-export default function SummaryTable({ schedule, shiftTypes, assignments }: Props) {
+export default function SummaryTable({ schedule, shiftTypes, assignments, employees = [] }: Props) {
+  const inactiveMap = Object.fromEntries(
+    employees
+      .filter(e => e.active === false)
+      .map(e => [e.name, { reason: e.inactive_reason, since: e.inactive_since }])
+  );
   if (!schedule.summary) return null;
 
   const sorted = [...shiftTypes]
@@ -65,7 +75,26 @@ export default function SummaryTable({ schedule, shiftTypes, assignments }: Prop
                 <tr key={empName} className={`border-b border-slate-50 transition-colors hover:bg-blue-50/30 ${
                   idx % 2 === 0 ? "" : "bg-slate-50/40"
                 }`}>
-                  <td className="px-5 py-3 font-semibold text-slate-800 whitespace-nowrap">{empName}</td>
+                  <td className="px-5 py-3 whitespace-nowrap">
+                    <div className="flex flex-col gap-0.5">
+                      <span className={`font-semibold ${inactiveMap[empName] ? "text-slate-400 line-through" : "text-slate-800"}`}>
+                        {empName}
+                      </span>
+                      {inactiveMap[empName] && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-400 border border-red-100 font-medium">
+                            לא פעיל
+                            {inactiveMap[empName].since && ` מ-${inactiveMap[empName].since}`}
+                          </span>
+                          {inactiveMap[empName].reason && (
+                            <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
+                              {inactiveMap[empName].reason}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </td>
                   {sorted.map((st) => {
                     const key = st.names[0];
                     const val = counts[key] ?? 0;
