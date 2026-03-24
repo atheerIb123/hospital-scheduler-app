@@ -144,12 +144,14 @@ def create_shift_type():
         schedule_on = "all"
     desirability = int(data.get("desirability", 3))
     desirability = max(1, min(5, desirability))
+    is_special = bool(data.get("is_special", False))
     doc = {
         "names": names,
         "required_attributes": required_attributes,
         "schedule_on": schedule_on,
         "desirability": desirability,
         "is_desired": desirability >= 4,
+        "is_special": is_special,
         "skip": False,
         "created_at": datetime.datetime.utcnow(),
     }
@@ -212,9 +214,18 @@ def update_shift_type(shift_id):
         update["is_desired"] = bool(data["is_desired"])
     if "schedule_on" in data:
         update["schedule_on"] = data["schedule_on"]
+    if "is_special" in data:
+        update["is_special"] = bool(data["is_special"])
     db.shift_types.update_one({"_id": ObjectId(shift_id)}, {"$set": update})
     shift = db.shift_types.find_one({"_id": ObjectId(shift_id)})
     return jsonify(_serialize(shift))
+
+
+@shift_types_bp.delete("/shift-types")
+def delete_all_shift_types():
+    db = get_db()
+    db.shift_types.delete_many({})
+    return jsonify({"ok": True})
 
 
 @shift_types_bp.delete("/shift-types/<shift_id>")

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import type { ShiftType, ScheduleOn, DayType } from "@/lib/types";
+import type { ShiftType, ScheduleOn, DayType, ShiftConfig } from "@/lib/types";
+import { ShiftCard } from "./ShiftCompositionConfig";
 
 const SCHEDULE_ON_OPTIONS: { value: string; label: string; color: string }[] = [
   { value: "all", label: "כל הימים", color: "bg-slate-100 text-slate-600 border-slate-200" },
@@ -124,7 +125,7 @@ export function DesirabilityStars({ value, onChange, readonly }: { value: number
 }
 
 // ── Attribute editor dropdown ────────────────────────────────────────────────
-function AttrEditor({
+export function AttrEditor({
   attrs,
   columnHeaders,
   saving,
@@ -193,6 +194,7 @@ function AttrEditor({
     </div>
   );
 }
+
 
 // ── Day-type selector ────────────────────────────────────────────────────────
 function DayTypeSelector({ value, onChange, dayTypes }: { value: ScheduleOn; onChange: (v: ScheduleOn) => void; dayTypes: DayType[] }) {
@@ -303,13 +305,18 @@ export default function ShiftTypeTable({
   onUpdate,
   onDelete,
   dayTypes,
+  compositionConfigs,
+  onSaveComposition,
 }: {
   shiftTypes: ShiftType[];
   columnHeaders: string[];
-  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "desirability" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
+  onUpdate: (id: string, data: Partial<ShiftType>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   dayTypes: DayType[];
+  compositionConfigs?: ShiftConfig[];
+  onSaveComposition?: (configs: ShiftConfig[]) => Promise<void>;
 }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const desiredCount = shiftTypes.filter((s) => (s.desirability ?? 3) >= 4).length;
 
   if (shiftTypes.length === 0) {
@@ -346,7 +353,8 @@ export default function ShiftTypeTable({
                 <th className="px-4 py-3 font-semibold text-slate-600">תכונות נדרשות</th>
                 <th className="px-4 py-3 font-semibold text-slate-600 text-center w-28">ימי תזמון</th>
                 <th className="px-4 py-3 font-semibold text-slate-600 text-center w-36">ניקוד רצוי</th>
-                <th className="px-4 py-3 w-12"></th>
+                {onSaveComposition && <th className="px-4 py-3 font-semibold text-slate-600 text-center w-20">מיוחדת</th>}
+                <th className="px-4 py-3 w-16"></th>
               </tr>
             </thead>
             <tbody>
@@ -359,6 +367,12 @@ export default function ShiftTypeTable({
                   onUpdate={onUpdate}
                   onDelete={onDelete}
                   dayTypes={dayTypes}
+                  showSpecial={!!onSaveComposition}
+                  expanded={expandedId === st.id}
+                  onToggleExpand={() => setExpandedId(prev => prev === st.id ? null : st.id)}
+                  compositionConfig={compositionConfigs?.find(c => st.names.includes(c.shift_name))}
+                  allCompositionConfigs={compositionConfigs ?? []}
+                  onSaveComposition={onSaveComposition}
                 />
               ))}
             </tbody>
@@ -376,13 +390,25 @@ function ShiftTypeRow({
   onUpdate,
   onDelete,
   dayTypes,
+  showSpecial,
+  expanded,
+  onToggleExpand,
+  compositionConfig,
+  allCompositionConfigs,
+  onSaveComposition,
 }: {
   shiftType: ShiftType;
   idx: number;
   columnHeaders: string[];
-  onUpdate: (id: string, data: Partial<Pick<ShiftType, "names" | "desirability" | "schedule_on" | "required_attributes">>) => Promise<ShiftType>;
+  onUpdate: (id: string, data: Partial<ShiftType>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   dayTypes: DayType[];
+  showSpecial: boolean;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  compositionConfig?: ShiftConfig;
+  allCompositionConfigs: ShiftConfig[];
+  onSaveComposition?: (configs: ShiftConfig[]) => Promise<void>;
 }) {
   const [editName, setEditName] = useState(shiftType.names.join(", "));
   const [deleting, setDeleting] = useState(false);
@@ -393,9 +419,23 @@ function ShiftTypeRow({
   const [savingDes, setSavingDes] = useState(false);
   const [desError, setDesError] = useState(false);
 
+  // Inline composition state
+  const [draftConfig, setDraftConfig] = useState<ShiftConfig | null>(null);
+  const [savingComp, setSavingComp] = useState(false);
+
   // Keep local state in sync if parent updates (e.g. after load-defaults)
   useEffect(() => { setLocalAttrs(shiftType.required_attributes); }, [shiftType.required_attributes]);
   useEffect(() => { setLocalDes(shiftType.desirability ?? 3); }, [shiftType.desirability]);
+  useEffect(() => { setDraftConfig(null); }, [expanded]);
+
+  const displayConfig: ShiftConfig = draftConfig ?? compositionConfig ?? {
+    shift_name: shiftType.names[0],
+    hours: "",
+    total_workers: 4,
+    role_slots: [],
+    min_male: 0,
+    min_female: 0,
+  };
 
   const handleDesirabilityChange = async (v: number) => {
     setLocalDes(v);
@@ -405,7 +445,6 @@ function ShiftTypeRow({
       await onUpdate(shiftType.id, { desirability: v });
     } catch {
       setDesError(true);
-      // Revert local state if save failed
       setLocalDes(shiftType.desirability ?? 3);
     } finally {
       setSavingDes(false);
@@ -440,6 +479,18 @@ function ShiftTypeRow({
     }
   };
 
+  const handleSaveComposition = async () => {
+    if (!onSaveComposition) return;
+    setSavingComp(true);
+    try {
+      const others = allCompositionConfigs.filter(c => !shiftType.names.includes(c.shift_name));
+      await onSaveComposition([...others, displayConfig]);
+      setDraftConfig(null);
+    } finally {
+      setSavingComp(false);
+    }
+  };
+
   const des = localDes;
   const rowBg = des >= 4
     ? "bg-amber-50/60 hover:bg-amber-50"
@@ -449,108 +500,176 @@ function ShiftTypeRow({
       ? "hover:bg-slate-50"
       : "bg-slate-50/40 hover:bg-slate-50";
 
+  const colSpan = showSpecial ? 7 : 6;
+
   return (
-    <tr className={`border-b border-slate-50 transition-all duration-200 ${deleting ? "opacity-40" : ""} ${rowBg}`}>
-      {/* # */}
-      <td className="px-4 py-3 text-center">
-        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">
-          {idx + 1}
-        </span>
-      </td>
+    <>
+      <tr className={`border-b border-slate-50 transition-all duration-200 ${deleting ? "opacity-40" : ""} ${expanded ? "bg-blue-50/30" : rowBg}`}>
+        {/* # */}
+        <td className="px-4 py-3 text-center">
+          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">
+            {idx + 1}
+          </span>
+        </td>
 
-      {/* Name */}
-      <td className="px-4 py-3">
-        <input
-          dir="rtl"
-          className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 focus:bg-white rounded-lg px-3 py-1.5 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
-          value={editName}
-          onChange={(e) => setEditName(e.target.value)}
-          onBlur={handleNameBlur}
-        />
-      </td>
+        {/* Name */}
+        <td className="px-4 py-3 relative">
+          <input
+            dir="rtl"
+            className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 focus:bg-white rounded-lg px-3 py-1.5 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={handleNameBlur}
+          />
+        </td>
 
-      {/* Required attributes — click to edit */}
-      <td className="px-4 py-3">
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setAttrOpen((v) => !v)}
-            className={`group w-full text-right flex flex-wrap gap-1.5 items-center rounded-lg px-2 py-1.5 border transition-all min-h-[2rem] ${attrOpen
-                ? "border-blue-300 bg-blue-50/50 ring-2 ring-blue-100"
-                : "border-transparent hover:border-slate-200 hover:bg-slate-50"
-              }`}
-          >
-            {localAttrs.length === 0 ? (
-              <span className="text-xs text-slate-400 italic flex items-center gap-1">
-                ללא הגבלה
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity">
-                  <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.263a1.75 1.75 0 0 0 0-2.474Z" />
-                  <path d="M4.75 3.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V8a.75.75 0 0 1 1.5 0v3.25A2.75 2.75 0 0 1 11.25 14h-6.5A2.75 2.75 0 0 1 2 11.25v-6.5A2.75 2.75 0 0 1 4.75 2H8a.75.75 0 0 1 0 1.5H4.75Z" />
-                </svg>
-              </span>
-            ) : (
-              <>
-                {localAttrs.map((attr) => (
-                  <span
-                    key={attr}
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${attrToBadgeColor(attr)}`}
-                  >
-                    {attrToHeaderName(attr, columnHeaders)}
-                  </span>
-                ))}
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mr-auto">
-                  <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.263a1.75 1.75 0 0 0 0-2.474Z" />
-                  <path d="M4.75 3.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V8a.75.75 0 0 1 1.5 0v3.25A2.75 2.75 0 0 1 11.25 14h-6.5A2.75 2.75 0 0 1 2 11.25v-6.5A2.75 2.75 0 0 1 4.75 2H8a.75.75 0 0 1 0 1.5H4.75Z" />
-                </svg>
-              </>
+        {/* Required attributes */}
+        <td className="px-4 py-3">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setAttrOpen((v) => !v)}
+              className={`group w-full text-right flex flex-wrap gap-1.5 items-center rounded-lg px-2 py-1.5 border transition-all min-h-[2rem] ${attrOpen
+                  ? "border-blue-300 bg-blue-50/50 ring-2 ring-blue-100"
+                  : "border-transparent hover:border-slate-200 hover:bg-slate-50"
+                }`}
+            >
+              {localAttrs.length === 0 ? (
+                <span className="text-xs text-slate-400 italic flex items-center gap-1">
+                  ללא הגבלה
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity">
+                    <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.263a1.75 1.75 0 0 0 0-2.474Z" />
+                    <path d="M4.75 3.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V8a.75.75 0 0 1 1.5 0v3.25A2.75 2.75 0 0 1 11.25 14h-6.5A2.75 2.75 0 0 1 2 11.25v-6.5A2.75 2.75 0 0 1 4.75 2H8a.75.75 0 0 1 0 1.5H4.75Z" />
+                  </svg>
+                </span>
+              ) : (
+                <>
+                  {localAttrs.map((attr) => (
+                    <span
+                      key={attr}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${attrToBadgeColor(attr)}`}
+                    >
+                      {attrToHeaderName(attr, columnHeaders)}
+                    </span>
+                  ))}
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mr-auto">
+                    <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.263a1.75 1.75 0 0 0 0-2.474Z" />
+                    <path d="M4.75 3.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V8a.75.75 0 0 1 1.5 0v3.25A2.75 2.75 0 0 1 11.25 14h-6.5A2.75 2.75 0 0 1 2 11.25v-6.5A2.75 2.75 0 0 1 4.75 2H8a.75.75 0 0 1 0 1.5H4.75Z" />
+                  </svg>
+                </>
+              )}
+            </button>
+
+            {attrOpen && (
+              <AttrEditor
+                attrs={localAttrs}
+                columnHeaders={columnHeaders}
+                saving={savingAttr}
+                onToggle={handleAttrToggle}
+                onClose={() => setAttrOpen(false)}
+              />
             )}
-          </button>
+          </div>
+        </td>
 
-          {attrOpen && (
-            <AttrEditor
-              attrs={localAttrs}
-              columnHeaders={columnHeaders}
-              saving={savingAttr}
-              onToggle={handleAttrToggle}
-              onClose={() => setAttrOpen(false)}
-            />
-          )}
-        </div>
-      </td>
+        {/* Day-type selector */}
+        <td className="px-4 py-3 text-center">
+          <DayTypeSelector
+            value={shiftType.schedule_on ?? (shiftType.friday_only ? "friday" : "all")}
+            onChange={(v) => onUpdate(shiftType.id, { schedule_on: v })}
+            dayTypes={dayTypes}
+          />
+        </td>
 
-      {/* Day-type selector */}
-      <td className="px-4 py-3 text-center">
-        <DayTypeSelector
-          value={shiftType.schedule_on ?? (shiftType.friday_only ? "friday" : "all")}
-          onChange={(v) => onUpdate(shiftType.id, { schedule_on: v })}
-          dayTypes={dayTypes}
-        />
-      </td>
+        {/* Desirability stars */}
+        <td className="px-4 py-3 text-center">
+          <DesirabilityStars
+            value={localDes}
+            onChange={handleDesirabilityChange}
+          />
+          {savingDes && <p className="text-[10px] text-slate-400 mt-0.5">שומר...</p>}
+          {desError && <p className="text-[10px] text-red-400 mt-0.5">שגיאה בשמירה</p>}
+        </td>
 
-      {/* Desirability stars */}
-      <td className="px-4 py-3 text-center">
-        <DesirabilityStars
-          value={localDes}
-          onChange={handleDesirabilityChange}
-        />
-        {savingDes && <p className="text-[10px] text-slate-400 mt-0.5">שומר...</p>}
-        {desError && <p className="text-[10px] text-red-400 mt-0.5">שגיאה בשמירה</p>}
-      </td>
+        {/* Is Special Checkbox — nursing only */}
+        {showSpecial && (
+          <td className="px-4 py-3 text-center">
+            <label className="inline-flex items-center justify-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!shiftType.is_special}
+                onChange={(e) => onUpdate(shiftType.id, { is_special: e.target.checked })}
+                className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 cursor-pointer accent-purple-600"
+              />
+            </label>
+          </td>
+        )}
 
-      {/* Delete */}
-      <td className="px-4 py-3 text-center">
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={deleting}
-          className="w-7 h-7 inline-flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-40"
-          title="מחק משמרת"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-            <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-          </svg>
-        </button>
-      </td>
-    </tr>
+        {/* Actions */}
+        <td className="px-3 py-3 text-center">
+          <div className="flex items-center justify-center gap-1">
+            {onSaveComposition && (
+              <button
+                type="button"
+                onClick={onToggleExpand}
+                title="הרכב משמרת"
+                className={`w-7 h-7 inline-flex items-center justify-center rounded-full transition-all ${
+                  expanded
+                    ? "text-blue-600 bg-blue-100 hover:bg-blue-200"
+                    : "text-slate-300 hover:text-blue-500 hover:bg-blue-50"
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-4 h-4 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}>
+                  <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="w-7 h-7 inline-flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-40"
+              title="מחק משמרת"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        </td>
+      </tr>
+
+      {/* Inline composition row */}
+      {expanded && (
+        <tr className="border-b border-blue-100 bg-blue-50/20">
+          <td colSpan={colSpan} className="px-4 py-4">
+            <div className="max-w-2xl">
+              <ShiftCard
+                config={displayConfig}
+                shiftType={shiftType}
+                columnHeaders={columnHeaders}
+                onChange={setDraftConfig}
+                onDelete={() => {
+                  if (confirm("לאפס את הרכב המשמרת?")) {
+                    const others = allCompositionConfigs.filter(c => !shiftType.names.includes(c.shift_name));
+                    onSaveComposition?.(others).then(onToggleExpand);
+                  }
+                }}
+              />
+              <div className="mt-3 flex justify-end gap-2">
+                <button type="button" onClick={onToggleExpand}
+                  className="px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
+                  ביטול
+                </button>
+                <button type="button" onClick={handleSaveComposition} disabled={savingComp || !draftConfig}
+                  className="px-4 py-1.5 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
+                  {savingComp ? "שומר..." : "שמור"}
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

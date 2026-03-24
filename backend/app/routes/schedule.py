@@ -2,7 +2,7 @@ import traceback
 from datetime import datetime, timezone, date as date_type
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
-from ..db import get_db
+from ..db import get_db, get_global_db
 from ..scheduler.solver import generate_schedule
 from .day_management import _get_weekday_scores
 from ..constants import JUSTICE_PTS
@@ -18,6 +18,7 @@ def _serialize(doc):
 @schedule_bp.post("/schedules/generate")
 def generate():
     db = get_db()
+    global_db = get_global_db()
     try:
         data = request.get_json()
         month = int(data.get("month", datetime.now().month))
@@ -33,7 +34,7 @@ def generate():
             db.constraints.find({"date": {"$regex": f"^{month_prefix}"}})
         )
         day_settings = list(
-            db.day_settings.find({"date": {"$regex": f"^{month_prefix}"}})
+            global_db.day_settings.find({"date": {"$regex": f"^{month_prefix}"}})
         )
 
         if not employees:
@@ -49,19 +50,19 @@ def generate():
             ), 400
 
         # ── Weekday scores from DB (configurable via day-management UI) ──────
-        weekday_scores = _get_weekday_scores(db)
+        weekday_scores = _get_weekday_scores(global_db)
 
         # ── Day-type extra scores (holidays, special days) ───────────────────
         # day_type_score_map: {day_type_id_str: score}
         day_type_score_map: dict = {
-            str(dt["_id"]): int(dt.get("score", 0)) for dt in db.day_types.find()
+            str(dt["_id"]): int(dt.get("score", 0)) for dt in global_db.day_types.find()
         }
 
         # day_extra_by_date: {date_str: extra_score}
         # Built from all day_settings ever recorded — used for historical justice
         # and also filtered to the current month for the solver.
         day_extra_by_date: dict = {}
-        for ds in db.day_settings.find():
+        for ds in global_db.day_settings.find():
             dt_id = ds.get("day_type_id", "")
             # Per-date score override takes priority over the day-type default
             extra = (
@@ -203,6 +204,7 @@ def update_assignments(schedule_id):
 @schedule_bp.get("/justice")
 def get_justice():
     db = get_db()
+    global_db = get_global_db()
 
     # Optional date range filter
     start_date = None
@@ -237,7 +239,7 @@ def get_justice():
         latest_schedules[key] = schedule
 
     # Weekday scores for non-Shabbat days → added to regular justice
-    weekday_scores = _get_weekday_scores(db)
+    weekday_scores = _get_weekday_scores(global_db)
 
     # Aggregate justice scores from one schedule per month
     justice: dict = {}
@@ -304,6 +306,7 @@ def get_justice():
 @schedule_bp.get("/justice/breakdown")
 def get_justice_breakdown():
     db = get_db()
+    global_db = get_global_db()
     employee_name = request.args.get("employee", "")
     start_str = request.args.get("start_date")
     end_str = request.args.get("end_date")
@@ -334,7 +337,7 @@ def get_justice_breakdown():
     for s in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
         latest_schedules[(s.get("year"), s.get("month"))] = s
 
-    weekday_scores = _get_weekday_scores(db)
+    weekday_scores = _get_weekday_scores(global_db)
     HE_DAYS = {
         0: "שני",
         1: "שלישי",

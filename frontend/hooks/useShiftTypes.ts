@@ -29,7 +29,7 @@ export function useShiftTypes() {
 
   const updateShiftType = async (
     id: string,
-    data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes">>
+    data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes" | "is_special">>
   ) => {
     const st = await api.updateShiftType(id, data);
     setShiftTypes((prev) => prev.map((s) => (s.id === id ? st : s)));
@@ -53,6 +53,11 @@ export function useShiftTypes() {
     setShiftTypes((prev) => prev.filter((s) => s.id !== id));
   };
 
+  const deleteAllShiftTypes = async () => {
+    await api.deleteAllShiftTypes();
+    setShiftTypes([]);
+  };
+
   const importFromCsv = async (file: File, mode: "replace" | "append" = "replace") => {
     const result = await api.importShiftTypesCsv(file, mode);
     setShiftTypes(result.shift_types);
@@ -68,6 +73,6 @@ export function useShiftTypes() {
   return {
     shiftTypes, columnHeaders, loading, error,
     reload, updateShiftType, setDesired,
-    createShiftType, deleteShiftType, importFromCsv, loadDefaults,
+    createShiftType, deleteShiftType, deleteAllShiftTypes, importFromCsv, loadDefaults,
   };
 }
