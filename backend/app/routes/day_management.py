@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
-from ..db import get_db
+from ..db import get_db, get_global_db
 import datetime
 
 day_mgmt_bp = Blueprint("day_management", __name__)
@@ -16,13 +16,13 @@ def _serialize(doc):
 
 @day_mgmt_bp.route("/day-types", methods=["GET"])
 def list_day_types():
-    db = get_db()
+    db = get_global_db()
     return jsonify([_serialize(d) for d in db.day_types.find().sort("name", 1)])
 
 
 @day_mgmt_bp.route("/day-types", methods=["POST"])
 def create_day_type():
-    db = get_db()
+    db = get_global_db()
     data = request.get_json()
     name = data.get("name", "").strip()
     if not name:
@@ -42,7 +42,7 @@ def create_day_type():
 
 @day_mgmt_bp.route("/day-types/<id>", methods=["PUT"])
 def update_day_type(id):
-    db = get_db()
+    db = get_global_db()
     data = request.get_json()
     update = {}
     if "name" in data:
@@ -62,7 +62,7 @@ def update_day_type(id):
 
 @day_mgmt_bp.route("/day-types/<id>", methods=["DELETE"])
 def delete_day_type(id):
-    db = get_db()
+    db = get_global_db()
     db.day_types.delete_one({"_id": ObjectId(id)})
     return jsonify({"ok": True})
 
@@ -72,7 +72,7 @@ def delete_day_type(id):
 
 @day_mgmt_bp.route("/day-settings/<int:year>/<int:month>", methods=["GET"])
 def get_month_settings(year, month):
-    db = get_db()
+    db = get_global_db()
     prefix = f"{year}-{month:02d}-"
     settings = list(db.day_settings.find({"date": {"$regex": f"^{prefix}"}}))
     for s in settings:
@@ -82,7 +82,7 @@ def get_month_settings(year, month):
 
 @day_mgmt_bp.route("/day-settings", methods=["POST"])
 def set_day_setting():
-    db = get_db()
+    db = get_global_db()
     data = request.get_json()
     date_str = data.get("date")
     day_type_id = data.get("day_type_id")
@@ -112,14 +112,14 @@ def set_day_setting():
 
 @day_mgmt_bp.route("/config/shabbat-score", methods=["GET"])
 def get_shabbat_score():
-    db = get_db()
+    db = get_global_db()
     cfg = db.config.find_one({"key": "shabbat_score"})
     return jsonify({"score": cfg["value"] if cfg else 2})
 
 
 @day_mgmt_bp.route("/config/shabbat-score", methods=["PUT"])
 def set_shabbat_score():
-    db = get_db()
+    db = get_global_db()
     data = request.get_json()
     score = max(0, int(data.get("score", 2)))
     db.config.update_one(
@@ -144,13 +144,13 @@ def _get_weekday_scores(db):
 
 @day_mgmt_bp.route("/config/weekday-scores", methods=["GET"])
 def get_weekday_scores():
-    db = get_db()
+    db = get_global_db()
     return jsonify(_get_weekday_scores(db))
 
 
 @day_mgmt_bp.route("/config/weekday-scores", methods=["PUT"])
 def set_weekday_scores():
-    db = get_db()
+    db = get_global_db()
     data = request.get_json()
     scores = {str(i): max(0, int(data.get(str(i), 0))) for i in range(7)}
     db.config.update_one(
@@ -165,7 +165,8 @@ def day_type_justice():
 
     start_str = request.args.get("start_date")
     end_str = request.args.get("end_date")
-    db = get_db()
+    db = get_global_db()
+    sched_db = get_db()
 
     weekday_scores = _get_weekday_scores(db)
 
@@ -194,7 +195,7 @@ def day_type_justice():
 
     # Keep only the latest generated schedule per (year, month) — same as /justice
     latest_map = {}
-    for s in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+    for s in sched_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
         latest_map[(s.get("year"), s.get("month"))] = s
     schedules = list(latest_map.values())
     emp_data = {}  # {name: {shabbat_count, by_type: {type_id: count}}}
@@ -294,7 +295,8 @@ def day_type_justice_breakdown():
     employee_name = request.args.get("employee", "")
     start_str = request.args.get("start_date")
     end_str = request.args.get("end_date")
-    db = get_db()
+    db = get_global_db()
+    sched_db = get_db()
 
     weekday_scores = _get_weekday_scores(db)
 
@@ -320,7 +322,7 @@ def day_type_justice_breakdown():
                 date_score_map[s["date"]] = s["score"]
 
     latest_map: dict = {}
-    for s in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+    for s in sched_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
         latest_map[(s.get("year"), s.get("month"))] = s
 
     HE_DAYS = {

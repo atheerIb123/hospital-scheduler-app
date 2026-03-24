@@ -34,7 +34,7 @@ export function useEmployees() {
     return result;
   };
 
-  const updateEmployee = async (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string; max_shifts_per_week?: number | null }) => {
+  const updateEmployee = async (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string; max_shifts_per_week?: number | null; home_department?: string | null }) => {
     const emp = await api.updateEmployee(id, data);
     setEmployees((prev) => prev.map((e) => (e.id === id ? emp : e)));
     return emp;

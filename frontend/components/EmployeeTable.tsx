@@ -1,6 +1,8 @@
 "use client";
 import { useRef, useState, useEffect, useMemo } from "react";
 import { useEmployees } from "@/hooks/useEmployees";
+import { useMode } from "@/components/ModeProvider";
+import { getDepartments, exportEmployeesXlsx } from "@/lib/api";
 
 const COL_COLORS = [
   { bg: "bg-violet-100", text: "text-violet-700", ring: "ring-violet-300" },
@@ -277,6 +279,38 @@ function ShiftsPerWeekCell({
   );
 }
 
+// ── Home department dropdown cell ─────────────────────────────────────────────
+function HomeDepartmentCell({
+  empId,
+  value,
+  departments,
+  onUpdate,
+}: {
+  empId: string;
+  value?: string | null;
+  departments: string[];
+  onUpdate: (id: string, dept: string | null) => Promise<void>;
+}) {
+  const current = value ?? "";
+  return (
+    <select
+      value={current}
+      onChange={(e) => {
+        const next = e.target.value || null;
+        if ((next ?? "") === current) return;
+        onUpdate(empId, next);
+      }}
+      className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400 transition-all min-w-[110px]"
+      dir="rtl"
+    >
+      <option value="">— לא שויך —</option>
+      {departments.map((dep) => (
+        <option key={dep} value={dep}>{dep}</option>
+      ))}
+    </select>
+  );
+}
+
 // ── Main table ────────────────────────────────────────────────────────────────
 export default function EmployeeTable() {
   const {
@@ -284,6 +318,14 @@ export default function EmployeeTable() {
     importCsv, updateEmployee, activateEmployee, deactivateEmployee, removeEmployee,
     renameColumnHeader, addColumnHeader, deleteColumnHeader, seedDefaultEmployees, clearAllEmployees,
   } = useEmployees();
+
+  const { mode } = useMode();
+  const isNursing = mode.startsWith("nursing");
+  const [departments, setDepartments] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (isNursing) getDepartments().then(setDepartments).catch(() => {});
+  }, [isNursing]);
 
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -297,11 +339,19 @@ export default function EmployeeTable() {
   // search & filter state
   const [nameSearch, setNameSearch] = useState("");
   const [attrFilter, setAttrFilter] = useState<Set<string>>(new Set());
+  const [deptFilter, setDeptFilter] = useState<Set<string>>(new Set());
 
   const toggleAttrFilter = (attr: string) =>
     setAttrFilter(prev => {
       const next = new Set(prev);
       next.has(attr) ? next.delete(attr) : next.add(attr);
+      return next;
+    });
+
+  const toggleDeptFilter = (dept: string) =>
+    setDeptFilter(prev => {
+      const next = new Set(prev);
+      next.has(dept) ? next.delete(dept) : next.add(dept);
       return next;
     });
 
@@ -313,9 +363,12 @@ export default function EmployeeTable() {
           if (!emp.attributes.includes(attr)) return false;
         }
       }
+      if (deptFilter.size > 0) {
+        if (!deptFilter.has(emp.home_department ?? "")) return false;
+      }
       return true;
     });
-  }, [employees, nameSearch, attrFilter]);
+  }, [employees, nameSearch, attrFilter, deptFilter]);
 
   const ACCEPTED_EXTENSIONS = [".csv", ".xlsx", ".xls", ".ods"];
   const isAccepted = (f: File) =>
@@ -330,7 +383,11 @@ export default function EmployeeTable() {
     setImporting(true); setImportError(null); setImportSuccess(null);
     try {
       const result = await importCsv(file);
-      setImportSuccess(`יובאו ${result.imported} עובדים בהצלחה`);
+      let msg = `יובאו ${result.imported} עובדים בהצלחה`;
+      if (result.invalid_departments?.length) {
+        msg += ` · מחלקות לא מוכרות (הוסרו): ${result.invalid_departments.join(", ")}`;
+      }
+      setImportSuccess(msg);
     } catch (e) {
       setImportError((e as Error).message);
     } finally {
@@ -492,8 +549,38 @@ export default function EmployeeTable() {
             </div>
           )}
 
+          {/* Department filter chips (nursing only) */}
+          {isNursing && departments.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-xs font-semibold text-slate-500">סנן לפי מחלקה:</span>
+              {departments.map((dep) => {
+                const active = deptFilter.has(dep);
+                return (
+                  <button
+                    key={dep}
+                    type="button"
+                    onClick={() => toggleDeptFilter(dep)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                      active
+                        ? "bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300 border-transparent shadow-sm"
+                        : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300"
+                    }`}
+                  >
+                    {dep}
+                  </button>
+                );
+              })}
+              {deptFilter.size > 0 && (
+                <button type="button" onClick={() => setDeptFilter(new Set())}
+                  className="text-xs text-slate-400 hover:text-red-500 transition-colors pr-1">
+                  נקה ✕
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Results count */}
-          {(nameSearch || attrFilter.size > 0) && (
+          {(nameSearch || attrFilter.size > 0 || deptFilter.size > 0) && (
             <p className="text-xs text-slate-500">
               מציג <span className="font-semibold text-blue-600">{filteredEmployees.length}</span> מתוך {employees.length} עובדים
             </p>
@@ -531,6 +618,18 @@ export default function EmployeeTable() {
               </span>
               <button
                 type="button"
+                onClick={async () => { try { await exportEmployeesXlsx(filteredEmployees.map(e => e.id)); } catch {} }}
+                className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg transition-all font-medium"
+                title="ייצא לאקסל"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                  <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
+                  <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
+                </svg>
+                ייצא Excel
+              </button>
+              <button
+                type="button"
                 onClick={async () => {
                   if (!window.confirm("למחוק את כל העובדים בתצוגה זו?")) return;
                   await clearAllEmployees();
@@ -558,6 +657,11 @@ export default function EmployeeTable() {
                       />
                     </th>
                   ))}
+                  {isNursing && (
+                    <th className="px-2 py-3 text-center sticky top-0 bg-slate-50 z-10 min-w-[120px]">
+                      <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">מחלקת אם</span>
+                    </th>
+                  )}
                   <th className="px-2 py-3 text-center sticky top-0 bg-slate-50 z-10 min-w-[80px]">
                     <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">משמרות/שבוע</span>
                   </th>
@@ -649,6 +753,18 @@ export default function EmployeeTable() {
                         </td>
                       );
                     })}
+
+                    {/* Home department cell (nursing only) */}
+                    {isNursing && (
+                      <td className="px-2 py-2.5 text-center">
+                        <HomeDepartmentCell
+                          empId={emp.id}
+                          value={emp.home_department}
+                          departments={departments}
+                          onUpdate={(id, dept) => updateEmployee(id, { home_department: dept })}
+                        />
+                      </td>
+                    )}
 
                     {/* Shifts per week cell */}
                     <td className="px-2 py-2.5 text-center">

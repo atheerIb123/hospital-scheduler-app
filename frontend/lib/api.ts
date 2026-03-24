@@ -1,4 +1,4 @@
-import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload, DayType, DaySetting } from "./types";
+import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload, DayType, DaySetting, ShiftCompositionData, ShiftConfig, SpecialShiftMonthConfig, ShiftOverride } from "./types";
 
 const BASE = "/api";
 
@@ -46,7 +46,25 @@ export const restoreDefaultDepartments = () =>
 
 export const getEmployees = () => request<Employee[]>("/employees");
 
-export const updateEmployee = (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string; max_shifts_per_week?: number | null }) =>
+export const exportEmployeesXlsx = async (ids?: string[]) => {
+  const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+  const headers: Record<string, string> = {};
+  if (mode) headers["X-App-Mode"] = encodeURIComponent(mode);
+  const url = ids?.length
+    ? `${BASE}/employees/export?ids=${ids.join(",")}`
+    : `${BASE}/employees/export`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = "employees.xlsx";
+  a.click();
+  URL.revokeObjectURL(objectUrl);
+};
+
+export const updateEmployee = (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string; max_shifts_per_week?: number | null; home_department?: string | null }) =>
   request<Employee>(`/employees/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
@@ -116,6 +134,9 @@ export const updateShiftType = (
 
 export const deleteShiftType = (id: string) =>
   request<{ ok: boolean }>(`/shift-types/${id}`, { method: "DELETE" });
+
+export const deleteAllShiftTypes = () =>
+  request<{ ok: boolean }>("/shift-types", { method: "DELETE" });
 
 export const toggleDesired = (id: string, is_desired: boolean) =>
   request<ShiftType>(`/shift-types/${id}/desired`, {
@@ -508,3 +529,46 @@ export const addManualPoint = (data: Omit<ManualPoint, "id" | "created_at">) =>
 
 export const removeManualPoint = (id: string) =>
   request<{ ok: boolean }>(`/manual-points/${id}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
+// Shift Composition (nursing)
+// ---------------------------------------------------------------------------
+
+export const getShiftComposition = () =>
+  request<ShiftCompositionData>("/shift-composition");
+
+export const saveShiftComposition = (data: ShiftCompositionData) =>
+  request<{ ok: boolean; shift_configs: ShiftConfig[] }>("/shift-composition", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
+export const seedNursingComposition = () =>
+  request<{ ok: boolean; shift_configs: ShiftConfig[] }>("/shift-composition/seed-nursing", {
+    method: "POST",
+  });
+
+// ---------------------------------------------------------------------------
+// Special Shifts (monthly)
+// ---------------------------------------------------------------------------
+
+export const getMonthlySpecialShifts = (year?: number) =>
+  request<SpecialShiftMonthConfig[]>(`/special-shifts/monthly${year ? `?year=${year}` : ""}`);
+
+export const setMonthlySpecialShifts = (month: number, year: number, total_count: number, week_distribution?: number[], shift_name?: string) =>
+  request<{ ok: boolean; shift_name: string; month: number; year: number; total_count: number; week_distribution?: number[] }>(
+    "/special-shifts/monthly",
+    { method: "POST", body: JSON.stringify({ month, year, total_count, week_distribution, shift_name }) }
+  );
+
+export const deleteMonthlySpecialShifts = (year: number, month: number) =>
+  request<{ ok: boolean }>(`/special-shifts/monthly/${year}/${month}`, { method: "DELETE" });
+
+export const getShiftOverrides = (year?: number, month?: number) =>
+  request<ShiftOverride[]>(`/shift-overrides${year ? `?year=${year}${month ? `&month=${month}` : ""}` : ""}`);
+
+export const saveShiftOverride = (override: ShiftOverride) =>
+  request<{ ok: boolean } & ShiftOverride>("/shift-overrides", { method: "PUT", body: JSON.stringify(override) });
+
+export const deleteShiftOverride = (date: string, shiftName: string) =>
+  request<{ ok: boolean }>(`/shift-overrides/${date}/${encodeURIComponent(shiftName)}`, { method: "DELETE" });

@@ -6,6 +6,7 @@ export interface Employee {
   active?: boolean;          // defaults to true if absent; false = excluded from scheduling
   inactive_reason?: string;  // optional note explaining why the employee is inactive
   inactive_since?: string;   // ISO date string of when they were deactivated
+  home_department?: string;  // nursing only: the department this employee belongs to
 }
 
 export type ScheduleOn = string[];
@@ -21,6 +22,7 @@ export interface ShiftType {
   schedule_on: ScheduleOn;
   friday_only?: boolean;   // legacy — superseded by schedule_on
   skip?: boolean;
+  is_special?: boolean;
 }
 
 export interface ShiftTypeImportResult {
@@ -34,6 +36,7 @@ export interface CreateShiftTypePayload {
   required_attributes: string[];
   schedule_on: ScheduleOn;
   desirability: number;   // 1–5
+  is_special?: boolean;
 }
 
 export interface Assignment {
@@ -74,6 +77,7 @@ export interface ImportResult {
   imported: number;
   employees: Employee[];
   column_headers: string[];
+  invalid_departments?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +103,46 @@ export interface CreateConstraintPayload {
   employee_name: string;
   date: string;
   reason?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Shift Composition (nursing)
+// ---------------------------------------------------------------------------
+
+export interface RoleSlot {
+  attribute_name: string;
+  count: number;
+  prefer_sub_attribute?: string;
+}
+
+export interface ShiftConfig {
+  shift_name: string;
+  hours: string;
+  total_workers: number;
+  role_slots: RoleSlot[];
+  min_male: number;
+  min_female: number;
+}
+
+export interface ShiftCompositionData {
+  shift_configs: ShiftConfig[];
+}
+
+export interface SpecialShiftMonthConfig {
+  shift_name: string;
+  month: number;
+  year: number;
+  total_count: number;
+  week_distribution?: number[];
+}
+
+export interface ShiftOverride {
+  date: string; // YYYY-MM-DD
+  shift_name: string;
+  total_workers?: number;
+  role_slots?: RoleSlot[];
+  min_male?: number;
+  min_female?: number;
 }
 
 // ---------------------------------------------------------------------------
