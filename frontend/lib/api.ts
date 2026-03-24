@@ -1,11 +1,18 @@
-import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload } from "./types";
+import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload, DayType, DaySetting } from "./types";
 
 const BASE = "/api";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (mode) headers["X-App-Mode"] = encodeURIComponent(mode);
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: {
+      ...headers,
+      ...options?.headers,
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -13,6 +20,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+// ---------------------------------------------------------------------------
+// Departments (Global File Config)
+// ---------------------------------------------------------------------------
+
+export const getDepartments = () => request<string[]>("/departments");
+export const addDepartment = (name: string) =>
+  request<string[]>("/departments", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+export const deleteDepartment = (name: string) =>
+  request<string[]>(`/departments/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+export const restoreDefaultDepartments = () =>
+  request<string[]>("/departments/restore-defaults", {
+    method: "POST",
+  });
 
 // ---------------------------------------------------------------------------
 // Employees
@@ -50,7 +76,9 @@ export const clearEmployees = () =>
 export const importEmployeesCsv = async (file: File): Promise<ImportResult> => {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/employees/import`, { method: "POST", body: form });
+  const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+  const headers: Record<string, string> = mode ? { "X-App-Mode": encodeURIComponent(mode) } : {};
+  const res = await fetch(`${BASE}/employees/import`, { method: "POST", body: form, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
@@ -96,9 +124,12 @@ export const importShiftTypesCsv = async (
 ): Promise<ShiftTypeImportResult> => {
   const form = new FormData();
   form.append("file", file);
+  const appMode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+  const headers: Record<string, string> = appMode ? { "X-App-Mode": encodeURIComponent(appMode) } : {};
   const res = await fetch(`${BASE}/shift-types/import?mode=${mode}`, {
     method: "POST",
     body: form,
+    headers,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -168,9 +199,12 @@ export const importConstraintsCsv = async (
 ): Promise<ConstraintImportResult> => {
   const form = new FormData();
   form.append("file", file);
+  const appMode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+  const headers: Record<string, string> = appMode ? { "X-App-Mode": encodeURIComponent(appMode) } : {};
   const res = await fetch(`${BASE}/constraints/import?mode=${mode}`, {
     method: "POST",
     body: form,
+    headers,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -469,4 +503,3 @@ export const addManualPoint = (data: Omit<ManualPoint, "id" | "created_at">) =>
 
 export const removeManualPoint = (id: string) =>
   request<{ ok: boolean }>(`/manual-points/${id}`, { method: "DELETE" });
-

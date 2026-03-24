@@ -18,6 +18,7 @@ def _serialize(doc):
 # Date / range parsing
 # ---------------------------------------------------------------------------
 
+
 def _parse_single_date(raw: str) -> datetime.date:
     raw = raw.strip()
     for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y"):
@@ -45,7 +46,7 @@ def _expand_date_expression(raw: str) -> list:
             if len(parts) != 2:
                 raise ValueError(f"טווח תאריכים לא תקין: '{seg}'")
             start = _parse_single_date(parts[0])
-            end   = _parse_single_date(parts[1])
+            end = _parse_single_date(parts[1])
             if end < start:
                 raise ValueError(f"תאריך סיום לפני תאריך התחלה: '{seg}'")
             if (end - start).days > 365:
@@ -79,13 +80,16 @@ def _rows_from_csv(file_bytes: bytes) -> list[list[str]]:
         except (UnicodeDecodeError, LookupError):
             continue
     else:
-        raise ValueError("לא ניתן לקרוא את הקובץ. יש לשמור אותו בפורמט UTF-8 או Windows-1255")
+        raise ValueError(
+            "לא ניתן לקרוא את הקובץ. יש לשמור אותו בפורמט UTF-8 או Windows-1255"
+        )
     reader = csv.reader(io.StringIO(text))
     return [r for r in reader if any(cell.strip() for cell in r)]
 
 
 def _rows_from_xlsx(file_bytes: bytes) -> list[list[str]]:
     import openpyxl
+
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb.active
     rows = []
@@ -98,6 +102,7 @@ def _rows_from_xlsx(file_bytes: bytes) -> list[list[str]]:
 
 def _rows_from_xls(file_bytes: bytes) -> list[list[str]]:
     import xlrd
+
     wb = xlrd.open_workbook(file_contents=file_bytes)
     ws = wb.sheet_by_index(0)
     rows = []
@@ -113,6 +118,7 @@ def _rows_from_ods(file_bytes: bytes) -> list[list[str]]:
     from odf.opendocument import load as ods_load
     from odf.table import Table, TableRow, TableCell
     from odf.text import P
+
     doc = ods_load(io.BytesIO(file_bytes))
     rows = []
     for sheet in doc.spreadsheet.getElementsByType(Table):
@@ -120,7 +126,9 @@ def _rows_from_ods(file_bytes: bytes) -> list[list[str]]:
             cells = []
             for cell in row_el.getElementsByType(TableCell):
                 paragraphs = cell.getElementsByType(P)
-                text = " ".join(str(p) for p in paragraphs).strip() if paragraphs else ""
+                text = (
+                    " ".join(str(p) for p in paragraphs).strip() if paragraphs else ""
+                )
                 repeat = int(cell.getAttribute("numbercolumnsrepeated") or 1)
                 cells.extend([text] * repeat)
             while cells and not cells[-1]:
@@ -151,9 +159,9 @@ def _parse_rows(rows: list[list[str]]):
         return [], ["הקובץ ריק או חסר שורת כותרות"]
 
     fieldnames = [f.strip() for f in rows[0]]
-    name_col   = next((f for f in fieldnames if "שם"    in f), None)
-    date_col   = next((f for f in fieldnames if "תאריך" in f), None)
-    reason_col = next((f for f in fieldnames if "סיבה"  in f), None)
+    name_col = next((f for f in fieldnames if "שם" in f), None)
+    date_col = next((f for f in fieldnames if "תאריך" in f), None)
+    reason_col = next((f for f in fieldnames if "סיבה" in f), None)
 
     if not name_col or not date_col:
         return [], [
@@ -165,10 +173,13 @@ def _parse_rows(rows: list[list[str]]):
     errors = []
 
     for i, row in enumerate(rows[1:], start=2):
-        row_dict = {fieldnames[j]: row[j] if j < len(row) else "" for j in range(len(fieldnames))}
+        row_dict = {
+            fieldnames[j]: row[j] if j < len(row) else ""
+            for j in range(len(fieldnames))
+        }
         employee_name = row_dict.get(name_col, "").strip()
-        date_raw      = row_dict.get(date_col, "").strip()
-        reason        = row_dict.get(reason_col, "").strip() if reason_col else ""
+        date_raw = row_dict.get(date_col, "").strip()
+        reason = row_dict.get(reason_col, "").strip() if reason_col else ""
 
         if not employee_name and not date_raw:
             continue
@@ -186,11 +197,13 @@ def _parse_rows(rows: list[list[str]]):
             continue
 
         for d in dates:
-            parsed.append({
-                "employee_name": employee_name,
-                "date": d.isoformat(),
-                "reason": reason,
-            })
+            parsed.append(
+                {
+                    "employee_name": employee_name,
+                    "date": d.isoformat(),
+                    "reason": reason,
+                }
+            )
 
     return parsed, errors
 
@@ -199,11 +212,12 @@ def _parse_rows(rows: list[list[str]]):
 # List
 # ---------------------------------------------------------------------------
 
+
 @constraints_bp.get("/constraints")
 def list_constraints():
     db = get_db()
     month = request.args.get("month", type=int)
-    year  = request.args.get("year",  type=int)
+    year = request.args.get("year", type=int)
     employee_name = request.args.get("employee")
 
     query = {}
@@ -221,14 +235,15 @@ def list_constraints():
 # Create — accepts single date or full date expression
 # ---------------------------------------------------------------------------
 
+
 @constraints_bp.post("/constraints")
 def create_constraint():
-    db   = get_db()
+    db = get_db()
     data = request.get_json()
 
     employee_name = (data.get("employee_name") or "").strip()
-    date_raw      = (data.get("date")          or "").strip()
-    reason        = (data.get("reason")        or "").strip()
+    date_raw = (data.get("date") or "").strip()
+    reason = (data.get("reason") or "").strip()
 
     if not employee_name:
         return jsonify({"error": "שם עובד הוא שדה חובה"}), 400
@@ -267,9 +282,10 @@ def create_constraint():
 # Update
 # ---------------------------------------------------------------------------
 
+
 @constraints_bp.put("/constraints/<constraint_id>")
 def update_constraint(constraint_id):
-    db   = get_db()
+    db = get_db()
     data = request.get_json()
     patch = {}
 
@@ -302,6 +318,7 @@ def update_constraint(constraint_id):
 # Delete single / clear all
 # ---------------------------------------------------------------------------
 
+
 @constraints_bp.delete("/constraints/<constraint_id>")
 def delete_constraint(constraint_id):
     db = get_db()
@@ -320,6 +337,7 @@ def clear_constraints():
 # CSV import
 # ---------------------------------------------------------------------------
 
+
 @constraints_bp.post("/constraints/import")
 def import_constraints():
     if "file" not in request.files:
@@ -328,9 +346,11 @@ def import_constraints():
     file = request.files["file"]
     extension = _ext(file.filename or "")
     if not file.filename or extension not in ALLOWED_EXTENSIONS:
-        return jsonify({
-            "error": f"סוג קובץ לא נתמך '{extension}'. מותר: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
-        }), 400
+        return jsonify(
+            {
+                "error": f"סוג קובץ לא נתמך '{extension}'. מותר: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            }
+        ), 400
 
     mode = request.args.get("mode", "replace")
 
@@ -351,10 +371,12 @@ def import_constraints():
     skipped = 0
     inserted_docs = []
     for item in parsed:
-        if mode == "append" and db.constraints.find_one({
-            "employee_name": item["employee_name"],
-            "date": item["date"],
-        }):
+        if mode == "append" and db.constraints.find_one(
+            {
+                "employee_name": item["employee_name"],
+                "date": item["date"],
+            }
+        ):
             skipped += 1
             continue
         item["created_at"] = datetime.datetime.utcnow()
@@ -362,9 +384,11 @@ def import_constraints():
         doc = db.constraints.find_one({"_id": result.inserted_id})
         inserted_docs.append(_serialize(doc))
 
-    return jsonify({
-        "imported": len(inserted_docs),
-        "skipped":  skipped,
-        "errors":   errors,
-        "constraints": inserted_docs,
-    }), 201
+    return jsonify(
+        {
+            "imported": len(inserted_docs),
+            "skipped": skipped,
+            "errors": errors,
+            "constraints": inserted_docs,
+        }
+    ), 201

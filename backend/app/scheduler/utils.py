@@ -1,7 +1,9 @@
 from typing import List, Dict, Any
 
 
-def expand_attributes(raw_attributes: List[str], rules: List[Dict[str, Any]]) -> List[str]:
+def expand_attributes(
+    raw_attributes: List[str], rules: List[Dict[str, Any]]
+) -> List[str]:
     """
     Given a list of raw attributes and a list of implication rules
     (each rule: {from_attribute: str, implies: [str]}),
@@ -42,5 +44,7 @@ def build_eligibility_matrix(
         for shift in shift_types:
             shift_id = str(shift["_id"]) if "_id" in shift else shift["id"]
             required = set(shift.get("required_attributes", []))
-            eligibility[emp_id][shift_id] = bool(required) and required.issubset(expanded)
+            eligibility[emp_id][shift_id] = bool(required) and required.issubset(
+                expanded
+            )
     return eligibility

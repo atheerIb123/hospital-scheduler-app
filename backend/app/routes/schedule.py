@@ -29,13 +29,24 @@ def generate():
 
         # Load constraints and day settings for the requested month/year
         month_prefix = f"{year:04d}-{month:02d}-"
-        constraints  = list(db.constraints.find({"date": {"$regex": f"^{month_prefix}"}}))
-        day_settings = list(db.day_settings.find({"date": {"$regex": f"^{month_prefix}"}}))
+        constraints = list(
+            db.constraints.find({"date": {"$regex": f"^{month_prefix}"}})
+        )
+        day_settings = list(
+            db.day_settings.find({"date": {"$regex": f"^{month_prefix}"}})
+        )
 
         if not employees:
-            return jsonify({"status": "failed", "reason": "אין עובדים מוגדרים. ייבא קובץ CSV תחילה."}), 400
+            return jsonify(
+                {
+                    "status": "failed",
+                    "reason": "אין עובדים מוגדרים. ייבא קובץ CSV תחילה.",
+                }
+            ), 400
         if not shift_types:
-            return jsonify({"status": "failed", "reason": "אין סוגי משמרות מוגדרים."}), 400
+            return jsonify(
+                {"status": "failed", "reason": "אין סוגי משמרות מוגדרים."}
+            ), 400
 
         # ── Weekday scores from DB (configurable via day-management UI) ──────
         weekday_scores = _get_weekday_scores(db)
@@ -43,8 +54,7 @@ def generate():
         # ── Day-type extra scores (holidays, special days) ───────────────────
         # day_type_score_map: {day_type_id_str: score}
         day_type_score_map: dict = {
-            str(dt["_id"]): int(dt.get("score", 0))
-            for dt in db.day_types.find()
+            str(dt["_id"]): int(dt.get("score", 0)) for dt in db.day_types.find()
         }
 
         # day_extra_by_date: {date_str: extra_score}
@@ -54,15 +64,23 @@ def generate():
         for ds in db.day_settings.find():
             dt_id = ds.get("day_type_id", "")
             # Per-date score override takes priority over the day-type default
-            extra = ds["score"] if ds.get("score") is not None else day_type_score_map.get(dt_id, 0)
+            extra = (
+                ds["score"]
+                if ds.get("score") is not None
+                else day_type_score_map.get(dt_id, 0)
+            )
             day_extra_by_date[ds["date"]] = extra
 
         # day_extra_scores for the solver: {day_num (1-31): extra_score}
         day_extra_scores: dict = {}
-        for ds in day_settings:          # already filtered to current month
+        for ds in day_settings:  # already filtered to current month
             dnum = int(ds["date"].split("-")[-1])
             dt_id = ds.get("day_type_id", "")
-            extra = ds["score"] if ds.get("score") is not None else day_type_score_map.get(dt_id, 0)
+            extra = (
+                ds["score"]
+                if ds.get("score") is not None
+                else day_type_score_map.get(dt_id, 0)
+            )
             day_extra_scores[dnum] = extra
 
         # ── Historical justice scores (all sources) ──────────────────────────
@@ -88,7 +106,7 @@ def generate():
             latest_per_month[sched.get("month")] = sched
 
         for sched in latest_per_month.values():
-            sched_year  = sched.get("year")
+            sched_year = sched.get("year")
             sched_month = sched.get("month")
             for a in sched.get("assignments", []):
                 emp_name = a.get("employee_name", "")
@@ -99,14 +117,19 @@ def generate():
                     a_date = date_type(sched_year, sched_month, int(a["day"]))
                 except (ValueError, TypeError, KeyError):
                     continue
-                pts  = des_map.get(a.get("shift_name", ""), 4)
-                pts += weekday_scores.get(str(a_date.weekday()), 0)   # all days
-                pts += day_extra_by_date.get(a_date.isoformat(), 0)   # holidays
+                pts = des_map.get(a.get("shift_name", ""), 4)
+                pts += weekday_scores.get(str(a_date.weekday()), 0)  # all days
+                pts += day_extra_by_date.get(a_date.isoformat(), 0)  # holidays
                 historical_justice[eid] = historical_justice.get(eid, 0) + pts
 
         result = generate_schedule(
-            employees, shift_types, rules, month, year,
-            constraints, day_settings,
+            employees,
+            shift_types,
+            rules,
+            month,
+            year,
+            constraints,
+            day_settings,
             historical_justice=historical_justice,
             weekday_scores=weekday_scores,
             day_extra_scores=day_extra_scores,
@@ -135,7 +158,9 @@ def generate():
 
     except Exception:
         traceback.print_exc()
-        return jsonify({"status": "failed", "reason": "שגיאת שרת פנימית. ראה לוג."}), 500
+        return jsonify(
+            {"status": "failed", "reason": "שגיאת שרת פנימית. ראה לוג."}
+        ), 500
 
 
 @schedule_bp.get("/schedules/latest")
@@ -166,8 +191,7 @@ def update_assignments(schedule_id):
     data = request.get_json()
     assignments = data.get("assignments", [])
     db.schedules.update_one(
-        {"_id": ObjectId(schedule_id)},
-        {"$set": {"assignments": assignments}}
+        {"_id": ObjectId(schedule_id)}, {"$set": {"assignments": assignments}}
     )
     schedule = db.schedules.find_one({"_id": ObjectId(schedule_id)})
     schedule["id"] = str(schedule.pop("_id"))
@@ -206,7 +230,9 @@ def get_justice():
 
     # For each (month, year) pair keep only the most recently generated schedule
     latest_schedules: dict = {}
-    for schedule in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+    for schedule in db.schedules.find(
+        {"status": "generated"}, sort=[("generated_at", 1)]
+    ):
         key = (schedule.get("year"), schedule.get("month"))
         latest_schedules[key] = schedule
 
@@ -261,14 +287,16 @@ def get_justice():
         name = emp["name"]
         j = justice.get(name, {"score": 0, "shifts": 0})
         v = volunteer.get(name, {"score": 0, "count": 0})
-        result.append({
-            "employee_name": name,
-            "employee_id": str(emp["_id"]),
-            "justice_score": j["score"],
-            "justice_shifts": j["shifts"],
-            "volunteer_score": v["score"],
-            "volunteer_count": v["count"],
-        })
+        result.append(
+            {
+                "employee_name": name,
+                "employee_id": str(emp["_id"]),
+                "justice_score": j["score"],
+                "justice_shifts": j["shifts"],
+                "volunteer_score": v["score"],
+                "volunteer_count": v["count"],
+            }
+        )
 
     return jsonify(result)
 
@@ -283,11 +311,15 @@ def get_justice_breakdown():
     start_date = None
     end_date = None
     if start_str:
-        try: start_date = date_type.fromisoformat(start_str)
-        except ValueError: pass
+        try:
+            start_date = date_type.fromisoformat(start_str)
+        except ValueError:
+            pass
     if end_str:
-        try: end_date = date_type.fromisoformat(end_str)
-        except ValueError: pass
+        try:
+            end_date = date_type.fromisoformat(end_str)
+        except ValueError:
+            pass
 
     des_map: dict = {}
     des_level_map: dict = {}
@@ -303,7 +335,15 @@ def get_justice_breakdown():
         latest_schedules[(s.get("year"), s.get("month"))] = s
 
     weekday_scores = _get_weekday_scores(db)
-    HE_DAYS = {0: "שני", 1: "שלישי", 2: "רביעי", 3: "חמישי", 4: "שישי", 5: "שבת", 6: "ראשון"}
+    HE_DAYS = {
+        0: "שני",
+        1: "שלישי",
+        2: "רביעי",
+        3: "חמישי",
+        4: "שישי",
+        5: "שבת",
+        6: "ראשון",
+    }
 
     rows = []
     for sched in latest_schedules.values():
@@ -325,18 +365,26 @@ def get_justice_breakdown():
             des_lvl = des_level_map.get(shift, 3)
             wd = a_date.weekday()
             wd_score = weekday_scores.get(str(wd), 0) if wd not in (4, 5) else 0
-            rows.append({
-                "date": a_date.isoformat(),
-                "day_of_week": HE_DAYS.get(wd, ""),
-                "shift_name": shift,
-                "desirability": des_lvl,
-                "desirability_points": des_pts,
-                "weekday_score": wd_score,
-                "total": des_pts + wd_score,
-            })
+            rows.append(
+                {
+                    "date": a_date.isoformat(),
+                    "day_of_week": HE_DAYS.get(wd, ""),
+                    "shift_name": shift,
+                    "desirability": des_lvl,
+                    "desirability_points": des_pts,
+                    "weekday_score": wd_score,
+                    "total": des_pts + wd_score,
+                }
+            )
 
     rows.sort(key=lambda r: r["date"])
-    return jsonify({"employee": employee_name, "rows": rows, "total": sum(r["total"] for r in rows)})
+    return jsonify(
+        {
+            "employee": employee_name,
+            "rows": rows,
+            "total": sum(r["total"] for r in rows),
+        }
+    )
 
 
 @schedule_bp.get("/justice/volunteer-breakdown")
@@ -349,11 +397,15 @@ def get_volunteer_breakdown():
     start_date = None
     end_date = None
     if start_str:
-        try: start_date = date_type.fromisoformat(start_str)
-        except ValueError: pass
+        try:
+            start_date = date_type.fromisoformat(start_str)
+        except ValueError:
+            pass
     if end_str:
-        try: end_date = date_type.fromisoformat(end_str)
-        except ValueError: pass
+        try:
+            end_date = date_type.fromisoformat(end_str)
+        except ValueError:
+            pass
 
     des_map: dict = {}
     des_level_map: dict = {}
@@ -364,7 +416,15 @@ def get_volunteer_breakdown():
             des_map[name] = pts
             des_level_map[name] = des
 
-    HE_DAYS = {0: "שני", 1: "שלישי", 2: "רביעי", 3: "חמישי", 4: "שישי", 5: "שבת", 6: "ראשון"}
+    HE_DAYS = {
+        0: "שני",
+        1: "שלישי",
+        2: "רביעי",
+        3: "חמישי",
+        4: "שישי",
+        5: "שבת",
+        6: "ראשון",
+    }
 
     rows = []
     for vol in db.volunteers.find({"employee_name": employee_name}):
@@ -380,17 +440,25 @@ def get_volunteer_breakdown():
         des_pts = des_map.get(shift, 4)
         des_lvl = des_level_map.get(shift, 3)
         wd = v_date.weekday()
-        rows.append({
-            "date": v_date.isoformat(),
-            "day_of_week": HE_DAYS.get(wd, ""),
-            "shift_name": shift,
-            "desirability": des_lvl,
-            "desirability_points": des_pts,
-            "total": des_pts,
-        })
+        rows.append(
+            {
+                "date": v_date.isoformat(),
+                "day_of_week": HE_DAYS.get(wd, ""),
+                "shift_name": shift,
+                "desirability": des_lvl,
+                "desirability_points": des_pts,
+                "total": des_pts,
+            }
+        )
 
     rows.sort(key=lambda r: r["date"])
-    return jsonify({"employee": employee_name, "rows": rows, "total": sum(r["total"] for r in rows)})
+    return jsonify(
+        {
+            "employee": employee_name,
+            "rows": rows,
+            "total": sum(r["total"] for r in rows),
+        }
+    )
 
 
 @schedule_bp.get("/schedules/<schedule_id>")

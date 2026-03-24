@@ -9,16 +9,25 @@ from ..db import get_db
 shift_types_bp = Blueprint("shift_types", __name__)
 
 # Path to the bundled default shift types CSV
-_DEFAULTS_CSV = os.path.join(os.path.dirname(__file__), "..", "..", "data", "default_shift_types.csv")
+_DEFAULTS_CSV = os.path.join(
+    os.path.dirname(__file__), "..", "..", "data", "default_shift_types.csv"
+)
 
 
 # Mapping from Hebrew CSV day labels → schedule_on values
 _DAY_LABEL_MAP = {
-    "הכל": "all", "all": "all", "": "all",
-    "ימי חול": "weekdays", "weekdays": "weekdays",
-    "שישי": "friday", "friday": "friday", "v": "friday",   # old שישי בלבד "V"
-    "סוף שבוע": "weekend", "weekend": "weekend",
+    "הכל": "all",
+    "all": "all",
+    "": "all",
+    "ימי חול": "weekdays",
+    "weekdays": "weekdays",
+    "שישי": "friday",
+    "friday": "friday",
+    "v": "friday",  # old שישי בלבד "V"
+    "סוף שבוע": "weekend",
+    "weekend": "weekend",
 }
+
 
 def _parse_schedule_on(cell: str, is_old_friday_flag: bool = False) -> str:
     """Resolve a raw CSV cell (or legacy friday_only flag) to a schedule_on string."""
@@ -27,7 +36,9 @@ def _parse_schedule_on(cell: str, is_old_friday_flag: bool = False) -> str:
     return _DAY_LABEL_MAP.get(cell.strip().lower(), "all")
 
 
-def _parse_shift_types_csv(text: str, header_to_attr: dict) -> tuple[list[dict], list[str]]:
+def _parse_shift_types_csv(
+    text: str, header_to_attr: dict
+) -> tuple[list[dict], list[str]]:
     """
     Parse a shift-types CSV string.
     Format:
@@ -83,14 +94,16 @@ def _parse_shift_types_csv(text: str, header_to_attr: dict) -> tuple[list[dict],
         day_cell = row[2].strip() if has_day_col and len(row) > 2 else ""
         schedule_on = _parse_schedule_on(day_cell, is_legacy_friday_col)
 
-        parsed.append({
-            "names": names,
-            "required_attributes": required_attrs,
-            "schedule_on": schedule_on,
-            "is_desired": False,
-            "skip": False,
-            "created_at": datetime.datetime.utcnow(),
-        })
+        parsed.append(
+            {
+                "names": names,
+                "required_attributes": required_attrs,
+                "schedule_on": schedule_on,
+                "is_desired": False,
+                "skip": False,
+                "created_at": datetime.datetime.utcnow(),
+            }
+        )
 
     return parsed, unmatched
 
@@ -123,7 +136,9 @@ def create_shift_type():
     names = [n.strip() for n in raw_names if n.strip()]
     if not names:
         return jsonify({"error": "at least one name is required"}), 400
-    required_attributes = [a.strip() for a in data.get("required_attributes", []) if a.strip()]
+    required_attributes = [
+        a.strip() for a in data.get("required_attributes", []) if a.strip()
+    ]
     schedule_on = data.get("schedule_on", "all")
     if schedule_on not in ("all", "weekdays", "friday", "weekend"):
         schedule_on = "all"
@@ -166,7 +181,13 @@ def load_defaults():
     db.shift_types.delete_many({})
     db.shift_types.insert_many(parsed_shifts)
     all_shifts = [_serialize(s) for s in db.shift_types.find()]
-    return jsonify({"imported": len(parsed_shifts), "shift_types": all_shifts, "warnings": unmatched}), 201
+    return jsonify(
+        {
+            "imported": len(parsed_shifts),
+            "shift_types": all_shifts,
+            "warnings": unmatched,
+        }
+    ), 201
 
 
 @shift_types_bp.put("/shift-types/<shift_id>")
@@ -180,7 +201,9 @@ def update_shift_type(shift_id):
             raw = [n.strip() for n in raw.split(",") if n.strip()]
         update["names"] = [n.strip() for n in raw if n.strip()]
     if "required_attributes" in data:
-        update["required_attributes"] = [a.strip() for a in data["required_attributes"] if a.strip()]
+        update["required_attributes"] = [
+            a.strip() for a in data["required_attributes"] if a.strip()
+        ]
     if "desirability" in data:
         des = max(1, min(5, int(data["desirability"])))
         update["desirability"] = des
@@ -206,7 +229,9 @@ def toggle_desired(shift_id):
     db = get_db()
     data = request.get_json()
     is_desired = bool(data.get("is_desired", False))
-    db.shift_types.update_one({"_id": ObjectId(shift_id)}, {"$set": {"is_desired": is_desired}})
+    db.shift_types.update_one(
+        {"_id": ObjectId(shift_id)}, {"$set": {"is_desired": is_desired}}
+    )
     shift = db.shift_types.find_one({"_id": ObjectId(shift_id)})
     return jsonify(_serialize(shift))
 
@@ -247,6 +272,10 @@ def import_shift_types():
 
     db.shift_types.insert_many(parsed_shifts)
     all_shifts = [_serialize(s) for s in db.shift_types.find()]
-    return jsonify({"imported": len(parsed_shifts), "shift_types": all_shifts, "warnings": unmatched}), 201
-
-
+    return jsonify(
+        {
+            "imported": len(parsed_shifts),
+            "shift_types": all_shifts,
+            "warnings": unmatched,
+        }
+    ), 201
