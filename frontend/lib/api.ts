@@ -31,6 +31,14 @@ export const addDepartment = (name: string) =>
     method: "POST",
     body: JSON.stringify({ name }),
   });
+export const deleteDepartment = (name: string) =>
+  request<string[]>(`/departments/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+export const restoreDefaultDepartments = () =>
+  request<string[]>("/departments/restore-defaults", {
+    method: "POST",
+  });
 
 // ---------------------------------------------------------------------------
 // Employees
@@ -495,4 +503,3 @@ export const addManualPoint = (data: Omit<ManualPoint, "id" | "created_at">) =>
 
 export const removeManualPoint = (id: string) =>
   request<{ ok: boolean }>(`/manual-points/${id}`, { method: "DELETE" });
-

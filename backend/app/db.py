@@ -9,6 +9,8 @@ def init_db(app):
     global _client
     _client = MongoClient(app.config["MONGO_URI"])
 
+def get_client():
+    return _client
 
 def get_db():
     mode = None
