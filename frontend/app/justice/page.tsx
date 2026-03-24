@@ -9,7 +9,8 @@ type DayTypeFilter = "combined" | "shabbat" | "holidays";
 
 // ── Date range helpers ────────────────────────────────────────────────────────
 function toISO(d: Date) {
-  return d.toISOString().slice(0, 10);
+  const offset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - offset).toISOString().slice(0, 10);
 }
 
 function getRangeBounds(type: RangeType, ref: Date): { start: Date; end: Date } {
@@ -873,7 +874,7 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [advView, setAdvView] = useState<View>("table");
-  const [form, setForm] = useState({ employee_id: "", description: "", points: 1, date: new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" }) });
+  const [form, setForm] = useState({ employee_id: "", description: "", points: 1, date: "" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [empSearch, setEmpSearch] = useState("");
@@ -887,6 +888,10 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
       .then(setAdvocates)
       .catch(e => setFetchError((e as Error).message))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    setForm(f => ({ ...f, date: new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" }) }));
   }, []);
 
   async function handleAdd(e: React.FormEvent) {
@@ -1582,13 +1587,17 @@ function ManualPointsSection({ points, manualTotalsByTable, employees, onAdd, on
   const [selectedEmp, setSelectedEmp] = useState<{ id: string; name: string } | null>(null);
   const [points_val, setPointsVal] = useState(1);
   const [reason, setReason]       = useState("");
-  const [customDate, setCustomDate] = useState(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" })); // Default to today
+  const [customDate, setCustomDate] = useState("");
   const [selectedTable, setSelectedTable] = useState<ManualPointTable>("justice");
   const [saving, setSaving]       = useState(false);
   const empBtnRef = useRef<HTMLButtonElement>(null);
   const [empStyle, setEmpStyle]   = useState<React.CSSProperties>({});
   const [filterEmp, setFilterEmp] = useState("");
   const [filterTable, setFilterTable] = useState<ManualPointTable | "all">("all");
+
+  useEffect(() => {
+    setCustomDate(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" }));
+  }, []);
 
   const openEmpDropdown = () => {
     if (empBtnRef.current) {
@@ -2142,7 +2151,7 @@ export default function JusticePage() {
       {/* Manual points tab */}
       {tab === "manual" && (
         <ManualPointsSection
-          points={manualPoints}
+          points={effectiveManualPoints}
           manualTotalsByTable={manualTotalsByTable}
           employees={employees}
           onAdd={handleAddManualPoint}

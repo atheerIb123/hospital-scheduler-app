@@ -16,10 +16,15 @@ def _serialize(doc):
 @manual_points_bp.get("/manual-points")
 def list_manual_points():
     db = get_db()
-    return jsonify([_serialize(d) for d in db.manual_points.find(
-        {}, sort=[("created_at", -1)]
-    )])
+    start = request.args.get("start")
+    end = request.args.get("end")
+    query = {}
+    if start and end:
+        # Filter by logical date if available, or created_at as fallback
+        query["date"] = {"$gte": start, "$lte": end}
 
+    docs = db.manual_points.find(query).sort("created_at", -1)
+    return jsonify([_serialize(d) for d in docs])
 
 @manual_points_bp.post("/manual-points")
 def add_manual_point():
@@ -28,16 +33,11 @@ def add_manual_point():
 
     # Allow manual date override
     created_at = datetime.datetime.utcnow()
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    
     if "date" in data and data["date"]:
-        try:
-            d_str = data["date"]
-            # Handle YYYY-MM-DD or full ISO
-            if len(d_str) == 10:
-                created_at = datetime.datetime.strptime(d_str, "%Y-%m-%d")
-            else:
-                created_at = datetime.datetime.fromisoformat(d_str.replace("Z", ""))
-        except ValueError:
-            pass
+        # Use the provided date string for the logical date, but keep created_at as 'now'
+        date_str = data["date"][:10]
 
     doc = {
         "employee_id":   data["employee_id"],
@@ -45,6 +45,7 @@ def add_manual_point():
         "points":        int(data["points"]),
         "reason":        data.get("reason", ""),
         "table":         data.get("table", "general"),
+        "date":          date_str,
         "created_at":    created_at,
     }
     result = db.manual_points.insert_one(doc)
