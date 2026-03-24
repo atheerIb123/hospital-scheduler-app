@@ -34,7 +34,7 @@ export function useEmployees() {
     return result;
   };
 
-  const updateEmployee = async (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string }) => {
+  const updateEmployee = async (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string; max_shifts_per_week?: number | null }) => {
     const emp = await api.updateEmployee(id, data);
     setEmployees((prev) => prev.map((e) => (e.id === id ? emp : e)));
     return emp;
@@ -46,6 +46,17 @@ export function useEmployees() {
 
   const activateEmployee = async (id: string) => {
     return updateEmployee(id, { active: true });
+  };
+
+  const clearAllEmployees = async () => {
+    await api.clearEmployees();
+    setEmployees([]);
+  };
+
+  const seedDefaultEmployees = async () => {
+    const result = await api.seedDefaultEmployees();
+    setEmployees(result.employees);
+    return result;
   };
 
   const removeEmployee = async (id: string) => {
@@ -76,6 +87,6 @@ export function useEmployees() {
   return {
     employees, columnHeaders, loading, error, reload,
     importCsv, updateEmployee, activateEmployee, deactivateEmployee, removeEmployee,
-    renameColumnHeader, addColumnHeader, deleteColumnHeader,
+    renameColumnHeader, addColumnHeader, deleteColumnHeader, seedDefaultEmployees, clearAllEmployees,
   };
 }
