@@ -46,7 +46,7 @@ export const restoreDefaultDepartments = () =>
 
 export const getEmployees = () => request<Employee[]>("/employees");
 
-export const updateEmployee = (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string }) =>
+export const updateEmployee = (id: string, data: { name?: string; attributes?: string[]; active?: boolean; inactive_reason?: string; max_shifts_per_week?: number | null }) =>
   request<Employee>(`/employees/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
@@ -87,6 +87,11 @@ export const importEmployeesCsv = async (file: File): Promise<ImportResult> => {
 };
 
 export const getColumnHeaders = () => request<string[]>("/employees/column-headers");
+
+export const seedDefaultEmployees = () =>
+  request<{ ok: boolean; seeded: number; employees: Employee[] }>("/employees/seed-defaults", {
+    method: "POST",
+  });
 
 // ---------------------------------------------------------------------------
 // Shift Types

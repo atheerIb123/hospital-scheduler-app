@@ -2,6 +2,7 @@ export interface Employee {
   id: string;
   name: string;
   attributes: string[]; // e.g. ["col_1", "col_3"] — which CSV columns are ticked
+  max_shifts_per_week?: number; // max shifts per week, defaults to 6
   active?: boolean;          // defaults to true if absent; false = excluded from scheduling
   inactive_reason?: string;  // optional note explaining why the employee is inactive
   inactive_since?: string;   // ISO date string of when they were deactivated

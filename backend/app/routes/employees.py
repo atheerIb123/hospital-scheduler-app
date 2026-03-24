@@ -188,6 +188,15 @@ def update_employee(emp_id):
             patch["inactive_since"] = None
     if "inactive_reason" in data:
         patch["inactive_reason"] = (data["inactive_reason"] or "").strip() or None
+    if "max_shifts_per_week" in data:
+        val = data["max_shifts_per_week"]
+        if val is not None:
+            try:
+                patch["max_shifts_per_week"] = max(1, int(val))
+            except (TypeError, ValueError):
+                pass
+        else:
+            patch["max_shifts_per_week"] = None
     if not patch:
         return jsonify({"error": "nothing to update"}), 400
     db.employees.update_one({"_id": ObjectId(emp_id)}, {"$set": patch})
@@ -329,6 +338,41 @@ def add_column_header():
         upsert=True,
     )
     return jsonify(headers), 201
+
+
+_ALL_EMPLOYEE_NAMES = [
+    "ישראל ישראלי", "דוד כהן", "שרה לוי", "מיכל אברהם",
+    "יוסי בן דוד", "רחל מזרחי", "אורית פרידמן", "עמית שפירא",
+    "נועה ברק", "אבי גורן", "תמר שמש", "גיל אביב",
+    "ליאור כץ", "רוני פרץ", "הילה גלעד", "מור זהבי",
+    "אלון ברק", "שירה ניר", "עידו מלכה", "ורד שלום",
+    "בני אוחיון", "קרן ביטון", "אייל דהן", "ספיר חזן",
+    "ירון לוינסון", "מיה רוזן", "שי גרינברג", "עינב מנחם",
+    "ניר שגיא", "יעל פלד", "אסף וייס", "חן גבאי",
+    "דן לוי", "רינת שפר", "אמיר זיו", "תהל אשר",
+    "אור בן-דוד", "סיון פינטו", "יונתן שרון", "מאיה עמית",
+]
+
+
+@employees_bp.post("/employees/seed-defaults")
+def seed_default_employees():
+    """Seed example employees (unique per department) if none exist."""
+    db = get_db()
+    if db.employees.count_documents({}) > 0:
+        return jsonify({"ok": False, "message": "employees already exist"}), 409
+
+    # Derive a stable offset from the database name so each department gets different names
+    db_name = db.name  # e.g. "scheduler_הדס"
+    offset = sum(ord(c) for c in db_name) % len(_ALL_EMPLOYEE_NAMES)
+    names = [_ALL_EMPLOYEE_NAMES[(offset + i) % len(_ALL_EMPLOYEE_NAMES)] for i in range(10)]
+
+    to_insert = [
+        {"name": n, "attributes": [], "max_shifts_per_week": 6}
+        for n in names
+    ]
+    db.employees.insert_many(to_insert)
+    result = [_serialize(e) for e in db.employees.find()]
+    return jsonify({"ok": True, "seeded": len(result), "employees": result}), 201
 
 
 @employees_bp.delete("/employees/column-headers/<int:col_index>")

@@ -16,6 +16,74 @@ const COL_COLORS = [
 
 const colAttr = (i: number) => `col_${i}`;
 
+// ── Nursing attribute rules ────────────────────────────────────────────────────
+const NURSE_HEADER = "אח/אחות";
+const NURSE_SUB_HEADERS = ["אחראי משמרת", "על בסיסי"];
+const ASSISTANT_HEADER = "כוח עזר";
+const STUDENT_HEADER = "סטודנט";
+const MUTUAL_EXCLUSION_PAIRS = [["גבר", "אישה"], ["ותיק", "צעיר"]];
+
+const NURSING_DEFAULT_HEADERS = [
+  "אח/אחות", "אחראי משמרת", "על בסיסי", "גבר", "אישה", "ותיק", "צעיר", "כוח עזר", "סטודנט",
+];
+
+function applyNursingRules(
+  headers: string[],
+  colIdx: number,
+  currentAttrs: string[],
+  nextAttrs: string[]
+): string[] {
+  const colOf = (name: string) => { const i = headers.indexOf(name); return i >= 0 ? i + 1 : 0; };
+  const removeIdxs = (attrs: string[], ...idxs: number[]) =>
+    attrs.filter(a => !idxs.filter(i => i > 0).map(colAttr).includes(a));
+
+  const isAdding = !currentAttrs.includes(colAttr(colIdx));
+  const headerName = headers[colIdx - 1] ?? "";
+  const nurseIdx = colOf(NURSE_HEADER);
+  const subIdxs = NURSE_SUB_HEADERS.map(colOf).filter(i => i > 0);
+  const assistantIdx = colOf(ASSISTANT_HEADER);
+  const studentIdx = colOf(STUDENT_HEADER);
+
+  if (!isAdding) {
+    // Unchecking nurse → also remove sub-attributes
+    if (colIdx === nurseIdx) return removeIdxs(nextAttrs, ...subIdxs);
+    return nextAttrs;
+  }
+
+  // Adding כוח עזר → remove nurse, sub-attrs, student
+  if (assistantIdx > 0 && colIdx === assistantIdx)
+    return removeIdxs(nextAttrs, nurseIdx, ...subIdxs, studentIdx);
+  // Adding סטודנט → remove nurse, sub-attrs, assistant
+  if (studentIdx > 0 && colIdx === studentIdx)
+    return removeIdxs(nextAttrs, nurseIdx, ...subIdxs, assistantIdx);
+  // Adding nurse → remove assistant and student
+  if (nurseIdx > 0 && colIdx === nurseIdx)
+    return removeIdxs(nextAttrs, assistantIdx, studentIdx);
+  // Adding sub-attribute → auto-add nurse, remove assistant and student
+  if (NURSE_SUB_HEADERS.includes(headerName)) {
+    let result = nextAttrs;
+    if (nurseIdx > 0 && !result.includes(colAttr(nurseIdx)))
+      result = [...result, colAttr(nurseIdx)];
+    return removeIdxs(result, assistantIdx, studentIdx);
+  }
+  // Mutual exclusion pairs (גבר/אישה, ותיק/צעיר)
+  for (const [a, b] of MUTUAL_EXCLUSION_PAIRS) {
+    const aIdx = colOf(a), bIdx = colOf(b);
+    if (colIdx === aIdx && bIdx > 0) return removeIdxs(nextAttrs, bIdx);
+    if (colIdx === bIdx && aIdx > 0) return removeIdxs(nextAttrs, aIdx);
+  }
+  return nextAttrs;
+}
+
+function isAttrDisabled(headers: string[], colIdx: number, empAttrs: string[]): boolean {
+  const headerName = headers[colIdx - 1] ?? "";
+  if (NURSE_SUB_HEADERS.includes(headerName)) {
+    const nurseIdx = headers.indexOf(NURSE_HEADER) + 1;
+    return nurseIdx > 0 && !empAttrs.includes(colAttr(nurseIdx));
+  }
+  return false;
+}
+
 // ── Editable column header cell ───────────────────────────────────────────────
 function EditableHeader({
   value,
@@ -152,12 +220,69 @@ function AddColumnHeader({ onAdd }: { onAdd: (name: string) => Promise<void> }) 
   );
 }
 
+// ── Shifts per week cell ──────────────────────────────────────────────────────
+function ShiftsPerWeekCell({
+  empId,
+  value,
+  onUpdate,
+}: {
+  empId: string;
+  value?: number;
+  onUpdate: (id: string, val: number) => Promise<void>;
+}) {
+  const display = value ?? 6;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(display));
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setDraft(String(value ?? 6)); }, [value]);
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+
+  const save = async () => {
+    setEditing(false);
+    const num = parseInt(draft, 10);
+    if (isNaN(num) || num < 1) { setDraft(String(value ?? 6)); return; }
+    if (num === (value ?? 6)) return;
+    await onUpdate(empId, num);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="number"
+        min={1}
+        max={14}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") { setDraft(String(value ?? 6)); setEditing(false); }
+        }}
+        className="w-12 text-center text-xs font-semibold px-1 py-1 rounded-lg border-2 border-blue-400 focus:outline-none bg-blue-50 text-blue-700"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      title="לחץ לשינוי מספר משמרות שבועי"
+      className="w-8 h-8 rounded-full inline-flex items-center justify-center text-xs font-bold text-slate-600 bg-slate-100 hover:bg-blue-100 hover:text-blue-700 transition-all"
+    >
+      {display}
+    </button>
+  );
+}
+
 // ── Main table ────────────────────────────────────────────────────────────────
 export default function EmployeeTable() {
   const {
     employees, columnHeaders, loading, error,
     importCsv, updateEmployee, activateEmployee, deactivateEmployee, removeEmployee,
-    renameColumnHeader, addColumnHeader, deleteColumnHeader,
+    renameColumnHeader, addColumnHeader, deleteColumnHeader, seedDefaultEmployees, clearAllEmployees,
   } = useEmployees();
 
   const [importing, setImporting] = useState(false);
@@ -165,6 +290,8 @@ export default function EmployeeTable() {
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [savingCell, setSavingCell] = useState<string | null>(null);
+  const [initializingNursing, setInitializingNursing] = useState(false);
+  const [seedingEmployees, setSeedingEmployees] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // search & filter state
@@ -215,14 +342,41 @@ export default function EmployeeTable() {
   const handleToggleAttr = async (empId: string, currentAttrs: string[], colIdx: number) => {
     const attr = colAttr(colIdx);
     const key = `${empId}-${colIdx}`;
-    const next = currentAttrs.includes(attr)
+    const rawNext = currentAttrs.includes(attr)
       ? currentAttrs.filter((a) => a !== attr)
       : [...currentAttrs, attr];
+    const next = applyNursingRules(columnHeaders, colIdx, currentAttrs, rawNext);
     setSavingCell(key);
     try {
       await updateEmployee(empId, { attributes: next });
     } finally {
       setSavingCell(null);
+    }
+  };
+
+  const handleUpdateShiftsPerWeek = async (empId: string, val: number) => {
+    await updateEmployee(empId, { max_shifts_per_week: val });
+  };
+
+  const handleInitNursingDefaults = async () => {
+    setInitializingNursing(true);
+    try {
+      for (const header of NURSING_DEFAULT_HEADERS) {
+        await addColumnHeader(header);
+      }
+    } finally {
+      setInitializingNursing(false);
+    }
+  };
+
+  const handleSeedEmployees = async () => {
+    setSeedingEmployees(true);
+    try {
+      await seedDefaultEmployees();
+    } catch {
+      // already have employees or other error — ignore silently
+    } finally {
+      setSeedingEmployees(false);
     }
   };
 
@@ -347,6 +501,24 @@ export default function EmployeeTable() {
         </div>
       )}
 
+      {/* Nursing defaults init banner — shown when employees exist but no columns defined */}
+      {employees.length > 0 && numCols === 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-blue-800">לא הוגדרו תכונות לעובדים</p>
+            <p className="text-xs text-blue-600 mt-0.5">אפשר לאתחל את תכונות ברירת המחדל לצוות סיעוד</p>
+          </div>
+          <button
+            type="button"
+            disabled={initializingNursing}
+            onClick={handleInitNursingDefaults}
+            className="shrink-0 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
+          >
+            {initializingNursing ? "מאתחל..." : "אתחל תכונות סיעוד"}
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       {employees.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -357,13 +529,23 @@ export default function EmployeeTable() {
               <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full">
                 {filteredEmployees.length} / {employees.length} עובדים
               </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!window.confirm("למחוק את כל העובדים בתצוגה זו?")) return;
+                  await clearAllEmployees();
+                }}
+                className="text-xs text-slate-400 hover:text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg transition-all"
+              >
+                נקה הכל
+              </button>
             </div>
           </div>
           <div className="overflow-x-auto" style={{ maxHeight: "520px", overflowY: "auto" }}>
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-5 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10">
+                  <th className="px-5 py-3 text-right font-semibold text-slate-600 whitespace-nowrap sticky top-0 bg-slate-50 z-10 w-max">
                     שם עובד
                   </th>
                   {Array.from({ length: numCols }, (_, i) => (
@@ -376,6 +558,9 @@ export default function EmployeeTable() {
                       />
                     </th>
                   ))}
+                  <th className="px-2 py-3 text-center sticky top-0 bg-slate-50 z-10 min-w-[80px]">
+                    <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">משמרות/שבוע</span>
+                  </th>
                   <AddColumnHeader onAdd={addColumnHeader} />
                   <th className="px-3 py-3 sticky top-0 bg-slate-50 z-10 w-10"></th>
                 </tr>
@@ -389,7 +574,7 @@ export default function EmployeeTable() {
                     }`}
                   >
                     {/* Active toggle + editable name */}
-                    <td className="px-5 py-2.5">
+                    <td className="px-5 py-2.5 whitespace-nowrap w-max">
                       <div className="flex items-start gap-2">
                         <div className="pt-1.5">
                           <ActiveToggle
@@ -401,7 +586,7 @@ export default function EmployeeTable() {
                             onDeactivate={deactivateEmployee}
                           />
                         </div>
-                        <div className="flex flex-col min-w-0">
+                        <div className="flex flex-col">
                           <EmployeeNameCell
                             empId={emp.id}
                             name={emp.name}
@@ -433,14 +618,15 @@ export default function EmployeeTable() {
                       const checked = emp.attributes.includes(attr);
                       const key = `${emp.id}-${colIdx}`;
                       const isSaving = savingCell === key;
+                      const disabled = isSaving || isAttrDisabled(columnHeaders, colIdx, emp.attributes);
                       const c = COL_COLORS[i % COL_COLORS.length];
                       return (
-                        <td key={i} className="px-2 py-2.5 text-center">
+                        <td key={i} className={`px-2 py-2.5 text-center ${isAttrDisabled(columnHeaders, colIdx, emp.attributes) ? "opacity-30" : ""}`}>
                           <button
                             type="button"
-                            disabled={isSaving}
+                            disabled={disabled}
                             onClick={() => handleToggleAttr(emp.id, emp.attributes, colIdx)}
-                            title={checked ? "לחץ להסרת הרשאה" : "לחץ להוספת הרשאה"}
+                            title={isAttrDisabled(columnHeaders, colIdx, emp.attributes) ? `דורש ${NURSE_HEADER}` : checked ? "לחץ להסרת הרשאה" : "לחץ להוספת הרשאה"}
                             className={`w-8 h-8 rounded-full inline-flex items-center justify-center transition-all focus:outline-none focus-visible:ring-2 disabled:opacity-50 ${
                               checked
                                 ? `${c.bg} ${c.text} hover:ring-2 ${c.ring} shadow-sm`
@@ -463,6 +649,15 @@ export default function EmployeeTable() {
                         </td>
                       );
                     })}
+
+                    {/* Shifts per week cell */}
+                    <td className="px-2 py-2.5 text-center">
+                      <ShiftsPerWeekCell
+                        empId={emp.id}
+                        value={emp.max_shifts_per_week}
+                        onUpdate={handleUpdateShiftsPerWeek}
+                      />
+                    </td>
 
                     {/* Empty cell under the + column */}
                     <td />
@@ -504,6 +699,14 @@ export default function EmployeeTable() {
           </div>
           <p className="font-medium">אין עובדים עדיין</p>
           <p className="text-sm mt-1">ייבא קובץ להתחלה</p>
+          <button
+            type="button"
+            disabled={seedingEmployees}
+            onClick={handleSeedEmployees}
+            className="mt-4 px-5 py-2 bg-slate-700 text-white text-sm font-semibold rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
+          >
+            {seedingEmployees ? "מוסיף עובדים..." : "הוסף עובדים לדוגמה"}
+          </button>
         </div>
       )}
     </div>
@@ -659,7 +862,7 @@ function EmployeeNameCell({
       onChange={(e) => setDraft(e.target.value)}
       onBlur={save}
       onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setDraft(name); }}
-      className={`w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 focus:bg-white rounded-lg px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all whitespace-nowrap ${
+      className={`min-w-[120px] bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 focus:bg-white rounded-lg px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all whitespace-nowrap ${
         inactive ? "text-slate-400 line-through" : "text-slate-800"
       }`}
     />
