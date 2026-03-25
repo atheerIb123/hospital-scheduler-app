@@ -137,7 +137,7 @@ export default function ShiftTypesPage() {
     createDayType: createDayTypeAction, deleteDayType: deleteDayTypeAction, updateDayType: updateDayTypeAction
   } = useDayTypes();
 
-  const { data: compositionData, seedNursing, save: saveComposition } = useShiftComposition();
+  const { data: compositionData, seedNursing, save: saveComposition } = useShiftComposition(deptMode);
   const [seedingNursing, setSeedingNursing] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
 
@@ -712,6 +712,7 @@ export default function ShiftTypesPage() {
             shiftConfigs={compositionData?.shift_configs ?? []}
             shiftTypes={shiftTypes}
             columnHeaders={columnHeaders}
+            modeOverride={deptMode}
           />
         </div>
       )}
