@@ -2,58 +2,14 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, getManualPoints, addManualPoint, removeManualPoint, type JusticeEntry, type Advocate, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer, type ManualPoint, type ManualPointTable } from "@/lib/api";
 import type { Employee } from "@/lib/types";
-import { Button, DeleteIconButton, Alert, Input, Select, TabButton, TabsContainer, SearchInput, SearchDropdown, Toggle } from "@/components/ui";
-import { X, Plus, Check, Handshake, Ban, ChevronRight, ChevronLeft, ChevronDown, Trash2, Scale, Building2, Trophy, BarChart2, Pencil } from "lucide-react";
+import { Button, DeleteIconButton, Alert, Input, Select, TabButton, TabsContainer, SearchInput, SearchDropdown, Toggle, DateRangePicker } from "@/components/ui";
+import type { DateRangeValue } from "@/components/ui";
+import { X, Plus, Check, Handshake, Ban, ChevronDown, Trash2, Scale, Building2, Trophy, BarChart2, Pencil } from "lucide-react";
 import type { ReactNode } from "react";
 
 type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype" | "manual";
 type View = "table" | "chart";
-type RangeType = "week" | "month" | "year";
 type DayTypeFilter = "combined" | "shabbat" | "holidays";
-
-// ── Date range helpers ────────────────────────────────────────────────────────
-function toISO(d: Date) {
-  const offset = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - offset).toISOString().slice(0, 10);
-}
-
-function getRangeBounds(type: RangeType, ref: Date): { start: Date; end: Date } {
-  const d = new Date(ref);
-  if (type === "week") {
-    const day = d.getDay(); // 0=Sun
-    const sun = new Date(d); sun.setDate(d.getDate() - day);
-    const sat = new Date(sun); sat.setDate(sun.getDate() + 6);
-    return { start: sun, end: sat };
-  }
-  if (type === "month") {
-    const start = new Date(d.getFullYear(), d.getMonth(), 1);
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-    return { start, end };
-  }
-  // year
-  const start = new Date(d.getFullYear(), 0, 1);
-  const end = new Date(d.getFullYear(), 11, 31);
-  return { start, end };
-}
-
-function shiftRef(type: RangeType, ref: Date, dir: -1 | 1): Date {
-  const d = new Date(ref);
-  if (type === "week")  d.setDate(d.getDate() + dir * 7);
-  if (type === "month") d.setMonth(d.getMonth() + dir);
-  if (type === "year")  d.setFullYear(d.getFullYear() + dir);
-  return d;
-}
-
-const HE_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
-
-function formatRange(type: RangeType, start: Date, end: Date): string {
-  if (type === "year")  return `${start.getFullYear()}`;
-  if (type === "month") return `${HE_MONTHS[start.getMonth()]} ${start.getFullYear()}`;
-  // week
-  const sameMonth = start.getMonth() === end.getMonth();
-  if (sameMonth) return `${start.getDate()}–${end.getDate()} ${HE_MONTHS[start.getMonth()]} ${start.getFullYear()}`;
-  return `${start.getDate()} ${HE_MONTHS[start.getMonth()]} – ${end.getDate()} ${HE_MONTHS[end.getMonth()]} ${end.getFullYear()}`;
-}
 
 const RANK_COLORS = [
   "bg-amber-400 text-white",
@@ -1755,22 +1711,18 @@ export default function JusticePage() {
   const [advocates, setAdvocates] = useState<Advocate[]>([]);
   const [shirkingRecords, setShirkingRecords] = useState<ShirkingRecord[]>([]);
 
-  const [rangeType, setRangeType] = useState<RangeType>("month");
-  const [refDate, setRefDate] = useState<Date | null>(null);
+  const [dateRange, setDateRange] = useState<DateRangeValue | null>(null);
 
   useEffect(() => {
     getEmployees().then(setEmployees).catch(() => {});
-    setRefDate(new Date());
     // Fetch non-date-ranged data once
     getAdvocates().then(setAdvocates).catch(() => {});
     getShirking().then(setShirkingRecords).catch(() => {});
   }, []);
 
-  // Derived values with null check
-  const rangeData = refDate ? getRangeBounds(rangeType, refDate) : null;
-  const startISO = rangeData ? toISO(rangeData.start) : "";
-  const endISO = rangeData ? toISO(rangeData.end) : "";
-  const rangeLabel = rangeData ? formatRange(rangeType, rangeData.start, rangeData.end) : "";
+  const startISO = dateRange?.start ?? "";
+  const endISO = dateRange?.end ?? "";
+  const rangeLabel = dateRange?.label ?? "";
 
   useEffect(() => {
     if (!startISO || !endISO) return;
@@ -1908,22 +1860,7 @@ export default function JusticePage() {
     { id: "manual",    label: "ניקוד ידני",        icon: <Pencil className="w-3.5 h-3.5" /> },
   ];
 
-  // Show loading state until date is set on client (prevents hydration mismatch)
-  if (!refDate) {
-    return (
-      <div className="space-y-6 fade-in">
-        <div className="h-10 w-64 rounded-lg shimmer" />
-        <div className="h-8 w-full rounded-lg shimmer" />
-        <div className="h-64 w-full rounded-2xl shimmer" />
-      </div>
-    );
-  }
 
-  const rangeTypes: { id: RangeType; label: string }[] = [
-    { id: "week",  label: "שבוע" },
-    { id: "month", label: "חודש" },
-    { id: "year",  label: "שנה" },
-  ];
 
   return (
     <div className="space-y-6 fade-in">
@@ -1959,34 +1896,11 @@ export default function JusticePage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         {/* RIGHT side (start in RTL): time range — hidden on advocates/shirking tabs */}
         {!(tab === "advocates" || tab === "shirking") ? (
-          <div className="flex items-center gap-2">
-            <Select value={rangeType} onChange={e => { setRangeType(e.target.value as RangeType); setRefDate(new Date()); }} className="w-auto">
-              {rangeTypes.map(r => (
-                <option key={r.id} value={r.id}>{r.label}</option>
-              ))}
-            </Select>
-            <Button variant="ghost"
-              onClick={() => refDate && setRefDate(shiftRef(rangeType, refDate, 1))}
-              className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-600"
-              title="קודם"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-            <span className="text-sm font-semibold text-slate-700 min-w-[160px] text-center">{rangeLabel}</span>
-            <Button variant="ghost"
-              onClick={() => refDate && setRefDate(shiftRef(rangeType, refDate, -1))}
-              className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-600"
-              title="הבא"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost"
-              onClick={() => setRefDate(new Date())}
-              className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold"
-            >
-              היום
-            </Button>
-          </div>
+          <DateRangePicker
+            availableTypes={["week", "month", "year", "all", "custom"]}
+            defaultType="month"
+            onChange={setDateRange}
+          />
         ) : <div />}
 
         {/* LEFT side (end in RTL): view binary toggle + day scores toggle + daytype filter */}

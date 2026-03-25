@@ -7,7 +7,8 @@ import { useShiftTypes } from "@/hooks/useShiftTypes";
 import { useEmployees } from "@/hooks/useEmployees";
 import { useDayTypes } from "@/hooks/useDayTypes";
 import { useDaySettings } from "@/hooks/useDaySettings";
-import { Alert, Button, Input, SearchDropdown, Select } from "@/components/ui";
+import { Alert, Button, Input, SearchDropdown, DateRangePicker, MultiSelect } from "@/components/ui";
+import type { DateRangeValue } from "@/components/ui";
 import { Loader2, Download, Save, AlertTriangle, Calendar, X } from "lucide-react";
 import ScheduleTable from "@/components/ScheduleTable";
 import CalendarConfigurator from "@/components/CalendarConfigurator";
@@ -17,8 +18,9 @@ const MONTH_NAMES = ["ינואר", "פברואר", "מרץ", "אפריל", "מא
 
 export default function SchedulePage() {
   const now = new Date();
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear] = useState(now.getFullYear());
+  const [dateRange, setDateRange] = useState<DateRangeValue | null>(null);
+  const month = dateRange ? new Date(dateRange.start + "T00:00:00").getMonth() + 1 : now.getMonth() + 1;
+  const year  = dateRange ? new Date(dateRange.start + "T00:00:00").getFullYear() : now.getFullYear();
 
   const { schedule, loading, generating, error, generate } = useSchedule(month, year);
   const { shiftTypes } = useShiftTypes();
@@ -26,7 +28,6 @@ export default function SchedulePage() {
   const { dayTypes } = useDayTypes();
   const { settings: daySettings, setOverride } = useDaySettings(year, month);
 
-  const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 1 + i);
 
   const [localAssignments, setLocalAssignments] = useState<Assignment[]>([]);
   const [changedCells, setChangedCells] = useState<Set<string>>(new Set());
@@ -34,9 +35,9 @@ export default function SchedulePage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const [searchName, setSearchName] = useState("");
-  const [filterShift, setFilterShift] = useState("");
-  const [filterDay, setFilterDay] = useState(-1);
-  const hasAnyFilter = !!searchName.trim() || !!filterShift || filterDay >= 0;
+  const [filterShifts, setFilterShifts] = useState<string[]>([]);
+  const [filterDays, setFilterDays] = useState<number[]>([]);
+  const hasAnyFilter = !!searchName.trim() || filterShifts.length > 0 || filterDays.length > 0;
   const DOW_LABELS = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
   const sortedShiftTypes = [...shiftTypes].sort((a, b) => (a.shift_id ?? 0) - (b.shift_id ?? 0));
 
@@ -140,12 +141,11 @@ export default function SchedulePage() {
       <div className="flex flex-wrap items-end justify-between gap-2">
         {/* RIGHT in RTL: filters */}
         <div className="flex flex-wrap items-end gap-2">
-          <Select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-            {MONTH_NAMES.map((n, i) => <option key={i + 1} value={i + 1}>{n}</option>)}
-          </Select>
-          <Select value={year} onChange={(e) => setYear(Number(e.target.value))}>
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </Select>
+          <DateRangePicker
+            availableTypes={["month"]}
+            defaultType="month"
+            onChange={setDateRange}
+          />
           <Input
             inputPrefix="מקסימום משמרות לחודש:"
             type="number"
@@ -250,22 +250,22 @@ export default function SchedulePage() {
             />
             {/* LEFT in RTL: filter selects + clear */}
             <div className="flex flex-wrap items-center gap-2">
-              <Select value={filterDay} onChange={e => setFilterDay(Number(e.target.value))}>
-                <option value={-1}>כל הימים</option>
-                {DOW_LABELS.map((label, d) => (
-                  <option key={d} value={d}>{label}</option>
-                ))}
-              </Select>
-              <Select value={filterShift} onChange={e => setFilterShift(e.target.value)}>
-                <option value="">כל המשמרות</option>
-                {sortedShiftTypes.map(st => (
-                  <option key={st.id} value={st.names[0]}>{st.names[0]}</option>
-                ))}
-              </Select>
+              <MultiSelect
+                value={filterDays.map(String)}
+                onChange={vals => setFilterDays(vals.map(Number))}
+                placeholder="כל הימים"
+                options={DOW_LABELS.map((label, d) => ({ value: String(d), label }))}
+              />
+              <MultiSelect
+                value={filterShifts}
+                onChange={setFilterShifts}
+                placeholder="כל המשמרות"
+                options={sortedShiftTypes.map(st => ({ value: st.names[0], label: st.names[0] }))}
+              />
               {hasAnyFilter && (
                 <Button
                   variant="ghost"
-                  onClick={() => { setSearchName(""); setFilterShift(""); setFilterDay(-1); }}
+                  onClick={() => { setSearchName(""); setFilterShifts([]); setFilterDays([]); }}
                   className="text-xs text-slate-400 hover:text-slate-600"
                   icon={<X className="w-3 h-3" />}
                 >
@@ -288,8 +288,8 @@ export default function SchedulePage() {
               daySettings={daySettings}
               onDayTypeChange={setOverride}
               searchName={searchName}
-              filterShift={filterShift}
-              filterDay={filterDay}
+              filterShifts={filterShifts}
+              filterDays={filterDays}
             />
           </div>
         </div>

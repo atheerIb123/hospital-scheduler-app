@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Alert, Button, Input, FilterPill, Select, TabButton, TabsContainer, SearchDropdown } from "@/components/ui";
+import { Alert, Button, Input, FilterPill, TabButton, TabsContainer, SearchDropdown, MultiSelect } from "@/components/ui";
 import { X, RotateCcw, Plus, ChevronDown } from "lucide-react";
 import ShiftTypeTable, { DesirabilityStars, DESIRABILITY_LABELS, DESIRABILITY_POINTS } from "@/components/ShiftTypeTable";
 import type { ScheduleOn, RoleSlot } from "@/lib/types";
@@ -145,9 +145,9 @@ export default function ShiftTypesPage() {
 
   // ── Shift type filter state ───────────────────────────────────────────────
   const [shiftSearch, setShiftSearch] = useState("");
-  const [shiftDesFilter, setShiftDesFilter] = useState<number>(0);
-  const [shiftAttrFilter, setShiftAttrFilter] = useState<string>("");
-  const [shiftDayFilter, setShiftDayFilter] = useState<string>("");
+  const [shiftDesFilter, setShiftDesFilter] = useState<number[]>([]);
+  const [shiftAttrFilter, setShiftAttrFilter] = useState<string[]>([]);
+  const [shiftDayFilter, setShiftDayFilter] = useState<string[]>([]);
   const [shiftSpecialFilter, setShiftSpecialFilter] = useState(false);
   const [compRoleFilter, setCompRoleFilter] = useState<Set<string>>(new Set());
   const [compRoleMode, setCompRoleMode] = useState<"or" | "and">("or");
@@ -160,9 +160,9 @@ export default function ShiftTypesPage() {
 
   const clearAllFilters = () => {
     setShiftSearch("");
-    setShiftDesFilter(0);
-    setShiftAttrFilter("");
-    setShiftDayFilter("");
+    setShiftDesFilter([]);
+    setShiftAttrFilter([]);
+    setShiftDayFilter([]);
     setShiftSpecialFilter(false);
     setCompRoleFilter(new Set());
     setCompMinWorkers("");
@@ -172,9 +172,9 @@ export default function ShiftTypesPage() {
 
   const activeFilterCount =
     (shiftSearch ? 1 : 0) +
-    (shiftDesFilter > 0 ? 1 : 0) +
-    (shiftAttrFilter ? 1 : 0) +
-    (shiftDayFilter ? 1 : 0) +
+    (shiftDesFilter.length > 0 ? 1 : 0) +
+    (shiftAttrFilter.length > 0 ? 1 : 0) +
+    (shiftDayFilter.length > 0 ? 1 : 0) +
     (shiftSpecialFilter ? 1 : 0) +
     compRoleFilter.size +
     (compMinWorkers !== "" ? 1 : 0) +
@@ -187,11 +187,11 @@ export default function ShiftTypesPage() {
     return shiftTypes.filter(st => {
       if (q && !st.names.some(n => n.toLowerCase().includes(q))) return false;
       if (shiftSpecialFilter && !st.is_special) return false;
-      if (shiftDesFilter > 0 && Number(st.desirability ?? 3) !== shiftDesFilter) return false;
-      if (shiftAttrFilter && !st.required_attributes.includes(shiftAttrFilter)) return false;
-      if (shiftDayFilter) {
+      if (shiftDesFilter.length > 0 && !shiftDesFilter.includes(Number(st.desirability ?? 3))) return false;
+      if (shiftAttrFilter.length > 0 && !shiftAttrFilter.some(a => st.required_attributes.includes(a))) return false;
+      if (shiftDayFilter.length > 0) {
         const days: string[] = Array.isArray(st.schedule_on) ? st.schedule_on : [st.schedule_on ?? "all"];
-        if (!days.includes("all") && !days.includes(shiftDayFilter)) return false;
+        if (!days.includes("all") && !shiftDayFilter.some(f => days.includes(f))) return false;
       }
 
       // Composition filters
@@ -536,23 +536,31 @@ export default function ShiftTypesPage() {
               placeholder="חיפוש לפי שם משמרת..."
               className="w-48"
             />
-            <Select value={shiftDesFilter} onChange={e => setShiftDesFilter(Number(e.target.value))} optionPrefix="הצג לפי">
-              <option value={0}>כל ניקוד</option>
-              {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{"★".repeat(n)}</option>)}
-            </Select>
+            <MultiSelect
+              value={shiftDesFilter.map(String)}
+              onChange={vals => setShiftDesFilter(vals.map(Number))}
+              placeholder="כל ניקוד"
+              options={[1, 2, 3, 4, 5].map(n => ({ value: String(n), label: "★".repeat(n) }))}
+            />
             {columnHeaders.length > 0 && (
-              <Select value={shiftAttrFilter} onChange={e => setShiftAttrFilter(e.target.value)} optionPrefix="הצג לפי">
-                <option value="">כל התכונות</option>
-                {columnHeaders.map((h, i) => <option key={`col_${i + 1}`} value={`col_${i + 1}`}>{h}</option>)}
-              </Select>
+              <MultiSelect
+                value={shiftAttrFilter}
+                onChange={setShiftAttrFilter}
+                placeholder="כל התכונות"
+                options={columnHeaders.map((h, i) => ({ value: `col_${i + 1}`, label: h }))}
+              />
             )}
-            <Select value={shiftDayFilter} onChange={e => setShiftDayFilter(e.target.value)}>
-              <option value="">כל הימים</option>
-              <option value="weekdays">ימי חול</option>
-              <option value="friday">שישי</option>
-              <option value="weekend">סוף שבוע</option>
-              {dayTypes.map(dt => <option key={dt.id} value={dt.id}>{dt.name}</option>)}
-            </Select>
+            <MultiSelect
+              value={shiftDayFilter}
+              onChange={setShiftDayFilter}
+              placeholder="כל הימים"
+              options={[
+                { value: "weekdays", label: "ימי חול" },
+                { value: "friday", label: "שישי" },
+                { value: "weekend", label: "סוף שבוע" },
+                ...dayTypes.map(dt => ({ value: dt.id, label: dt.name })),
+              ]}
+            />
             {isNursing && (
               <FilterPill
                 active={shiftSpecialFilter}
@@ -576,9 +584,11 @@ export default function ShiftTypesPage() {
                   {seedingNursing ? "טוען..." : "טען ברירת מחדל סיעוד"}
                 </Button>
               )}
-              <Button type="button" variant="secondary" onClick={handleLoadDefaults} disabled={defaultsLoading} icon={<RotateCcw className="w-4 h-4" />}>
-                {defaultsLoading ? "טוען..." : "טען ברירת מחדל"}
-              </Button>
+              {!isNursing && (
+                <Button type="button" variant="secondary" onClick={handleLoadDefaults} disabled={defaultsLoading} icon={<RotateCcw className="w-4 h-4" />}>
+                  {defaultsLoading ? "טוען..." : "טען ברירת מחדל"}
+                </Button>
+              )}
               {isNursing && (
                 <Button type="button" variant="danger" onClick={handleDeleteAll} disabled={deletingAll || shiftTypes.length === 0}>
                   {deletingAll ? "מוחק..." : "מחק הכל"}

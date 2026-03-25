@@ -3,7 +3,7 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { useEmployees } from "@/hooks/useEmployees";
 import { useMode } from "@/components/ModeProvider";
 import { getDepartments, exportEmployeesXlsx } from "@/lib/api";
-import { Alert, Badge, Button, DeleteIconButton, Select, SearchDropdown } from "@/components/ui";
+import { Alert, Badge, Button, DeleteIconButton, MultiSelect, SearchDropdown } from "@/components/ui";
 import { COLUMN_COLORS as COL_COLORS } from "@/lib/colors";
 import { Pencil, FileUp, Loader2, Check, Minus, Users } from "lucide-react";
 
@@ -214,13 +214,15 @@ function AddColumnHeader({ onAdd }: { onAdd: (name: string) => Promise<void> }) 
 function ShiftsPerWeekCell({
   empId,
   value,
+  defaultValue = 6,
   onUpdate,
 }: {
   empId: string;
   value?: number;
+  defaultValue?: number;
   onUpdate: (id: string, val: number) => Promise<void>;
 }) {
-  const display = value ?? 6;
+  const display = value ?? defaultValue;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(display));
   const [prevValue, setPrevValue] = useState(value);
@@ -228,15 +230,15 @@ function ShiftsPerWeekCell({
 
   if (prevValue !== value) {
     setPrevValue(value);
-    if (!editing) setDraft(String(value ?? 6));
+    if (!editing) setDraft(String(value ?? defaultValue));
   }
   useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
 
   const save = async () => {
     setEditing(false);
     const num = parseInt(draft, 10);
-    if (isNaN(num) || num < 1) { setDraft(String(value ?? 6)); return; }
-    if (num === (value ?? 6)) return;
+    if (isNaN(num) || num < 1) { setDraft(String(value ?? defaultValue)); return; }
+    if (num === (value ?? defaultValue)) return;
     await onUpdate(empId, num);
   };
 
@@ -252,7 +254,7 @@ function ShiftsPerWeekCell({
         onBlur={save}
         onKeyDown={(e) => {
           if (e.key === "Enter") save();
-          if (e.key === "Escape") { setDraft(String(value ?? 6)); setEditing(false); }
+          if (e.key === "Escape") { setDraft(String(value ?? defaultValue)); setEditing(false); }
         }}
         className="w-12 text-center text-xs font-semibold px-1 py-1 rounded-lg border-2 border-blue-400 focus:outline-none bg-blue-50 text-blue-700"
       />
@@ -322,6 +324,7 @@ export default function EmployeeTable() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
+  const [defaultShiftsPerWeek, setDefaultShiftsPerWeek] = useState(6);
   const [savingCell, setSavingCell] = useState<string | null>(null);
   const [initializingNursing, setInitializingNursing] = useState(false);
   const [seedingEmployees, setSeedingEmployees] = useState(false);
@@ -329,14 +332,14 @@ export default function EmployeeTable() {
 
   // search & filter state
   const [nameSearch, setNameSearch] = useState("");
-  const [attrFilter, setAttrFilter] = useState<string>("");
-  const [deptFilter, setDeptFilter] = useState<string>("");
+  const [attrFilter, setAttrFilter] = useState<string[]>([]);
+  const [deptFilter, setDeptFilter] = useState<string[]>([]);
 
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
       if (nameSearch && !emp.name.includes(nameSearch)) return false;
-      if (attrFilter && !emp.attributes.includes(attrFilter)) return false;
-      if (deptFilter && emp.home_department !== deptFilter) return false;
+      if (attrFilter.length > 0 && !attrFilter.some(a => emp.attributes.includes(a))) return false;
+      if (deptFilter.length > 0 && !deptFilter.includes(emp.home_department ?? "")) return false;
       return true;
     });
   }, [employees, nameSearch, attrFilter, deptFilter]);
@@ -437,33 +440,22 @@ export default function EmployeeTable() {
             <div className="flex-1" />
             {/* Attribute filter dropdown */}
             {columnHeaders.length > 0 && (
-              <div className="flex items-center gap-2">
-                <Select
-                  optionPrefix="הצג לפי"
-                  value={attrFilter}
-                  onChange={(e) => setAttrFilter(e.target.value)}
-                  variant="default"
-                >
-                  <option value="">הכל</option>
-                  {columnHeaders.map((header, i) => (
-                    <option key={colAttr(i + 1)} value={colAttr(i + 1)}>{header}</option>
-                  ))}
-                </Select>
-              </div>
+              <MultiSelect
+                value={attrFilter}
+                onChange={setAttrFilter}
+                placeholder="כל התכונות"
+                options={columnHeaders.map((header, i) => ({ value: colAttr(i + 1), label: header }))}
+              />
             )}
 
             {/* Department filter dropdown (nursing only) */}
             {isNursing && departments.length > 0 && (
-              <Select
-                optionPrefix="מחלקה"
+              <MultiSelect
                 value={deptFilter}
-                onChange={(e) => setDeptFilter(e.target.value)}
-              >
-                <option value="">הכל</option>
-                {departments.map((dep) => (
-                  <option key={dep} value={dep}>{dep}</option>
-                ))}
-              </Select>
+                onChange={setDeptFilter}
+                placeholder="כל המחלקות"
+                options={departments.map(dep => ({ value: dep, label: dep }))}
+              />
             )}
 
             {/* Name search */}
@@ -504,7 +496,23 @@ export default function EmployeeTable() {
       {employees.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-semibold text-slate-800">רשימת עובדים</h3>
+            <div className="flex items-center gap-4">
+              <h3 className="font-semibold text-slate-800">רשימת עובדים</h3>
+              <div className="flex items-center gap-2" dir="rtl">
+                <label className="text-xs text-slate-500 whitespace-nowrap">ברירת מחדל משמרות/שבוע:</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={14}
+                  value={defaultShiftsPerWeek}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    if (!isNaN(n) && n >= 1) setDefaultShiftsPerWeek(n);
+                  }}
+                  className="w-14 text-center text-xs font-semibold px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 transition-all"
+                />
+              </div>
+            </div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-400">לחץ על שם או כותרת לעריכה</span>
               <Badge className="bg-blue-100 text-blue-700 border-transparent">
@@ -663,6 +671,7 @@ export default function EmployeeTable() {
                       <ShiftsPerWeekCell
                         empId={emp.id}
                         value={emp.max_shifts_per_week}
+                        defaultValue={defaultShiftsPerWeek}
                         onUpdate={handleUpdateShiftsPerWeek}
                       />
                     </td>
