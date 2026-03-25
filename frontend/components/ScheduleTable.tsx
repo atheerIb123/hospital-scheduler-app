@@ -65,8 +65,8 @@ interface Props {
   daySettings: DaySetting[];
   onDayTypeChange: (date: string, day_type_id: string | null) => void;
   searchName: string;
-  filterShift: string;
-  filterDay: number;
+  filterShifts: string[];
+  filterDays: number[];
 }
 
 export default function ScheduleTable({
@@ -82,8 +82,8 @@ export default function ScheduleTable({
   daySettings,
   onDayTypeChange,
   searchName,
-  filterShift,
-  filterDay,
+  filterShifts,
+  filterDays,
 }: Props) {
   const [dragSrc, setDragSrc] = useState<{ day: number; shiftName: string; emp: string } | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ day: number; shiftName: string } | null>(null);
@@ -178,9 +178,9 @@ export default function ScheduleTable({
   const q = searchName.trim();
   const hasNameFilter = !!q;
   const nameMatch = (name: string) => hasNameFilter && name.toLowerCase().includes(q.toLowerCase());
-  const visibleSorted = filterShift ? sorted.filter(st => st.names[0] === filterShift) : sorted;
+  const visibleSorted = filterShifts.length > 0 ? sorted.filter(st => filterShifts.includes(st.names[0])) : sorted;
   const visibleDays = days.filter(d => {
-    if (filterDay >= 0 && new Date(schedule.year, schedule.month - 1, d).getDay() !== filterDay) return false;
+    if (filterDays.length > 0 && !filterDays.includes(new Date(schedule.year, schedule.month - 1, d).getDay())) return false;
     if (hasNameFilter && !sorted.some(st => nameMatch(lookup[d]?.[st.names[0]] ?? ""))) return false;
     return true;
   });

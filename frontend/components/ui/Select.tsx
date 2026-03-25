@@ -83,7 +83,7 @@ export function Select({ variant = "default", optionPrefix, className = "", show
   const sizerTextClass = isCompact ? "text-xs font-semibold" : "text-sm font-medium";
 
   const pill = showSelectedPill && selectedLabel && displayValue !== "" && (
-    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 select-none bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
       {selectedLabel}
       {onClearPill && (
         <button type="button" onClick={onClearPill} className="hover:text-blue-900 transition-colors ml-0.5">
@@ -137,7 +137,7 @@ export function Select({ variant = "default", optionPrefix, className = "", show
   if (!showSelectedPill) return selectEl;
 
   return (
-    <div className={`inline-flex items-center flex-wrap gap-2 ${className}`}>
+    <div className={`inline-flex items-center flex-wrap gap-2 select-none ${className}`}>
       {selectEl}
       {pill}
     </div>

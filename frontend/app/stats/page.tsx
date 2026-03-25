@@ -2,12 +2,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { getStats } from "@/lib/api";
 import type { StatsData } from "@/lib/api";
-import { Button, Alert, TabButton, TabsContainer, SearchDropdown, Badge, Select, Input } from "@/components/ui";
+import { Alert, TabButton, TabsContainer, SearchDropdown, Badge, Select, DateRangePicker } from "@/components/ui";
+import type { DateRangeValue } from "@/components/ui";
 import { SHIFT_COLORS } from "@/lib/colors";
 
 // ── constants ────────────────────────────────────────────────────────────────
-
-const HE_MONTHS = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
 
 const DOW_LABELS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 const DOW_COLORS = [
@@ -23,46 +22,6 @@ const DOW_BAR_COLORS = [
   "bg-blue-400", "bg-indigo-400", "bg-violet-400", "bg-purple-400",
   "bg-sky-400", "bg-orange-400", "bg-rose-400",
 ];
-
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-function toLocalISO(d: Date) {
-  const offset = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - offset).toISOString().slice(0, 10);
-}
-
-function getRangeBounds(type: "week" | "month" | "year" | "all", ref: Date): { start: string; end: string; label: string } {
-  const d = new Date(ref);
-
-  if (type === "all") {
-    return { start: "2000-01-01", end: "2100-01-01", label: "כל הזמנים" };
-  }
-
-  if (type === "week") {
-    const day = d.getDay(); // 0=Sun
-    const start = new Date(d); start.setDate(d.getDate() - day);
-    const end = new Date(start); end.setDate(start.getDate() + 6);
-    return {
-      start: toLocalISO(start),
-      end: toLocalISO(end),
-      label: `${start.getDate()}/${start.getMonth()+1} – ${end.getDate()}/${end.getMonth()+1} ${end.getFullYear()}`
-    };
-  }
-  if (type === "month") {
-    const start = new Date(d.getFullYear(), d.getMonth(), 1);
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-    const monthName = start.toLocaleString("he-IL", { month: "long" });
-    return { start: toLocalISO(start), end: toLocalISO(end), label: `${monthName} ${start.getFullYear()}` };
-  }
-  // year
-  const start = new Date(d.getFullYear(), 0, 1);
-  const end = new Date(d.getFullYear(), 11, 31);
-  return {
-    start: toLocalISO(start),
-    end: toLocalISO(end),
-    label: `${start.getFullYear()}`
-  };
-}
 
 // ── sub-components ───────────────────────────────────────────────────────────
 
@@ -117,9 +76,7 @@ function EmptyState({ msg }: { msg: string }) {
 // ── main page ────────────────────────────────────────────────────────────────
 
 export default function StatsPage() {
-  const [rangeType, setRangeType] = useState<"week" | "month" | "year" | "all" | "custom">("month");
-  const [refDate, setRefDate] = useState(new Date());
-  const [customRange, setCustomRange] = useState({ start: "", end: "" });
+  const [dateRange, setDateRange] = useState<DateRangeValue | null>(null);
 
   const [tab, setTab] = useState<"general" | "pointsSummary" | "byShift" | "byDay" | "byEmployee">("general");
   const [data, setData] = useState<StatsData | null>(null);
@@ -135,25 +92,8 @@ export default function StatsPage() {
   // global employee search (applies to all tabs)
   const [search, setSearch] = useState("");
 
-  // Calculate actual dates based on state
-  const { start: activeStart, end: activeEnd, label: dateLabel } = useMemo(() => {
-    if (rangeType === "custom") {
-      return {
-        start: customRange.start,
-        end: customRange.end,
-        label: "טווח מותאם אישית"
-      };
-    }
-    return getRangeBounds(rangeType, refDate);
-  }, [rangeType, refDate, customRange]);
-
-  const shiftDate = (dir: 1 | -1) => {
-    const d = new Date(refDate);
-    if (rangeType === "week") d.setDate(d.getDate() + (dir * 7));
-    if (rangeType === "month") d.setMonth(d.getMonth() + dir);
-    if (rangeType === "year") d.setFullYear(d.getFullYear() + dir);
-    setRefDate(d);
-  };
+  const activeStart = dateRange?.start ?? "";
+  const activeEnd   = dateRange?.end   ?? "";
 
   // fetch on range change
   useEffect(() => {
@@ -282,13 +222,6 @@ export default function StatsPage() {
     { id: "byEmployee",     label: "לפי עובד" },
   ] as const;
 
-  const rangeOptions: { id: typeof rangeType; label: string }[] = [
-    { id: "week",   label: "שבוע" },
-    { id: "month",  label: "חודש" },
-    { id: "year",   label: "שנה" },
-    { id: "all",    label: "הכל" },
-    { id: "custom", label: "מותאם אישית" },
-  ];
 
   function handleTabChange(id: "general" | "pointsSummary" | "byShift" | "byDay" | "byEmployee") {
     setTab(id);
@@ -360,92 +293,11 @@ export default function StatsPage() {
             className="w-48"
           />
         )}
-        {/* Range Type Dropdown */}
-        <Select
-          optionPrefix="סוג טווח:"
-          value={rangeType}
-          onChange={e => { setRangeType(e.target.value as typeof rangeType); setRefDate(new Date()); }}
-        >
-          {rangeOptions.map(opt => (
-            <option key={opt.id} value={opt.id}>{opt.label}</option>
-          ))}
-        </Select>
-
-        <div className="h-6 w-px bg-slate-200 hidden sm:block" />
-
-        {/* Date Controls */}
-        {rangeType === "custom" ? (
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-slate-500">מ:</span>
-              <input
-                type="date"
-                value={customRange.start}
-                onChange={e => setCustomRange(p => ({ ...p, start: e.target.value }))}
-                className="border border-slate-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-              />
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-slate-500">עד:</span>
-              <input
-                type="date"
-                value={customRange.end}
-                onChange={e => setCustomRange(p => ({ ...p, end: e.target.value }))}
-                className="border border-slate-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-              />
-            </div>
-          </div>
-        ) : rangeType !== "all" ? (
-          <div className="flex items-center gap-2">
-            {rangeType === "month" ? (
-              <div className="flex items-center gap-1">
-                <Select
-                  optionPrefix="חודש:"
-                  variant="default"
-                  value={refDate.getMonth()}
-                  onChange={(e) => {
-                    const d = new Date(refDate);
-                    d.setDate(1); // Prevent month overflow
-                    d.setMonth(parseInt(e.target.value));
-                    setRefDate(d);
-                  }}
-                  className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer hover:text-blue-600 py-0.5"
-                  dir="rtl"
-                >
-                  {HE_MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
-                </Select>
-                <Input
-                  inputPrefix="שנה:"
-                  type="number"
-                  value={refDate.getFullYear()}
-                  onChange={(e) => { const d = new Date(refDate); d.setFullYear(parseInt(e.target.value)); setRefDate(d); }}
-                  className="w-14 bg-transparent text-sm font-bold text-slate-700 text-center outline-none hover:text-blue-600 focus:ring-0 p-0"
-                />
-              </div>
-            ) : rangeType === "year" ? (
-              <div className="bg-slate-50 rounded-lg px-2 py-1 border border-transparent hover:border-slate-200 transition-colors">
-                <input
-                  type="number"
-                  value={refDate.getFullYear()}
-                  onChange={(e) => { const d = new Date(refDate); d.setFullYear(parseInt(e.target.value)); setRefDate(d); }}
-                  className="w-16 bg-transparent text-sm font-bold text-slate-700 text-center outline-none hover:text-blue-600 focus:ring-0 p-0"
-                />
-              </div>
-            ) : (
-              <span className="text-sm font-bold text-slate-700 min-w-[140px] text-center px-2">
-                {dateLabel}
-              </span>
-            )}
-            <Button
-              variant="secondary"
-              onClick={() => setRefDate(new Date())}
-            >
-              קפוץ להיום
-            </Button>
-          </div>
-        ) : (
-          <span className="text-sm font-medium text-slate-500 px-2">מציג את כל הנתונים</span>
-        )}
+        <DateRangePicker
+          availableTypes={["week", "month", "year", "all", "custom"]}
+          defaultType="month"
+          onChange={setDateRange}
+        />
       </div>
 
       {/* Content */}
