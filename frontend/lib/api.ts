@@ -2,8 +2,8 @@ import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftType
 
 const BASE = "/api";
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
+async function request<T>(path: string, options?: RequestInit, modeOverride?: string): Promise<T> {
+  const mode = modeOverride ?? (typeof window !== "undefined" ? localStorage.getItem("app_mode") : "");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (mode) headers["X-App-Mode"] = encodeURIComponent(mode);
 
@@ -115,34 +115,26 @@ export const seedDefaultEmployees = () =>
 // Shift Types
 // ---------------------------------------------------------------------------
 
-export const getShiftTypes = () => request<ShiftType[]>("/shift-types");
+export const getShiftTypes = (m?: string) => request<ShiftType[]>("/shift-types", undefined, m);
 
-export const createShiftType = (data: CreateShiftTypePayload) =>
-  request<ShiftType>("/shift-types", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+export const createShiftType = (data: CreateShiftTypePayload, m?: string) =>
+  request<ShiftType>("/shift-types", { method: "POST", body: JSON.stringify(data) }, m);
 
 export const updateShiftType = (
   id: string,
-  data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes">>
+  data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes">>,
+  m?: string
 ) =>
-  request<ShiftType>(`/shift-types/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
+  request<ShiftType>(`/shift-types/${id}`, { method: "PUT", body: JSON.stringify(data) }, m);
 
-export const deleteShiftType = (id: string) =>
-  request<{ ok: boolean }>(`/shift-types/${id}`, { method: "DELETE" });
+export const deleteShiftType = (id: string, m?: string) =>
+  request<{ ok: boolean }>(`/shift-types/${id}`, { method: "DELETE" }, m);
 
-export const deleteAllShiftTypes = () =>
-  request<{ ok: boolean }>("/shift-types", { method: "DELETE" });
+export const deleteAllShiftTypes = (m?: string) =>
+  request<{ ok: boolean }>("/shift-types", { method: "DELETE" }, m);
 
-export const toggleDesired = (id: string, is_desired: boolean) =>
-  request<ShiftType>(`/shift-types/${id}/desired`, {
-    method: "PATCH",
-    body: JSON.stringify({ is_desired }),
-  });
+export const toggleDesired = (id: string, is_desired: boolean, m?: string) =>
+  request<ShiftType>(`/shift-types/${id}/desired`, { method: "PATCH", body: JSON.stringify({ is_desired }) }, m);
 
 export const importShiftTypesCsv = async (
   file: File,
@@ -164,8 +156,8 @@ export const importShiftTypesCsv = async (
   return res.json() as Promise<ShiftTypeImportResult>;
 };
 
-export const loadDefaultShiftTypes = () =>
-  request<ShiftTypeImportResult>("/shift-types/load-defaults", { method: "POST" });
+export const loadDefaultShiftTypes = (m?: string) =>
+  request<ShiftTypeImportResult>("/shift-types/load-defaults", { method: "POST" }, m);
 
 // ---------------------------------------------------------------------------
 // Schedule
