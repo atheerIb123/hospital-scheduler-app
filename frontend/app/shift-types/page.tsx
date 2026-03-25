@@ -15,6 +15,7 @@ import SpecialShiftMonthlyConfig from "@/components/SpecialShiftMonthlyConfig";
 import ShiftInstanceOverrides from "@/components/ShiftInstanceOverrides";
 import { useShiftComposition } from "@/hooks/useShiftComposition";
 import { useMode } from "@/components/ModeProvider";
+import { getDepartments } from "@/lib/api";
 
 type TabId = "shift-types" | "day-structure" | "specifics";
 
@@ -114,10 +115,23 @@ export default function ShiftTypesPage() {
   const { mode } = useMode();
   const isNursing = mode.startsWith("nursing");
 
+  // ── Nursing department selector ───────────────────────────────────────────
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [selectedDept, setSelectedDept] = useState<string>("");
+  useEffect(() => {
+    if (!isNursing) return;
+    getDepartments().then(deps => {
+      setDepartments(deps ?? []);
+      if (deps?.length && !selectedDept) setSelectedDept(deps[0]);
+    }).catch(() => {});
+  }, [isNursing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const deptMode = isNursing && selectedDept ? `nursing_${selectedDept}` : undefined;
+
   const {
     shiftTypes, columnHeaders, loading, error,
     updateShiftType, createShiftType, deleteShiftType, deleteAllShiftTypes, loadDefaults, reload,
-  } = useShiftTypes();
+  } = useShiftTypes(deptMode);
   const {
     dayTypes, loading: dayTypesLoading,
     createDayType: createDayTypeAction, deleteDayType: deleteDayTypeAction, updateDayType: updateDayTypeAction
@@ -356,6 +370,32 @@ export default function ShiftTypesPage() {
           הגדר סוגי משמרות, תכונות נדרשות, ניקוד רצוי ומבנה ימים מיוחדים.
         </p>
       </div>
+
+      {/* ── Nursing department selector ── */}
+      {isNursing && departments.length > 0 && (
+        <div className="bg-gradient-to-l from-emerald-50 to-teal-50 border border-emerald-100 rounded-2xl px-5 py-3" dir="rtl">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-700 tracking-wide">מחלקה</span>
+            </div>
+            {departments.map(dept => (
+              <button
+                key={dept}
+                type="button"
+                onClick={() => setSelectedDept(dept)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border ${
+                  (selectedDept || departments[0]) === dept
+                    ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
+                    : "bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50"
+                }`}
+              >
+                {dept}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Tabs ── */}
       <TabsContainer>

@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { ShiftType, CreateShiftTypePayload } from "@/lib/types";
 import * as api from "@/lib/api";
 
-export function useShiftTypes() {
+export function useShiftTypes(modeOverride?: string) {
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
   const [columnHeaders, setColumnHeaders] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -12,7 +12,7 @@ export function useShiftTypes() {
   const reload = useCallback(async () => {
     try {
       const [data, headers] = await Promise.all([
-        api.getShiftTypes(),
+        api.getShiftTypes(modeOverride),
         api.getColumnHeaders(),
       ]);
       setShiftTypes(data);
@@ -23,7 +23,7 @@ export function useShiftTypes() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [modeOverride]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -31,30 +31,30 @@ export function useShiftTypes() {
     id: string,
     data: Partial<Pick<ShiftType, "names" | "is_desired" | "desirability" | "schedule_on" | "required_attributes" | "is_special">>
   ) => {
-    const st = await api.updateShiftType(id, data);
+    const st = await api.updateShiftType(id, data, modeOverride);
     setShiftTypes((prev) => prev.map((s) => (s.id === id ? st : s)));
     return st;
   };
 
   const setDesired = async (id: string, is_desired: boolean) => {
-    const st = await api.toggleDesired(id, is_desired);
+    const st = await api.toggleDesired(id, is_desired, modeOverride);
     setShiftTypes((prev) => prev.map((s) => (s.id === id ? st : s)));
     return st;
   };
 
   const createShiftType = async (payload: CreateShiftTypePayload) => {
-    const st = await api.createShiftType(payload);
+    const st = await api.createShiftType(payload, modeOverride);
     setShiftTypes((prev) => [...prev, st]);
     return st;
   };
 
   const deleteShiftType = async (id: string) => {
-    await api.deleteShiftType(id);
+    await api.deleteShiftType(id, modeOverride);
     setShiftTypes((prev) => prev.filter((s) => s.id !== id));
   };
 
   const deleteAllShiftTypes = async () => {
-    await api.deleteAllShiftTypes();
+    await api.deleteAllShiftTypes(modeOverride);
     setShiftTypes([]);
   };
 
@@ -65,7 +65,7 @@ export function useShiftTypes() {
   };
 
   const loadDefaults = async () => {
-    const result = await api.loadDefaultShiftTypes();
+    const result = await api.loadDefaultShiftTypes(modeOverride);
     setShiftTypes(result.shift_types);
     return result;
   };

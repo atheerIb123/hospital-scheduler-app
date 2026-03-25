@@ -422,6 +422,54 @@ export default function EmployeeTable() {
 
   return (
     <div className="flex flex-col gap-6 fade-in h-full">
+      {/* Department filter — nursing only, above search bar */}
+      {isNursing && employees.length > 0 && departments.length > 0 && (
+        <div className="bg-gradient-to-l from-emerald-50 to-teal-50 border border-emerald-100 rounded-2xl px-5 py-3" dir="rtl">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-700 tracking-wide">הפרדה למחלקות</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setDeptFilter([])}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                  deptFilter.length === 0
+                    ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
+                    : "bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-700"
+                }`}
+              >
+                הכל
+              </button>
+              {departments.map(dep => {
+                const active = deptFilter.includes(dep);
+                return (
+                  <button
+                    key={dep}
+                    onClick={() => setDeptFilter(active ? deptFilter.filter(d => d !== dep) : [...deptFilter, dep])}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                      active
+                        ? "bg-teal-600 text-white border-teal-600 shadow-sm"
+                        : "bg-white text-slate-600 border-slate-200 hover:border-teal-300 hover:text-teal-700"
+                    }`}
+                  >
+                    {dep}
+                    {active && (
+                      <span className="mr-1 opacity-75">×</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {deptFilter.length > 0 && (
+              <span className="text-xs text-emerald-600 font-medium mr-auto">
+                {filteredEmployees.length} עובדים
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Toolbar: import button on left, search + filter on right */}
       <div className="flex items-center gap-3" dir="ltr">
         <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
@@ -445,16 +493,6 @@ export default function EmployeeTable() {
                 onChange={setAttrFilter}
                 placeholder="כל התכונות"
                 options={columnHeaders.map((header, i) => ({ value: colAttr(i + 1), label: header }))}
-              />
-            )}
-
-            {/* Department filter dropdown (nursing only) */}
-            {isNursing && departments.length > 0 && (
-              <MultiSelect
-                value={deptFilter}
-                onChange={setDeptFilter}
-                placeholder="כל המחלקות"
-                options={departments.map(dep => ({ value: dep, label: dep }))}
               />
             )}
 
