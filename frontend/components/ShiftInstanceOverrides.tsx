@@ -405,10 +405,12 @@ export default function ShiftInstanceOverrides({
   shiftConfigs,
   shiftTypes,
   columnHeaders,
+  modeOverride,
 }: {
   shiftConfigs: ShiftConfig[];
   shiftTypes: ShiftType[];
   columnHeaders: string[];
+  modeOverride?: string;
 }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -421,23 +423,23 @@ export default function ShiftInstanceOverrides({
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await api.getShiftOverrides(year, month);
+      const result = await api.getShiftOverrides(year, month, modeOverride);
       setOverrides(result.sort((a, b) => a.date.localeCompare(b.date) || a.shift_name.localeCompare(b.shift_name)));
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, month, modeOverride]);
 
   useEffect(() => { reload(); }, [reload]);
 
   const handleSave = async (o: ShiftOverride) => {
-    await api.saveShiftOverride(o);
+    await api.saveShiftOverride(o, modeOverride);
     setEditing(null);
     await reload();
   };
 
   const handleDelete = async (date: string, shiftName: string) => {
-    await api.deleteShiftOverride(date, shiftName);
+    await api.deleteShiftOverride(date, shiftName, modeOverride);
     setOverrides(prev => prev.filter(o => !(o.date === date && o.shift_name === shiftName)));
   };
 

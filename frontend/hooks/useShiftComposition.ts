@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { ShiftCompositionData, ShiftConfig, SpecialShiftMonthConfig } from "@/lib/types";
 import * as api from "@/lib/api";
 
-export function useShiftComposition() {
+export function useShiftComposition(modeOverride?: string) {
   const [data, setData] = useState<ShiftCompositionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -11,7 +11,7 @@ export function useShiftComposition() {
 
   const reload = useCallback(async () => {
     try {
-      const result = await api.getShiftComposition();
+      const result = await api.getShiftComposition(modeOverride);
       setData(result);
       setError(null);
     } catch (e) {
@@ -19,7 +19,7 @@ export function useShiftComposition() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [modeOverride]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -31,19 +31,19 @@ export function useShiftComposition() {
     const missing = ["רזרבה", "משמרת מיוחדת"].filter(n => !names.has(n));
     if (data.shift_configs.length > 0 && baseNursing.every(n => names.has(n)) && missing.length > 0) {
       autoSeededRef.current = true;
-      api.seedNursingComposition().then(result => {
+      api.seedNursingComposition(modeOverride).then(result => {
         if (result.shift_configs) setData({ shift_configs: result.shift_configs });
       }).catch(() => {});
     }
-  }, [data]);
+  }, [data, modeOverride]);
 
   const save = async (configs: ShiftConfig[]) => {
-    const result = await api.saveShiftComposition({ shift_configs: configs });
+    const result = await api.saveShiftComposition({ shift_configs: configs }, modeOverride);
     setData({ shift_configs: result.shift_configs });
   };
 
   const seedNursing = async () => {
-    const result = await api.seedNursingComposition();
+    const result = await api.seedNursingComposition(modeOverride);
     if (result.shift_configs) setData({ shift_configs: result.shift_configs });
   };
 

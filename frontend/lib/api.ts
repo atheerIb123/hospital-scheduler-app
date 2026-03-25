@@ -526,19 +526,19 @@ export const removeManualPoint = (id: string) =>
 // Shift Composition (nursing)
 // ---------------------------------------------------------------------------
 
-export const getShiftComposition = () =>
-  request<ShiftCompositionData>("/shift-composition");
+export const getShiftComposition = (m?: string) =>
+  request<ShiftCompositionData>("/shift-composition", undefined, m);
 
-export const saveShiftComposition = (data: ShiftCompositionData) =>
+export const saveShiftComposition = (data: ShiftCompositionData, m?: string) =>
   request<{ ok: boolean; shift_configs: ShiftConfig[] }>("/shift-composition", {
     method: "PUT",
     body: JSON.stringify(data),
-  });
+  }, m);
 
-export const seedNursingComposition = () =>
+export const seedNursingComposition = (m?: string) =>
   request<{ ok: boolean; shift_configs: ShiftConfig[] }>("/shift-composition/seed-nursing", {
     method: "POST",
-  });
+  }, m);
 
 // ---------------------------------------------------------------------------
 // Special Shifts (monthly)
@@ -556,11 +556,11 @@ export const setMonthlySpecialShifts = (month: number, year: number, total_count
 export const deleteMonthlySpecialShifts = (year: number, month: number) =>
   request<{ ok: boolean }>(`/special-shifts/monthly/${year}/${month}`, { method: "DELETE" });
 
-export const getShiftOverrides = (year?: number, month?: number) =>
-  request<ShiftOverride[]>(`/shift-overrides${year ? `?year=${year}${month ? `&month=${month}` : ""}` : ""}`);
+export const getShiftOverrides = (year?: number, month?: number, m?: string) =>
+  request<ShiftOverride[]>(`/shift-overrides${year ? `?year=${year}${month ? `&month=${month}` : ""}` : ""}`, undefined, m);
 
-export const saveShiftOverride = (override: ShiftOverride) =>
-  request<{ ok: boolean } & ShiftOverride>("/shift-overrides", { method: "PUT", body: JSON.stringify(override) });
+export const saveShiftOverride = (override: ShiftOverride, m?: string) =>
+  request<{ ok: boolean } & ShiftOverride>("/shift-overrides", { method: "PUT", body: JSON.stringify(override) }, m);
 
-export const deleteShiftOverride = (date: string, shiftName: string) =>
-  request<{ ok: boolean }>(`/shift-overrides/${date}/${encodeURIComponent(shiftName)}`, { method: "DELETE" });
+export const deleteShiftOverride = (date: string, shiftName: string, m?: string) =>
+  request<{ ok: boolean }>(`/shift-overrides/${date}/${encodeURIComponent(shiftName)}`, { method: "DELETE" }, m);
