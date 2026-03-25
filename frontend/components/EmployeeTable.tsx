@@ -2,10 +2,10 @@
 import { useRef, useState, useEffect, useMemo } from "react";
 import { useEmployees } from "@/hooks/useEmployees";
 import { useMode } from "@/components/ModeProvider";
-import { getDepartments, exportEmployeesXlsx } from "@/lib/api";
-import { Alert, Badge, Button, DeleteIconButton, MultiSelect, SearchDropdown } from "@/components/ui";
+import { getDepartments, addDepartment, deleteDepartment, restoreDefaultDepartments, exportEmployeesXlsx } from "@/lib/api";
+import { Alert, Badge, Button, DeleteIconButton, Input, MultiSelect, SearchDropdown } from "@/components/ui";
 import { COLUMN_COLORS as COL_COLORS } from "@/lib/colors";
-import { Pencil, FileUp, Loader2, Check, Minus, Users } from "lucide-react";
+import { Pencil, FileUp, Loader2, Check, Minus, Users, Settings2, Plus, X, RotateCcw } from "lucide-react";
 
 const colAttr = (i: number) => `col_${i}`;
 
@@ -286,22 +286,37 @@ function HomeDepartmentCell({
   onUpdate: (id: string, dept: string | null) => Promise<void>;
 }) {
   const current = value ?? "";
+  const isOrphaned = current !== "" && !departments.includes(current);
   return (
-    <select
-      value={current}
-      onChange={(e) => {
-        const next = e.target.value || null;
-        if ((next ?? "") === current) return;
-        onUpdate(empId, next);
-      }}
-      className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400 transition-all min-w-[110px]"
-      dir="rtl"
-    >
-      <option value="">— לא שויך —</option>
-      {departments.map((dep) => (
-        <option key={dep} value={dep}>{dep}</option>
-      ))}
-    </select>
+    <div className="flex items-center gap-1">
+      {isOrphaned && (
+        <span title={`המחלקה "${current}" נמחקה`} className="text-amber-500 shrink-0">
+          ⚠️
+        </span>
+      )}
+      <select
+        value={current}
+        onChange={(e) => {
+          const next = e.target.value || null;
+          if ((next ?? "") === current) return;
+          onUpdate(empId, next);
+        }}
+        className={`text-xs border rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 transition-all min-w-[110px] ${
+          isOrphaned
+            ? "border-amber-400 text-amber-700 focus:ring-amber-200 focus:border-amber-500"
+            : "border-slate-200 text-slate-700 focus:ring-emerald-200 focus:border-emerald-400"
+        }`}
+        dir="rtl"
+      >
+        <option value="">— לא שויך —</option>
+        {isOrphaned && (
+          <option value={current} disabled>{current} (נמחקה)</option>
+        )}
+        {departments.map((dep) => (
+          <option key={dep} value={dep}>{dep}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -329,6 +344,14 @@ export default function EmployeeTable() {
   const [initializingNursing, setInitializingNursing] = useState(false);
   const [seedingEmployees, setSeedingEmployees] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // department management state
+  const [deptModalOpen, setDeptModalOpen] = useState(false);
+  const [newDeptName, setNewDeptName] = useState("");
+  const [deptSaving, setDeptSaving] = useState(false);
+  const [deptError, setDeptError] = useState<string | null>(null);
+  const [deletingDept, setDeletingDept] = useState<string | null>(null);
+  const [restoringDepts, setRestoringDepts] = useState(false);
 
   // search & filter state
   const [nameSearch, setNameSearch] = useState("");
@@ -411,6 +434,49 @@ export default function EmployeeTable() {
     }
   };
 
+  const handleAddDepartment = async () => {
+    const name = newDeptName.trim();
+    if (!name) return;
+    setDeptSaving(true);
+    setDeptError(null);
+    try {
+      const updated = await addDepartment(name);
+      setDepartments(updated);
+      setNewDeptName("");
+    } catch (e) {
+      setDeptError((e as Error).message);
+    } finally {
+      setDeptSaving(false);
+    }
+  };
+
+  const handleDeleteDepartment = async (name: string) => {
+    setDeletingDept(name);
+    setDeptError(null);
+    try {
+      const updated = await deleteDepartment(name);
+      setDepartments(updated);
+      setDeptFilter(prev => prev.filter(d => d !== name));
+    } catch (e) {
+      setDeptError((e as Error).message);
+    } finally {
+      setDeletingDept(null);
+    }
+  };
+
+  const handleRestoreDepartments = async () => {
+    setRestoringDepts(true);
+    setDeptError(null);
+    try {
+      const updated = await restoreDefaultDepartments();
+      setDepartments(updated);
+    } catch (e) {
+      setDeptError((e as Error).message);
+    } finally {
+      setRestoringDepts(false);
+    }
+  };
+
   if (loading) return (
     <div className="space-y-3">
       {[1, 2, 3].map(i => <div key={i} className="h-12 rounded-xl shimmer" />)}
@@ -482,6 +548,16 @@ export default function EmployeeTable() {
           <FileUp className="w-4 h-4" />
           {importing ? "מייבא…" : "ייבא קובץ"}
         </Button>
+        {isNursing && (
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={() => { setDeptModalOpen(true); setDeptError(null); setNewDeptName(""); }}
+            icon={<Settings2 size={16} />}
+          >
+            מחלקות
+          </Button>
+        )}
 
         {employees.length > 0 && (
           <>
@@ -732,6 +808,70 @@ export default function EmployeeTable() {
       {filteredEmployees.length === 0 && employees.length > 0 && (
         <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl border border-slate-100">
           לא נמצאו עובדים התואמים את החיפוש
+        </div>
+      )}
+
+      {/* Department management modal */}
+      {deptModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center" dir="rtl">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-y-auto" style={{maxHeight: "85vh"}}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+              <h2 className="font-semibold text-slate-800 text-sm">ניהול מחלקות</h2>
+              <button onClick={() => setDeptModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {departments.length === 0 && (
+                <p className="text-sm text-slate-400 text-center py-4">אין מחלקות עדיין</p>
+              )}
+              {departments.map(dep => (
+                <div key={dep} className="flex items-center justify-between gap-2 py-1.5 border-b border-slate-50">
+                  <span className="text-sm text-slate-700">{dep}</span>
+                  <Button
+                    variant="icon"
+                    size="sm"
+                    onClick={() => handleDeleteDepartment(dep)}
+                    disabled={deletingDept === dep}
+                    icon={deletingDept === dep ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-4 border-t border-slate-100 space-y-3">
+              {deptError && <Alert type="error">{deptError}</Alert>}
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Input
+                    value={newDeptName}
+                    onChange={e => setNewDeptName(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleAddDepartment()}
+                    placeholder="שם מחלקה חדשה"
+                    className="w-full"
+                  />
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleAddDepartment}
+                  disabled={deptSaving || !newDeptName.trim()}
+                  icon={deptSaving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                >
+                  {deptSaving ? "שומר..." : "הוסף"}
+                </Button>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleRestoreDepartments}
+                disabled={restoringDepts}
+                icon={restoringDepts ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                className="w-full justify-center"
+              >
+                {restoringDepts ? "משחזר..." : "שחזר רשימת ברירת מחדל"}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
