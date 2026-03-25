@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         suppressHydrationWarning>
         <ModeProvider>
           <Nav />
-          <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
+          <main className="mr-60 px-6 py-8 min-h-screen">{children}</main>
         </ModeProvider>
       </body>
     </html>

@@ -1,13 +1,6 @@
 "use client";
 import type { Schedule, ShiftType, Assignment, Employee } from "@/lib/types";
-
-const SHIFT_COLORS = [
-  "bg-violet-100 text-violet-700","bg-sky-100 text-sky-700","bg-emerald-100 text-emerald-700",
-  "bg-rose-100 text-rose-700","bg-amber-100 text-amber-700","bg-cyan-100 text-cyan-700",
-  "bg-pink-100 text-pink-700","bg-indigo-100 text-indigo-700","bg-teal-100 text-teal-700",
-  "bg-orange-100 text-orange-700","bg-lime-100 text-lime-700","bg-fuchsia-100 text-fuchsia-700",
-  "bg-red-100 text-red-700","bg-blue-100 text-blue-700",
-];
+import { SHIFT_COLORS } from "@/lib/colors";
 
 interface Props {
   schedule: Schedule;
@@ -48,7 +41,7 @@ export default function SummaryTable({ schedule, shiftTypes, assignments, employ
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="overflow-x-auto overflow-y-auto max-h-[500px]">
+      <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: "calc(100vh - 320px)" }}>
         <table className="min-w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className="bg-slate-50 border-b border-slate-200">

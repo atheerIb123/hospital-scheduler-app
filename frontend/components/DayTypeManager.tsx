@@ -1,20 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 import { DayType } from "@/lib/types";
+import { Button, Input, DeleteIconButton } from "@/components/ui";
+import { DAY_TYPE_COLORS } from "@/lib/colors";
+import { Calendar, X, Check, Loader2 } from "lucide-react";
 
-// ── Controlled score input cell ───────────────────────────────────────────────
-function ScoreCell({
-  value,
-  onSave,
-}: {
-  value: number;
-  onSave: (v: number) => Promise<void>;
-}) {
+function ScoreCell({ value, onSave }: { value: number; onSave: (v: number) => Promise<void> }) {
   const [draft, setDraft] = useState(String(value));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
 
-  // keep in sync if parent updates
   useEffect(() => { setDraft(String(value)); }, [value]);
 
   const commit = async () => {
@@ -43,32 +38,16 @@ function ScoreCell({
         onKeyDown={(e) => { if (e.key === "Enter") ref.current?.blur(); }}
         disabled={saving}
         className={`w-14 text-center text-xs font-semibold border rounded-lg px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300 transition-all ${
-          saved ? "bg-emerald-50 border-emerald-300 text-emerald-700" :
-          "bg-slate-50 border-slate-200 text-slate-600"
+          saved ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-slate-50 border-slate-200 text-slate-600"
         } disabled:opacity-50`}
         title="ציון"
       />
       {saving && (
-        <svg className="absolute -left-4 w-3 h-3 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-        </svg>
+        <Loader2 className="absolute -left-4 w-3 h-3 animate-spin text-blue-400" />
       )}
     </div>
   );
 }
-
-const COLOR_OPTIONS = [
-  "bg-slate-100 text-slate-700 border-slate-200",
-  "bg-blue-100 text-blue-800 border-blue-200",
-  "bg-orange-100 text-orange-800 border-orange-200",
-  "bg-purple-100 text-purple-800 border-purple-200",
-  "bg-emerald-100 text-emerald-800 border-emerald-200",
-  "bg-rose-100 text-rose-800 border-rose-200",
-  "bg-amber-100 text-amber-800 border-amber-200",
-  "bg-cyan-100 text-cyan-800 border-cyan-200",
-  "bg-indigo-100 text-indigo-800 border-indigo-200",
-];
 
 interface Props {
   dayTypes: DayType[];
@@ -79,138 +58,142 @@ interface Props {
 }
 
 export default function DayTypeManager({ dayTypes, loading, createDayType, deleteDayType, updateDayType }: Props) {
+  const [showModal, setShowModal] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
-  const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
+  const [selectedColor, setSelectedColor] = useState(DAY_TYPE_COLORS[0].value);
   const [newScore, setNewScore] = useState(0);
   const [adding, setAdding] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+
+  const resetForm = () => {
+    setNewTypeName("");
+    setSelectedColor(DAY_TYPE_COLORS[0].value);
+    setNewScore(0);
+  };
 
   const handleAdd = async () => {
     if (!newTypeName.trim()) return;
     setAdding(true);
     try {
       await createDayType(newTypeName, selectedColor, newScore);
-      setNewTypeName("");
-      setNewScore(0);
+      resetForm();
     } finally {
       setAdding(false);
     }
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+    <>
+      <Button
+        type="button"
+        onClick={() => setShowModal(true)}
+        icon={<Calendar className="w-4 h-4" />}
       >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-          </div>
-          <div className="text-right">
-            <h2 className="font-semibold text-slate-800">מבני יום (Day Structures)</h2>
-            <p className="text-xs text-slate-400">נהל חגים וימים מיוחדים</p>
-          </div>
-        </div>
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`w-5 h-5 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
+        הגדרות ימים
+      </Button>
 
-      {isExpanded && (
-        <div className="p-6 border-t border-slate-100 space-y-6 animate-in slide-in-from-top-2 duration-200">
-          {/* Add New */}
-          <div className="flex flex-col sm:flex-row gap-4 items-end bg-slate-50/50 p-4 rounded-xl border border-slate-100">
-            <div className="flex-1 space-y-1.5 w-full">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">שם הסוג</label>
-              <input
-                dir="rtl"
-                type="text"
-                value={newTypeName}
-                onChange={(e) => setNewTypeName(e.target.value)}
-                placeholder="לדוגמה: חג, ערב חג"
-                className="w-full border border-slate-200 rounded-xl px-4 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all text-sm font-medium"
-              />
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => { resetForm(); setShowModal(false); }} />
+          <div className="relative bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h2 className="font-semibold text-slate-800">הגדרות ימים</h2>
+              <button
+                type="button"
+                onClick={() => { resetForm(); setShowModal(false); }}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">צבע</label>
-              <div className="flex gap-1.5 p-1.5 bg-white rounded-xl border border-slate-200">
-                {COLOR_OPTIONS.slice(0, 5).map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setSelectedColor(c)}
-                    className={`w-5 h-5 rounded-full border transition-all ${c} ${selectedColor === c ? "ring-2 ring-blue-400 scale-110" : "opacity-40 hover:opacity-100"
-                      }`}
+
+            <div className="overflow-y-auto flex-1">
+              {/* Add new day type form */}
+              <div className="p-6 space-y-4 border-b border-slate-100">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">הוסף מבנה יום</p>
+                <div className="space-y-1.5">
+                  <Input
+                    inputPrefix="שם הסוג: "
+                    type="text"
+                    value={newTypeName}
+                    onChange={(e) => setNewTypeName(e.target.value)}
+                    placeholder="חג, ערב חג, וכו'"
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+                    className="max-w-82"
                   />
-                ))}
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ציון</label>
-              <input
-                type="number"
-                min={0}
-                value={newScore}
-                onChange={(e) => setNewScore(Math.max(0, Number(e.target.value)))}
-                className="w-20 border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all text-sm font-medium text-center"
-              />
-            </div>
-            <button
-              onClick={handleAdd}
-              disabled={adding || !newTypeName.trim()}
-              className="bg-blue-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-50 shadow-sm active:scale-95 transition-all w-full sm:w-auto"
-            >
-              {adding ? "מוסיף..." : "הוסף"}
-            </button>
-          </div>
+                </div>
 
-          {/* List */}
-          <div className="space-y-3">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">סוגים קיימים</p>
-            {loading ? (
-              <div className="h-10 w-full bg-slate-50 animate-pulse rounded-xl" />
-            ) : dayTypes.length === 0 ? (
-              <p className="text-xs text-slate-400 italic">טרם הוגדרו סוגי ימים</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {dayTypes.map((dt) => (
-                  <div key={dt.id} className="group flex items-center gap-2 bg-white border border-slate-100 p-2 rounded-xl hover:border-slate-200 transition-all">
-                    <div className={`w-3 h-3 rounded-full shrink-0 ${dt.color.split(" ")[0]}`} />
-                    <input
-                      dir="rtl"
-                      defaultValue={dt.name}
-                      onBlur={(e) => e.target.value !== dt.name && updateDayType(dt.id, { name: e.target.value })}
-                      className="flex-1 text-xs font-semibold text-slate-700 bg-transparent border-none focus:ring-0 p-0"
-                    />
-                    <ScoreCell
-                      value={dt.score ?? 0}
-                      onSave={(v) => updateDayType(dt.id, { score: v })}
-                    />
-                    <button
-                      onClick={() => deleteDayType(dt.id)}
-                      className="text-slate-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
-                    >
-                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                        <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5z" />
-                      </svg>
-                    </button>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-500">צבע</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {DAY_TYPE_COLORS.map(({ value, swatch }) => {
+                      const selected = selectedColor === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setSelectedColor(value)}
+                          className={`w-7 h-7 rounded-full border-2 transition-all flex items-center justify-center ${swatch} ${selected ? "border-slate-800 scale-110 shadow-md" : "border-transparent hover:scale-105 hover:border-slate-400"}`}
+                        >
+                          {selected && (
+                            <Check className="w-3 h-3 text-white" />
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
-                ))}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Input
+                    inputPrefix="ציון: "
+                    type="number"
+                    min={0}
+                    value={newScore}
+                    onChange={(e) => setNewScore(Math.max(0, Number(e.target.value)))}
+                  />
+                </div>
+
+                <Button onClick={handleAdd} disabled={adding || !newTypeName.trim()}>
+                  {adding ? "מוסיף..." : "הוסף"}
+                </Button>
               </div>
-            )}
+
+              {/* Existing day types list */}
+              <div className="p-6 space-y-3">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">סוגים קיימים</p>
+                {loading ? (
+                  <div className="h-10 w-full bg-slate-50 animate-pulse rounded-xl" />
+                ) : dayTypes.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">טרם הוגדרו סוגי ימים</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {dayTypes.map((dt) => (
+                      <div key={dt.id} className="group flex items-center gap-2 bg-slate-50 border border-slate-100 px-3 py-2 rounded-xl hover:border-slate-200 transition-all">
+                        <div className={`w-3 h-3 rounded-full shrink-0 ${DAY_TYPE_COLORS.find(c => c.value === dt.color)?.swatch ?? "bg-slate-400"}`} />
+                        <input
+                          dir="rtl"
+                          defaultValue={dt.name}
+                          onBlur={(e) => e.target.value !== dt.name && updateDayType(dt.id, { name: e.target.value })}
+                          className="flex-1 text-xs font-semibold text-slate-700 bg-transparent border-none focus:ring-0 p-0 min-w-0"
+                        />
+                        <ScoreCell
+                          value={dt.score ?? 0}
+                          onSave={(v) => updateDayType(dt.id, { score: v })}
+                        />
+                        <DeleteIconButton
+                          onClick={() => deleteDayType(dt.id)}
+                          className="opacity-0 group-hover:opacity-100"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

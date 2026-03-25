@@ -4,6 +4,8 @@ import { useState, useRef } from "react";
 import { useConstraints } from "@/hooks/useConstraints";
 import { useEmployees } from "@/hooks/useEmployees";
 import type { Constraint, CreateConstraintPayload } from "@/lib/types";
+import { Alert, Badge, Button, Input, TabButton, TabsContainer } from "@/components/ui";
+import { X, Pencil, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FolderOpen, AlertTriangle, Plus, List, Calendar, CheckCircle2 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -13,15 +15,13 @@ const HEB_DAYS  = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "שבת"];
 const HEB_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני",
                     "יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
-
 function formatDateHebrew(iso: string) {
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
 }
 
 function daysInMonth(year: number, month: number) {
-  return new Date(year, month, 0).getDate(); // month is 1-based
+  return new Date(year, month, 0).getDate();
 }
 
 // ---------------------------------------------------------------------------
@@ -67,138 +67,13 @@ function displayGroupDates(items: Constraint[]): string {
 
 // Sunday = 0 in JS, but Israel week starts Sunday too so we use 0-based as-is
 function firstDayOfWeek(year: number, month: number) {
-  return new Date(year, month - 1, 1).getDay(); // 0=Sun … 6=Sat
-}
-
-// ---------------------------------------------------------------------------
-// Tiny shared UI
-// ---------------------------------------------------------------------------
-
-function Alert({ type, children, onClose }: {
-  type: "success" | "error" | "warning";
-  children: React.ReactNode;
-  onClose?: () => void;
-}) {
-  const s = { success: "bg-emerald-50 border-emerald-200 text-emerald-800",
-              error:   "bg-red-50 border-red-200 text-red-800",
-              warning: "bg-amber-50 border-amber-200 text-amber-800" };
-  return (
-    <div className={`flex items-start gap-3 border rounded-xl p-4 ${s[type]}`} dir="rtl">
-      <span className="text-lg mt-0.5">{type==="success"?"✅":type==="error"?"❌":"⚠️"}</span>
-      <div className="flex-1 text-sm">{children}</div>
-      {onClose && <button onClick={onClose} className="opacity-60 hover:opacity-100 text-lg leading-none">×</button>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Date picker input
-// ---------------------------------------------------------------------------
-
-function DatePickerInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({});
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const now = new Date();
-  const [calYear, setCalYear] = useState(now.getFullYear());
-  const [calMonth, setCalMonth] = useState(now.getMonth() + 1);
-
-  const handleOpen = () => {
-    const match = value.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    if (match) { setCalMonth(parseInt(match[2])); setCalYear(parseInt(match[3])); }
-    if (btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect();
-      setPopupStyle({
-        position: "fixed",
-        top: rect.bottom + 8,
-        right: window.innerWidth - rect.right,
-      });
-    }
-    setOpen(prev => !prev);
-  };
-
-  const handleDateClick = (day: number) => {
-    const d = String(day).padStart(2, "0");
-    const m = String(calMonth).padStart(2, "0");
-    const dateStr = `${d}/${m}/${calYear}`;
-    onChange(value.trim() ? value.trim() + ", " + dateStr : dateStr);
-    setOpen(false);
-  };
-
-  const prevMonth = () => { if (calMonth === 1) { setCalMonth(12); setCalYear(y => y - 1); } else setCalMonth(m => m - 1); };
-  const nextMonth = () => { if (calMonth === 12) { setCalMonth(1); setCalYear(y => y + 1); } else setCalMonth(m => m + 1); };
-
-  const totalDays = new Date(calYear, calMonth, 0).getDate();
-  const startDay  = new Date(calYear, calMonth - 1, 1).getDay();
-  const cells: (number | null)[] = [...Array(startDay).fill(null), ...Array.from({ length: totalDays }, (_, i) => i + 1)];
-  while (cells.length % 7 !== 0) cells.push(null);
-
-  return (
-    <div className="relative">
-      <div className="flex gap-1">
-        <input
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder="01/10/2026"
-          className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button
-          type="button"
-          onClick={handleOpen}
-          ref={btnRef}
-          title="בחר מלוח שנה"
-          className={`px-2.5 py-2 border rounded-lg transition-colors ${open ? "bg-blue-50 text-blue-600 border-blue-300" : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"}`}
-        >
-          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-            <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd"/>
-          </svg>
-        </button>
-      </div>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div style={popupStyle} className="z-[9999] bg-white rounded-xl shadow-xl border border-slate-200 p-3 w-64" dir="rtl">
-            {/* Month nav */}
-            <div className="flex items-center justify-between mb-2">
-              <button type="button" onClick={nextMonth} className="p-1 rounded hover:bg-slate-100 text-slate-500 transition-colors text-base leading-none">→</button>
-              <span className="text-sm font-bold text-slate-700">{HEB_MONTHS[calMonth - 1]} {calYear}</span>
-              <button type="button" onClick={prevMonth} className="p-1 rounded hover:bg-slate-100 text-slate-500 transition-colors text-base leading-none">←</button>
-            </div>
-            {/* Day-of-week headers */}
-            <div className="grid grid-cols-7 mb-1">
-              {HEB_DAYS.map(d => (
-                <div key={d} className={`text-center text-[10px] font-bold py-0.5 ${d === "שבת" ? "text-purple-400" : "text-slate-400"}`}>{d}</div>
-              ))}
-            </div>
-            {/* Day cells */}
-            <div className="grid grid-cols-7 gap-0.5">
-              {cells.map((day, idx) =>
-                day ? (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => handleDateClick(day)}
-                    className={`text-center text-xs py-1.5 rounded hover:bg-blue-500 hover:text-white font-medium transition-colors ${
-                      (startDay + day - 1) % 7 === 6 ? "text-purple-500" : "text-slate-700"
-                    }`}
-                  >
-                    {day}
-                  </button>
-                ) : <div key={idx} />
-              )}
-            </div>
-            <p className="text-[10px] text-slate-400 text-center mt-2 pt-2 border-t border-slate-100">לחץ על תאריך להוספה לשדה</p>
-          </div>
-        </>
-      )}
-    </div>
-  );
+  return new Date(year, month - 1, 1).getDay();
 }
 
 // ---------------------------------------------------------------------------
 // Manual add form — now accepts free-text date expression
 // ---------------------------------------------------------------------------
+
 
 function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף", employeeNames = [] }: {
   initial?: Partial<CreateConstraintPayload>;
@@ -209,7 +84,8 @@ function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף",
 }) {
   const [name,      setName]      = useState(initial?.employee_name ?? "");
   const [nameOpen,  setNameOpen]  = useState(false);
-  const [date,      setDate]      = useState(initial?.date ?? "");
+  const [dateFrom,  setDateFrom]  = useState(initial?.date ?? "");
+  const [dateTo,    setDateTo]    = useState("");
   const [reason,    setReason]    = useState(initial?.reason ?? "");
   const [saving,    setSaving]    = useState(false);
   const [err,       setErr]       = useState<string | null>(null);
@@ -228,12 +104,13 @@ function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף",
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) { setErr("שם עובד הוא שדה חובה"); return; }
-    if (!date.trim()) { setErr("תאריך הוא שדה חובה");   return; }
+    if (!name.trim())     { setErr("שם עובד הוא שדה חובה"); return; }
+    if (!dateFrom.trim()) { setErr("תאריך הוא שדה חובה");   return; }
+    const dateValue = dateTo.trim() ? `${dateFrom} - ${dateTo}` : dateFrom;
     setSaving(true); setErr(null);
     try {
-      await onSubmit({ employee_name: name.trim(), date: date.trim(), reason: reason.trim() });
-      if (!initial) { setName(""); setDate(""); setReason(""); }
+      await onSubmit({ employee_name: name.trim(), date: dateValue, reason: reason.trim() });
+      if (!initial) { setName(""); setDateFrom(""); setDateTo(""); setReason(""); }
     } catch (e) { setErr((e as Error).message); }
     finally { setSaving(false); }
   };
@@ -241,18 +118,17 @@ function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף",
   return (
     <form onSubmit={handleSubmit} className="space-y-3" dir="rtl">
       {err && <Alert type="error" onClose={() => setErr(null)}>{err}</Alert>}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="flex flex-col gap-3">
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">שם עובד *</label>
           <div className="relative">
-            <input
+            <Input
               ref={nameInputRef}
               value={name}
               onChange={e => { setName(e.target.value); setNameOpen(true); }}
               onFocus={openNameDropdown}
               placeholder='ד"ר כהן'
               autoComplete="off"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {nameOpen && filteredNames.length > 0 && (
               <>
@@ -270,34 +146,36 @@ function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף",
             )}
           </div>
         </div>
-        <div className="sm:col-span-1">
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            תאריך / טווח *
-          </label>
-          <DatePickerInput value={date} onChange={setDate} />
-          <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-            <span className="font-semibold text-slate-500">דוגמאות: </span>
-            תאריך בודד: <code className="bg-slate-100 px-1 rounded">01/10/2026</code>
-            {" · "}טווח: <code className="bg-slate-100 px-1 rounded">01/10/2026 - 05/10/2026</code>
-            {" · "}כמה: <code className="bg-slate-100 px-1 rounded">01/10/2026, 15/10/2026</code>
-          </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">תאריך *</label>
+          <div className="flex items-center gap-2" dir="ltr">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+            <span className="text-xs text-slate-400 shrink-0">עד</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={e => setDateTo(e.target.value)}
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+          </div>
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">סיבה (אופציונלי)</label>
-          <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="חופשה, מחלה..."
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <Input value={reason} onChange={e=>setReason(e.target.value)} placeholder="חופשה, מחלה..." />
         </div>
       </div>
       <div className="flex gap-2">
-        <button type="submit" disabled={saving}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
+        <Button type="submit" disabled={saving}>
           {saving ? "שומר..." : submitLabel}
-        </button>
+        </Button>
         {onCancel && (
-          <button type="button" onClick={onCancel}
-            className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors">
-            ביטול
-          </button>
+          <Button type="button" variant="secondary" onClick={onCancel}>ביטול</Button>
         )}
       </div>
     </form>
@@ -305,7 +183,7 @@ function ConstraintForm({ initial, onSubmit, onCancel, submitLabel = "הוסף",
 }
 
 // ---------------------------------------------------------------------------
-// CSV import panel
+// CSV import panel (without format section — shown via ? popup)
 // ---------------------------------------------------------------------------
 
 function CsvImportPanel({ onImport }: { onImport: (file: File, mode: "replace"|"append") => Promise<void> }) {
@@ -333,32 +211,6 @@ function CsvImportPanel({ onImport }: { onImport: (file: File, mode: "replace"|"
 
   return (
     <div className="space-y-4" dir="rtl">
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
-        <p className="font-medium text-slate-700 mb-2">📋 פורמט קובץ נדרש (CSV / XLSX / XLS / ODS):</p>
-        <div className="overflow-x-auto">
-          <table className="text-xs border-collapse">
-            <thead><tr className="bg-slate-200">
-              <th className="border border-slate-300 px-3 py-1">שם עובד</th>
-              <th className="border border-slate-300 px-3 py-1">תאריך</th>
-              <th className="border border-slate-300 px-3 py-1">סיבה</th>
-            </tr></thead>
-            <tbody>
-              <tr><td className="border border-slate-300 px-3 py-1">ד&quot;ר כהן</td>
-                  <td className="border border-slate-300 px-3 py-1">05/06/2026</td>
-                  <td className="border border-slate-300 px-3 py-1">חופשה</td></tr>
-              <tr className="bg-slate-50">
-                  <td className="border border-slate-300 px-3 py-1">ד&quot;ר לוי</td>
-                  <td className="border border-slate-300 px-3 py-1">01/07/2026 - 05/07/2026</td>
-                  <td className="border border-slate-300 px-3 py-1">חופשה</td></tr>
-              <tr><td className="border border-slate-300 px-3 py-1">ד&quot;ר מזרחי</td>
-                  <td className="border border-slate-300 px-3 py-1">10/07/2026, 15/07/2026 - 17/07/2026</td>
-                  <td className="border border-slate-300 px-3 py-1"></td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-2 text-xs text-slate-500">פורמטי תאריך: DD/MM/YYYY | YYYY-MM-DD | DD.MM.YYYY</p>
-      </div>
-
       <div className="flex gap-4 items-center">
         <span className="text-sm font-medium text-slate-600">מצב ייבוא:</span>
         {(["replace","append"] as const).map(m => (
@@ -369,16 +221,122 @@ function CsvImportPanel({ onImport }: { onImport: (file: File, mode: "replace"|"
         ))}
       </div>
 
-      <div className="flex items-center gap-3">
-        <label className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors ${
+      <div className="flex flex-col gap-1.5">
+        <label className={`inline-flex items-center gap-2 self-start px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors ${
           importing ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}>
-          {importing ? "מייבא..." : "📂 בחר קובץ (CSV / XLSX / XLS / ODS)"}
+          <span className="inline-flex items-center gap-1.5">{importing ? "מייבא..." : <><FolderOpen className="w-4 h-4" /> בחר קובץ</>}</span>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden" disabled={importing} onChange={handleFile} />
         </label>
-        {mode==="replace" && <span className="text-xs text-amber-600 font-medium">⚠️ יחליף את כל ההסתייגויות הקיימות</span>}
+        <span className="text-xs text-slate-400">CSV, XLSX, XLS, ODS</span>
+        {mode==="replace" && <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium"><AlertTriangle className="w-3.5 h-3.5" /> יחליף את כל ההסתייגויות הקיימות</span>}
       </div>
 
       {status && <Alert type={status.type} onClose={()=>setStatus(null)}>{status.msg}</Alert>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Format popup modal
+// ---------------------------------------------------------------------------
+
+function FormatPopup({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 bg-slate-50 border-b border-slate-200">
+          <h3 className="text-base font-bold text-slate-800">פורמט קובץ נדרש</h3>
+          <Button variant="ghost" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-500"><X className="w-4 h-4" /></Button>
+        </div>
+        <div className="p-5 space-y-3">
+          <p className="text-sm text-slate-600">פורמטי קובץ נתמכים: <span className="font-medium">CSV / XLSX / XLS / ODS</span></p>
+          <div className="overflow-x-auto">
+            <table className="text-xs border-collapse w-full">
+              <thead>
+                <tr className="bg-slate-200">
+                  <th className="border border-slate-300 px-3 py-2 text-right">שם עובד</th>
+                  <th className="border border-slate-300 px-3 py-2 text-right">תאריך</th>
+                  <th className="border border-slate-300 px-3 py-2 text-right">סיבה</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="border border-slate-300 px-3 py-1.5">ד&quot;ר כהן</td>
+                  <td className="border border-slate-300 px-3 py-1.5">05/06/2026</td>
+                  <td className="border border-slate-300 px-3 py-1.5">חופשה</td>
+                </tr>
+                <tr className="bg-slate-50">
+                  <td className="border border-slate-300 px-3 py-1.5">ד&quot;ר לוי</td>
+                  <td className="border border-slate-300 px-3 py-1.5">01/07/2026 - 05/07/2026</td>
+                  <td className="border border-slate-300 px-3 py-1.5">חופשה</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 px-3 py-1.5">ד&quot;ר מזרחי</td>
+                  <td className="border border-slate-300 px-3 py-1.5">10/07/2026, 15/07/2026 - 17/07/2026</td>
+                  <td className="border border-slate-300 px-3 py-1.5"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-500">פורמטי תאריך נתמכים: DD/MM/YYYY | YYYY-MM-DD | DD.MM.YYYY</p>
+        </div>
+        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50">
+          <Button variant="secondary" onClick={onClose} className="w-full">סגור</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add constraint modal
+// ---------------------------------------------------------------------------
+
+function AddModal({ onSubmit, onClose, employeeNames = [] }: {
+  onSubmit: (data: CreateConstraintPayload) => Promise<void>;
+  onClose: () => void;
+  employeeNames?: string[];
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 bg-slate-50 border-b border-slate-200">
+          <div>
+            <h3 className="text-base font-bold text-slate-800">הוספת הסתייגות ידנית</h3>
+            <p className="text-xs text-slate-400 mt-0.5">ניתן להזין תאריך בודד, טווח תאריכים, או שילוב מופרד בפסיק</p>
+          </div>
+          <Button variant="ghost" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-500"><X className="w-4 h-4" /></Button>
+        </div>
+        <div className="p-5">
+          <ConstraintForm onSubmit={onSubmit} onCancel={onClose} employeeNames={employeeNames} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Import modal
+// ---------------------------------------------------------------------------
+
+function ImportModal({ onImport, onClose }: {
+  onImport: (file: File, mode: "replace"|"append") => Promise<void>;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 bg-slate-50 border-b border-slate-200">
+          <h3 className="text-base font-bold text-slate-800">ייבוא הסתייגויות מקובץ</h3>
+          <Button variant="ghost" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-500"><X className="w-4 h-4" /></Button>
+        </div>
+        <div className="p-5">
+          <CsvImportPanel onImport={onImport} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -389,8 +347,8 @@ function CsvImportPanel({ onImport }: { onImport: (file: File, mode: "replace"|"
 
 function ConstraintRow({ constraint, onUpdate, onDelete }: {
   constraint: Constraint;
-  onUpdate: (id: string, data: Partial<CreateConstraintPayload>) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  onUpdate: (id: string, data: Partial<CreateConstraintPayload>) => Promise<unknown>;
+  onDelete: (id: string) => Promise<unknown>;
 }) {
   const [editing,  setEditing]  = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -419,13 +377,13 @@ function ConstraintRow({ constraint, onUpdate, onDelete }: {
       <td className="px-4 py-3 text-sm text-slate-600 tabular-nums">{formatDateHebrew(constraint.date)}</td>
       <td className="px-4 py-3 text-sm text-slate-500">
         {constraint.reason
-          ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">{constraint.reason}</span>
+          ? <Badge className="bg-purple-100 text-purple-700 border-transparent">{constraint.reason}</Badge>
           : <span className="text-slate-300">—</span>}
       </td>
       <td className="px-4 py-3">
         <div className="flex gap-2 justify-end">
-          <button onClick={()=>setEditing(true)} className="px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">✏️ ערוך</button>
-          <button onClick={handleDelete} disabled={deleting} className="px-2.5 py-1 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40">🗑️ מחק</button>
+          <Button variant="icon" size="compact" onClick={()=>setEditing(true)}><Pencil className="w-3.5 h-3.5" /></Button>
+          <Button variant="icon" size="compact" onClick={handleDelete} disabled={deleting}><Trash2 className="w-3.5 h-3.5" /></Button>
         </div>
       </td>
     </tr>
@@ -488,16 +446,15 @@ function GroupedRow({ group, onDelete, onUpdate, employeeNames = [] }: {
         <td className="px-4 py-3">
           <div className="flex gap-2 justify-end">
             {isRange ? (
-              <button onClick={() => setExpanded(e => !e)}
-                className="px-2.5 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
-                {expanded ? "▲ סגור" : "▼ פרט"}
-              </button>
+              <Button variant="icon" size="compact" onClick={() => setExpanded(e => !e)}>
+                {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </Button>
             ) : (
               <>
-                <button onClick={() => setEditing(true)} className="px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">✏️ ערוך</button>
-                <button onClick={() => handleDelete(group.items[0].id, formatDateHebrew(group.items[0].date))}
+                <Button variant="icon" size="compact" onClick={() => setEditing(true)}><Pencil className="w-3.5 h-3.5" /></Button>
+                <Button variant="icon" size="compact" onClick={() => handleDelete(group.items[0].id, formatDateHebrew(group.items[0].date))}
                   disabled={deleting === group.items[0].id}
-                  className="px-2.5 py-1 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40">🗑️ מחק</button>
+                  ><Trash2 className="w-3.5 h-3.5" /></Button>
               </>
             )}
           </div>
@@ -510,11 +467,11 @@ function GroupedRow({ group, onDelete, onUpdate, employeeNames = [] }: {
           <td />
           <td className="px-4 py-2">
             <div className="flex justify-end">
-              <button onClick={() => handleDelete(c.id, formatDateHebrew(c.date))}
+              <Button variant="icon" size="compact" onClick={() => handleDelete(c.id, formatDateHebrew(c.date))}
                 disabled={deleting === c.id}
-                className="px-2.5 py-1 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40">
-                🗑️ מחק
-              </button>
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
             </div>
           </td>
         </tr>
@@ -538,12 +495,8 @@ function DayDetailPanel({ iso, list, colorFor, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Panel */}
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 bg-slate-50 border-b border-slate-200">
           <div>
             <p className="text-xs text-slate-400 font-medium">{dayName}</p>
@@ -551,22 +504,19 @@ function DayDetailPanel({ iso, list, colorFor, onClose }: {
           </div>
           <div className="flex items-center gap-3">
             {list.length > 0 && (
-              <span className="px-2.5 py-1 bg-red-100 text-red-700 rounded-full text-xs font-semibold">
+              <Badge className="bg-red-100 text-red-700 border-transparent">
                 {list.length} נעדרים
-              </span>
+              </Badge>
             )}
-            <button onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-500 transition-colors text-lg leading-none">
+            <Button variant="ghost" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-500 text-lg leading-none">
               ×
-            </button>
+            </Button>
           </div>
         </div>
-
-        {/* Body */}
         <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
           {list.length === 0 ? (
             <div className="py-8 text-center">
-              <span className="text-3xl">✅</span>
+              <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
               <p className="mt-2 text-sm text-slate-500">אין הסתייגויות ביום זה</p>
             </div>
           ) : (
@@ -579,9 +529,9 @@ function DayDetailPanel({ iso, list, colorFor, onClose }: {
                     <span className="text-sm font-medium text-slate-800 truncate">{c.employee_name}</span>
                   </div>
                   {c.reason ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 flex-shrink-0">
+                    <Badge className="bg-purple-100 text-purple-700 border-transparent shrink-0">
                       {c.reason}
-                    </span>
+                    </Badge>
                   ) : (
                     <span className="text-xs text-slate-300 flex-shrink-0">ללא סיבה</span>
                   )}
@@ -590,13 +540,8 @@ function DayDetailPanel({ iso, list, colorFor, onClose }: {
             </ul>
           )}
         </div>
-
-        {/* Footer */}
         <div className="px-5 py-3 border-t border-slate-100 bg-slate-50">
-          <button onClick={onClose}
-            className="w-full py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">
-            סגור
-          </button>
+          <Button variant="secondary" onClick={onClose} className="w-full">סגור</Button>
         </div>
       </div>
     </div>
@@ -617,13 +562,12 @@ function CalendarView({ constraints, filterName, setFilterName, filterReason, se
 }) {
   const now = new Date();
   const [calYear,    setCalYear]    = useState(now.getFullYear());
-  const [calMonth,   setCalMonth]   = useState(now.getMonth() + 1); // 1-based
+  const [calMonth,   setCalMonth]   = useState(now.getMonth() + 1);
   const [selectedIso, setSelectedIso] = useState<string | null>(null);
 
   const totalDays = daysInMonth(calYear, calMonth);
-  const startDay  = firstDayOfWeek(calYear, calMonth); // 0=Sun
+  const startDay  = firstDayOfWeek(calYear, calMonth);
 
-  // Build map: "YYYY-MM-DD" → Constraint[]
   const byDate: Record<string, Constraint[]> = {};
   const prefix = `${calYear.toString().padStart(4,"0")}-${calMonth.toString().padStart(2,"0")}-`;
   for (const c of constraints) {
@@ -650,7 +594,6 @@ function CalendarView({ constraints, filterName, setFilterName, filterReason, se
   const isoFor = (day: number) =>
     `${calYear.toString().padStart(4,"0")}-${calMonth.toString().padStart(2,"0")}-${day.toString().padStart(2,"0")}`;
 
-  // Colour palette
   const empColors: Record<string,string> = {};
   const palette = [
     "bg-red-100 text-red-700","bg-orange-100 text-orange-700",
@@ -671,20 +614,6 @@ function CalendarView({ constraints, filterName, setFilterName, filterReason, se
 
   return (
     <div dir="rtl" className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 items-center bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
-        <input value={filterName} onChange={e => setFilterName(e.target.value)} placeholder="שם עובד..." className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs w-32 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
-        <input value={filterReason} onChange={e => setFilterReason(e.target.value)} placeholder="סיבה..." className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
-        <div className="flex items-center gap-1" dir="ltr">
-          <span className="text-xs text-slate-400">מ:</span>
-          <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
-          <span className="text-xs text-slate-400">עד:</span>
-          <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
-        </div>
-        {hasFilter && <button onClick={clearFilters} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">✕ נקה</button>}
-        <span className="text-xs text-slate-400 mr-auto">{constraints.length}/{totalCount}</span>
-      </div>
-
       {/* Day detail modal */}
       {selectedIso && (
         <DayDetailPanel
@@ -695,24 +624,20 @@ function CalendarView({ constraints, filterName, setFilterName, filterReason, se
         />
       )}
 
-      {/* Month navigation */}
       <div className="flex items-center justify-between">
-        <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors text-slate-600">→</button>
+        <Button variant="ghost" onClick={nextMonth} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"><ChevronLeft className="w-5 h-5" /></Button>
         <h2 className="text-lg font-bold text-slate-800">{HEB_MONTHS[calMonth-1]} {calYear}</h2>
-        <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors text-slate-600">←</button>
+        <Button variant="ghost" onClick={prevMonth} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"><ChevronRight className="w-5 h-5" /></Button>
       </div>
 
-      {/* Hint */}
       <p className="text-xs text-slate-400 text-center">לחץ על יום לפרטים</p>
 
-      {/* Day-of-week header */}
       <div className="grid grid-cols-7 gap-1">
         {HEB_DAYS.map(d => (
           <div key={d} className={`text-center text-xs font-semibold py-1.5 rounded ${d==="שבת"?"text-purple-500":"text-slate-500"}`}>{d}</div>
         ))}
       </div>
 
-      {/* Calendar grid */}
       <div className="grid grid-cols-7 gap-1">
         {cells.map((day, idx) => {
           if (!day) return <div key={`blank-${idx}`} />;
@@ -732,14 +657,10 @@ function CalendarView({ constraints, filterName, setFilterName, filterReason, se
                 : list.length > 0 ? "border-red-200 bg-red-50 hover:border-red-400 hover:shadow-sm cursor-pointer"
                 : isSat      ? "border-purple-100 bg-purple-50/40 hover:bg-purple-50"
                 :              "border-slate-100 bg-white hover:bg-slate-50 hover:border-slate-300"}`}>
-
-              {/* Day number */}
               <span className={`text-xs font-bold self-end leading-none px-1
                 ${today?"text-blue-600":isSat?"text-purple-400":"text-slate-500"}`}>
                 {day}
               </span>
-
-              {/* Absent employees */}
               <div className="flex flex-col gap-0.5 overflow-hidden">
                 {list.slice(0,3).map(c => (
                   <span key={c.id} className={`text-[10px] leading-tight rounded px-1 py-0.5 truncate ${colorFor(c.employee_name)}`}>
@@ -755,7 +676,6 @@ function CalendarView({ constraints, filterName, setFilterName, filterReason, se
         })}
       </div>
 
-      {/* Legend */}
       {allNames.length > 0 && (
         <div className="border-t border-slate-100 pt-3">
           <p className="text-xs font-medium text-slate-500 mb-2">מקרא עובדים:</p>
@@ -777,12 +697,15 @@ function CalendarView({ constraints, filterName, setFilterName, filterReason, se
 // ---------------------------------------------------------------------------
 
 export default function ConstraintsPage() {
-  const [activeTab, setActiveTab] = useState<"table"|"calendar"|"import"|"add">("table");
-  const [filterName, setFilterName] = useState("");
-  const [filterReason, setFilterReason] = useState("");
-  const [filterDateFrom, setFilterDateFrom] = useState("");
-  const [filterDateTo, setFilterDateTo] = useState("");
-  const [notice, setNotice] = useState<{type:"success"|"error";msg:string}|null>(null);
+  const [activeTab,       setActiveTab]       = useState<"table"|"calendar">("table");
+  const [filterName,      setFilterName]      = useState("");
+  const [filterReason,    setFilterReason]    = useState("");
+  const [filterDateFrom,  setFilterDateFrom]  = useState("");
+  const [filterDateTo,    setFilterDateTo]    = useState("");
+  const [notice,          setNotice]          = useState<{type:"success"|"error";msg:string}|null>(null);
+  const [showAddModal,    setShowAddModal]    = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showFormatPopup, setShowFormatPopup] = useState(false);
 
   const { constraints, loading, error, add, update, remove, clear, importCsv } = useConstraints();
   const { employees } = useEmployees();
@@ -796,20 +719,18 @@ export default function ConstraintsPage() {
     return true;
   });
   const grouped = groupConstraints(filtered);
-  const hasFilter = !!(filterName || filterReason || filterDateFrom || filterDateTo);
-  const clearFilters = () => { setFilterName(""); setFilterReason(""); setFilterDateFrom(""); setFilterDateTo(""); };
 
   const handleAdd = async (data: CreateConstraintPayload) => {
     const result = await add(data) as unknown as { created: Constraint[]; skipped: number };
     const count = result.created?.length ?? 1;
     setNotice({ type:"success", msg:`נוספו ${count} הסתייגויות עבור ${data.employee_name}${result.skipped ? ` (${result.skipped} כפולים דולגו)` : ""}` });
-    setActiveTab("table");
+    setShowAddModal(false);
   };
 
   const handleImport = async (file: File, mode: "replace"|"append") => {
     const result = await importCsv(file, mode);
     setNotice({ type:"success", msg:`יובאו ${result.imported} הסתייגויות${result.skipped ? ` (${result.skipped} כפולים דולגו)` : ""}` });
-    setActiveTab("table");
+    setShowImportModal(false);
   };
 
   const handleClearAll = async () => {
@@ -819,14 +740,17 @@ export default function ConstraintsPage() {
   };
 
   const tabs = [
-    { id:"table",    label:"📋 רשימה" },
-    { id:"calendar", label:"📅 לוח שנה" },
-    { id:"add",      label:"➕ הוסף ידנית" },
-    { id:"import",   label:"📂 ייבוא מקובץ" },
+    { id:"table",    label: <span className="inline-flex items-center gap-1.5"><List className="w-3.5 h-3.5" />רשימה</span> },
+    { id:"calendar", label: <span className="inline-flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" />לוח שנה</span> },
   ] as const;
 
   return (
     <div className="space-y-6" dir="rtl">
+      {/* Modals */}
+      {showAddModal    && <AddModal    onSubmit={handleAdd}    onClose={() => setShowAddModal(false)}    employeeNames={employeeNames} />}
+      {showImportModal && <ImportModal onImport={handleImport} onClose={() => setShowImportModal(false)} />}
+      {showFormatPopup && <FormatPopup onClose={() => setShowFormatPopup(false)} />}
+
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
@@ -834,54 +758,47 @@ export default function ConstraintsPage() {
           <p className="text-slate-500 mt-1 text-sm">ניהול הסתייגויות עובדים ממשמרות — ייבוא מקובץ, הוספה ידנית, או תצוגת לוח שנה</p>
         </div>
         {constraints.length > 0 && (
-          <button onClick={handleClearAll}
-            className="px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors">
-            🗑️ מחק הכל
-          </button>
+          <Button variant="danger" onClick={handleClearAll} icon={<Trash2 className="w-4 h-4" />}>מחק הכל</Button>
         )}
       </div>
 
       {notice && <Alert type={notice.type} onClose={()=>setNotice(null)}>{notice.msg}</Alert>}
 
-      {/* Tabs */}
-      <div className="border-b border-slate-200">
-        <nav className="flex gap-1 -mb-px">
-          {tabs.map(tab => (
-            <button key={tab.id} onClick={()=>setActiveTab(tab.id)}
-              className={`px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                activeTab===tab.id
-                  ? "border-blue-600 text-blue-700 bg-blue-50"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}>
-              {tab.label}
-              {tab.id === "table" && (
-                <span suppressHydrationWarning className="mr-1">
-                  ({constraints.length})
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
+      {/* Action buttons above tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button onClick={() => setShowAddModal(true)} icon={<Plus className="w-4 h-4" />}>
+          הוספה ידנית
+        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="secondary" onClick={() => setShowImportModal(true)} icon={<FolderOpen className="w-4 h-4" />}>
+            ייבוא מקובץ
+          </Button>
+          <button
+            onClick={() => setShowFormatPopup(true)}
+            title="פורמט קובץ נדרש"
+            className="w-7 h-7 rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 text-xs font-bold flex items-center justify-center transition-colors"
+          >
+            ?
+          </button>
+        </div>
       </div>
+
+      {/* Tabs */}
+      <TabsContainer>
+        {tabs.map(tab => (
+          <TabButton key={tab.id} active={activeTab === tab.id} onClick={() => setActiveTab(tab.id)} className="px-4 py-2">
+            {tab.label}
+            {tab.id === "table" && (
+              <span suppressHydrationWarning>
+                ({constraints.length})
+              </span>
+            )}
+          </TabButton>
+        ))}
+      </TabsContainer>
 
       {/* Tab content */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-
-        {/* ADD */}
-        {activeTab==="add" && (
-          <div className="p-6">
-            <h2 className="text-base font-semibold text-slate-700 mb-1">הוספת הסתייגות ידנית</h2>
-            <p className="text-xs text-slate-400 mb-4">ניתן להזין תאריך בודד, טווח תאריכים, או שילוב מופרד בפסיק</p>
-            <ConstraintForm onSubmit={handleAdd} employeeNames={employeeNames} />
-          </div>
-        )}
-
-        {/* IMPORT */}
-        {activeTab==="import" && (
-          <div className="p-6">
-            <h2 className="text-base font-semibold text-slate-700 mb-4">ייבוא הסתייגויות מקובץ (CSV / XLSX / XLS / ODS)</h2>
-            <CsvImportPanel onImport={handleImport} />
-          </div>
-        )}
 
         {/* CALENDAR */}
         {activeTab==="calendar" && (
@@ -904,23 +821,6 @@ export default function ConstraintsPage() {
         {/* TABLE */}
         {activeTab==="table" && (
           <>
-            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center gap-2">
-              <input value={filterName} onChange={e => setFilterName(e.target.value)}
-                placeholder="שם עובד..." className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-              <input value={filterReason} onChange={e => setFilterReason(e.target.value)}
-                placeholder="סיבה..." className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-              <div className="flex items-center gap-1" dir="ltr">
-                <span className="text-xs text-slate-400">מ:</span>
-                <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
-                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-                <span className="text-xs text-slate-400">עד:</span>
-                <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
-                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-              </div>
-              {hasFilter && <button onClick={clearFilters} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">✕ נקה</button>}
-              <span className="text-xs text-slate-400 mr-auto">{grouped.length} רשומות · {filtered.length}/{constraints.length} ימים</span>
-            </div>
-
             {error && <div className="p-6"><Alert type="error">{error}</Alert></div>}
 
             {loading ? (
@@ -930,8 +830,8 @@ export default function ConstraintsPage() {
                 <p className="text-slate-400 text-sm">{constraints.length === 0 ? "אין הסתייגויות עדיין" : "לא נמצאו תוצאות"}</p>
                 {constraints.length === 0 && (
                   <div className="flex gap-3 justify-center mt-3">
-                    <button onClick={() => setActiveTab("add")} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">הוסף ידנית</button>
-                    <button onClick={() => setActiveTab("import")} className="px-3 py-1.5 bg-slate-100 text-slate-700 text-sm rounded-lg hover:bg-slate-200">ייבוא מקובץ</button>
+                    <Button onClick={() => setShowAddModal(true)} className="px-3 py-1.5 text-sm">הוסף ידנית</Button>
+                    <Button variant="secondary" onClick={() => setShowImportModal(true)} className="px-3 py-1.5 text-sm">ייבוא מקובץ</Button>
                   </div>
                 )}
               </div>

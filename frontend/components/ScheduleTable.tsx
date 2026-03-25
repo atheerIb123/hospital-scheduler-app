@@ -1,15 +1,10 @@
 "use client";
-import { useState } from "react";
+import React, { useState, useRef } from "react";
+import { Button, DropdownPanel } from "@/components/ui";
+import { Check, ArrowLeftRight, ChevronDown, AlertTriangle, Handshake, Ban, X } from "lucide-react";
 import type { Schedule, ShiftType, Assignment, Employee, DayType, DaySetting } from "@/lib/types";
 import { addVolunteer, addShirking } from "@/lib/api";
-
-const SHIFT_COLORS = [
-  "bg-violet-50 text-violet-800","bg-sky-50 text-sky-800","bg-emerald-50 text-emerald-800",
-  "bg-rose-50 text-rose-800","bg-amber-50 text-amber-800","bg-cyan-50 text-cyan-800",
-  "bg-pink-50 text-pink-800","bg-indigo-50 text-indigo-800","bg-teal-50 text-teal-800",
-  "bg-orange-50 text-orange-800","bg-lime-50 text-lime-800","bg-fuchsia-50 text-fuchsia-800",
-  "bg-red-50 text-red-800","bg-blue-50 text-blue-800",
-];
+import { SHIFT_COLORS_LIGHT as SHIFT_COLORS } from "@/lib/colors";
 
 const HEBREW_MONTH_FORMATTER = new Intl.DateTimeFormat('he-u-ca-hebrew', { month: 'long' });
 
@@ -69,6 +64,9 @@ interface Props {
   dayTypes: DayType[];
   daySettings: DaySetting[];
   onDayTypeChange: (date: string, day_type_id: string | null) => void;
+  searchName: string;
+  filterShift: string;
+  filterDay: number;
 }
 
 export default function ScheduleTable({
@@ -82,28 +80,32 @@ export default function ScheduleTable({
   maxShifts = 0,
   dayTypes,
   daySettings,
-  onDayTypeChange
+  onDayTypeChange,
+  searchName,
+  filterShift,
+  filterDay,
 }: Props) {
   const [dragSrc, setDragSrc] = useState<{ day: number; shiftName: string; emp: string } | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ day: number; shiftName: string } | null>(null);
   const [popup, setPopup] = useState<PopupState | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [showIneligible, setShowIneligible] = useState(false);
   const [flagVolunteer, setFlagVolunteer] = useState(false);
   const [flagShirking, setFlagShirking] = useState(false);
-
-  // ── Smart search / filter ─────────────────────────────────────────────────
-  const [searchName, setSearchName] = useState("");
-  const [filterShifts, setFilterShifts] = useState<Set<string>>(new Set());
-  const [filterDays, setFilterDays] = useState<Set<number>>(new Set());
-
-  const toggleShift = (s: string) => setFilterShifts(prev => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
-  const toggleDay   = (d: number) => setFilterDays(prev => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; });
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function openSelectPopup(day: number, shiftName: string) {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     setPopup({ stage: "select", day, shiftName });
+    setPanelOpen(true);
     setShowIneligible(false);
     setFlagVolunteer(false);
     setFlagShirking(false);
+  }
+
+  function closePanel() {
+    setPanelOpen(false);
+    closeTimerRef.current = setTimeout(() => setPopup(null), 200);
   }
 
   async function assignEmployee(day: number, shiftName: string, newEmpName: string, currentEmpName: string) {
@@ -137,7 +139,7 @@ export default function ScheduleTable({
         });
       } catch { /* non-blocking */ }
     }
-    setPopup(null);
+    closePanel();
   }
 
   if (!schedule.assignments) return null;
@@ -176,11 +178,9 @@ export default function ScheduleTable({
   const q = searchName.trim();
   const hasNameFilter = !!q;
   const nameMatch = (name: string) => hasNameFilter && name.toLowerCase().includes(q.toLowerCase());
-  const hasAnyFilter = hasNameFilter || filterShifts.size > 0 || filterDays.size > 0;
-  const DOW_LABELS = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
-  const visibleSorted = filterShifts.size > 0 ? sorted.filter(st => filterShifts.has(st.names[0])) : sorted;
+  const visibleSorted = filterShift ? sorted.filter(st => st.names[0] === filterShift) : sorted;
   const visibleDays = days.filter(d => {
-    if (filterDays.size > 0 && !filterDays.has(new Date(schedule.year, schedule.month - 1, d).getDay())) return false;
+    if (filterDay >= 0 && new Date(schedule.year, schedule.month - 1, d).getDay() !== filterDay) return false;
     if (hasNameFilter && !sorted.some(st => nameMatch(lookup[d]?.[st.names[0]] ?? ""))) return false;
     return true;
   });
@@ -214,7 +214,7 @@ export default function ScheduleTable({
     const underMax = eligibleEmps.filter(emp => maxShifts === 0 || (empShiftCounts[emp] ?? 0) < maxShifts);
     const atMax    = eligibleEmps.filter(emp => maxShifts > 0  && (empShiftCounts[emp] ?? 0) >= maxShifts);
 
-    function EmpRow({ emp, className, warn }: { emp: string; className: string; warn?: string }) {
+    function EmpRow({ emp, className, warn }: { emp: string; className: string; warn?: React.ReactNode }) {
       const count = empShiftCounts[emp] ?? 0;
       const isCurrent = emp === currentEmp;
       const missing = getMissingAttrNames(emp, st!, employeesByName, columnHeaders);
@@ -222,18 +222,18 @@ export default function ScheduleTable({
         <div className="space-y-0.5">
           <div className={`flex items-center gap-1 ${className}`}>
             <button
-              onClick={() => { if (!isCurrent) assignEmployee(day, shiftName, emp, currentEmp); else setPopup(null); }}
+              onClick={() => { if (!isCurrent) assignEmployee(day, shiftName, emp, currentEmp); else closePanel(); }}
               className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors text-right"
             >
-              <span>{emp}{isCurrent ? " ✓" : ""}</span>
-              <span className="text-xs opacity-60">{count}{maxShifts > 0 ? `/${maxShifts}` : ""} משמרות{warn ? ` ${warn}` : ""}</span>
+              <span className="inline-flex items-center gap-1">{emp}{isCurrent && <Check className="w-3.5 h-3.5" />}</span>
+              <span className="inline-flex items-center gap-1 text-xs opacity-60">{count}{maxShifts > 0 ? `/${maxShifts}` : ""} משמרות{warn && <span className="mr-1">{warn}</span>}</span>
             </button>
             {!isCurrent && emp !== "" && (
               <button
                 onClick={() => setPopup({ stage: "resolve", day, shiftName, targetEmp: emp })}
                 className="px-2 py-2 rounded-lg text-xs bg-slate-100 text-slate-500 hover:bg-slate-200 border border-slate-200 transition-colors whitespace-nowrap shrink-0"
                 title="אפשרויות החלפה"
-              >↔</button>
+              ><ArrowLeftRight className="w-3.5 h-3.5" /></button>
             )}
           </div>
           {missing.length > 0 && (
@@ -245,12 +245,9 @@ export default function ScheduleTable({
 
     return (
       <div dir="rtl">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <h3 className="font-bold text-slate-800 text-base">יום {day} — {shiftName}</h3>
-            {currentEmp && <p className="text-sm text-slate-500 mt-0.5">כרגע: <span className="font-medium text-slate-700">{currentEmp}</span></p>}
-          </div>
-          <button onClick={() => setPopup(null)} className="text-slate-400 hover:text-slate-600 text-lg leading-none mt-0.5">✕</button>
+        <div className="mb-3">
+          <h3 className="font-bold text-slate-800 text-base">יום {day} — {shiftName}</h3>
+          {currentEmp && <p className="text-sm text-slate-500 mt-0.5">כרגע: <span className="font-medium text-slate-700">{currentEmp}</span></p>}
         </div>
 
         {/* Flags */}
@@ -258,22 +255,23 @@ export default function ScheduleTable({
           <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700 select-none">
             <input type="checkbox" checked={flagVolunteer} onChange={e => setFlagVolunteer(e.target.checked)}
               className="w-4 h-4 rounded accent-emerald-500" />
-            <span>🤝 סמן כהתנדבות של העובד החדש</span>
+            <span className="inline-flex items-center gap-1"><Handshake className="w-4 h-4 text-emerald-500" /> סמן כהתנדבות של העובד החדש</span>
           </label>
           {currentEmp && (
             <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700 select-none">
               <input type="checkbox" checked={flagShirking} onChange={e => setFlagShirking(e.target.checked)}
                 className="w-4 h-4 rounded accent-red-400" />
-              <span>🚫 סמן הברזה של <strong>{currentEmp}</strong></span>
+              <span className="inline-flex items-center gap-1"><Ban className="w-4 h-4 text-red-400" /> סמן הברזה של <strong>{currentEmp}</strong></span>
             </label>
           )}
         </div>
 
         {currentEmp && (
-          <button
-            onClick={() => { onAssignmentChange(day, shiftName, ""); setPopup(null); }}
-            className="w-full text-right px-3 py-2 mb-3 rounded-lg text-sm text-slate-400 hover:bg-slate-50 border border-slate-200 hover:border-slate-300 transition-colors"
-          >— הסר עובד —</button>
+          <Button
+            variant="danger"
+            onClick={() => { onAssignmentChange(day, shiftName, ""); closePanel(); }}
+            className="w-full text-right mb-3"
+          >— הסר עובד —</Button>
         )}
 
         {/* Eligible — under max */}
@@ -302,7 +300,7 @@ export default function ScheduleTable({
               {atMax.map(emp => (
                 <EmpRow key={emp} emp={emp}
                   className="bg-orange-50 text-orange-800 border border-orange-200 rounded-lg hover:bg-orange-100"
-                  warn="⚠"
+                  warn={<AlertTriangle className="w-3 h-3 text-orange-500" />}
                 />
               ))}
             </div>
@@ -315,14 +313,13 @@ export default function ScheduleTable({
 
         {/* Toggle ineligible */}
         {ineligibleEmps.length > 0 && (
-          <button type="button" onClick={() => setShowIneligible(!showIneligible)}
-            className="w-full flex items-center justify-center gap-1.5 mt-2 py-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          <Button variant="ghost" onClick={() => setShowIneligible(!showIneligible)}
+            className="w-full flex items-center justify-center gap-1.5 mt-2 py-1.5 text-slate-400 hover:text-slate-600"
+            icon={<ChevronDown className={`w-3.5 h-3.5 transition-transform ${showIneligible ? "rotate-180" : ""}`} />}
+            iconSide="after"
           >
-            <svg viewBox="0 0 20 20" fill="currentColor" className={`w-3.5 h-3.5 transition-transform ${showIneligible ? "rotate-180" : ""}`}>
-              <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd"/>
-            </svg>
             {showIneligible ? "הסתר לא מתאימים" : `הצג לא מתאימים (${ineligibleEmps.length})`}
-          </button>
+          </Button>
         )}
 
         {/* Ineligible employees */}
@@ -367,13 +364,11 @@ export default function ScheduleTable({
     return (
       <div dir="rtl">
         <div className="flex items-center gap-2 mb-4">
-          <button
-            onClick={() => openSelectPopup(day, shiftName)}
-            className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1"
+          <Button variant="ghost" onClick={() => openSelectPopup(day, shiftName)}
+            className="text-slate-500 hover:text-slate-700 flex items-center gap-1"
           >
             ‹ חזור
-          </button>
-          <button onClick={() => setPopup(null)} className="mr-auto text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+          </Button>
         </div>
 
         <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mb-5">
@@ -404,7 +399,7 @@ export default function ScheduleTable({
                   onClick={() => {
                     onAssignmentChange(day, shiftName, targetEmp);
                     onAssignmentChange(a.day, a.shift_name, currentEmp);
-                    setPopup(null);
+                    closePanel();
                   }}
                   className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors"
                 >
@@ -428,12 +423,11 @@ export default function ScheduleTable({
         {/* Option 2: override max */}
         <div className="border-t border-slate-100 pt-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">חריגה מהמקסימום</p>
-          <button
-            onClick={() => assignEmployee(day, shiftName, targetEmp, currentEmp)}
-            className="w-full px-3 py-2.5 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors font-medium"
+          <Button variant="danger" onClick={() => assignEmployee(day, shiftName, targetEmp, currentEmp)}
+            className="w-full"
           >
-            הקצה בכל זאת — {targetEmp} יגיע ל־{targetCount + 1} משמרות ⚠
-          </button>
+            <span className="inline-flex items-center gap-1.5">הקצה בכל זאת — {targetEmp} יגיע ל־{targetCount + 1} משמרות <AlertTriangle className="w-4 h-4" /></span>
+          </Button>
         </div>
       </div>
     );
@@ -480,97 +474,37 @@ export default function ScheduleTable({
           )}
         </div>
 
-        {open && (
-          <div className="absolute z-50 top-0 right-full mr-2 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 flex flex-col gap-0.5 w-32 animate-in fade-in slide-in-from-right-2">
-            <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase">סוג יום</p>
+        <DropdownPanel open={open} onClose={() => setOpen(false)} className="top-0 right-full mr-2 rounded-xl p-1.5 flex flex-col gap-0.5 w-32 animate-in fade-in slide-in-from-right-2">
+          <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase">סוג יום</p>
+          <button
+            onClick={() => { onDayTypeChange(dateStr, null); setOpen(false); }}
+            className={`w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+              !currentTypeId ? "bg-slate-100 border-slate-200 text-slate-700" : "text-slate-500 border-transparent hover:bg-slate-50"
+            }`}
+          >
+            רגיל (ברירת מחדל)
+          </button>
+          {dayTypes.map((dt) => (
             <button
-              onClick={() => { onDayTypeChange(dateStr, null); setOpen(false); }}
+              key={dt.id}
+              onClick={() => { onDayTypeChange(dateStr, dt.id); setOpen(false); }}
               className={`w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                !currentTypeId ? "bg-slate-100 border-slate-200 text-slate-700" : "text-slate-500 border-transparent hover:bg-slate-50"
+                currentTypeId === dt.id ? `${dt.color} shadow-sm border-current` : "text-slate-500 border-transparent hover:bg-slate-50"
               }`}
             >
-              רגיל (ברירת מחדל)
+              {dt.name}
             </button>
-            {dayTypes.map((dt) => (
-              <button
-                key={dt.id}
-                onClick={() => { onDayTypeChange(dateStr, dt.id); setOpen(false); }}
-                className={`w-full text-right px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                  currentTypeId === dt.id ? `${dt.color} shadow-sm border-current` : "text-slate-500 border-transparent hover:bg-slate-50"
-                }`}
-              >
-                {dt.name}
-              </button>
-            ))}
-          </div>
-        )}
-        {/* Overlay to close */}
-        {open && <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />}
+          ))}
+        </DropdownPanel>
       </div>
     );
   }
 
   return (
     <>
-      {/* ── Filter bar ── */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-3" dir="rtl">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Name search */}
-          <div className="relative">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd"/>
-            </svg>
-            <input
-              value={searchName} onChange={e => setSearchName(e.target.value)}
-              placeholder="חיפוש עובד..."
-              className="border border-slate-200 rounded-xl pr-8 pl-3 py-1.5 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
-            />
-          </div>
-          {/* Day of week toggles */}
-          <div className="flex gap-1">
-            {DOW_LABELS.map((label, d) => (
-              <button key={d} type="button" onClick={() => toggleDay(d)}
-                className={`w-8 h-8 rounded-lg text-xs font-bold border transition-all ${
-                  filterDays.has(d)
-                    ? d === 5 ? "bg-orange-500 text-white border-orange-500" : d === 6 ? "bg-purple-600 text-white border-purple-600" : "bg-slate-700 text-white border-slate-700"
-                    : "bg-white text-slate-500 border-slate-200 hover:border-slate-400"
-                }`}>
-                {label}
-              </button>
-            ))}
-          </div>
-          {hasAnyFilter && (
-            <button type="button" onClick={() => { setSearchName(""); setFilterShifts(new Set()); setFilterDays(new Set()); }}
-              className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
-              ✕ נקה
-            </button>
-          )}
-          {hasAnyFilter && (
-            <span className="text-xs text-slate-400 mr-auto">
-              {visibleDays.length} ימים · {visibleSorted.length} משמרות
-            </span>
-          )}
-        </div>
-        {/* Shift chips */}
-        <div className="flex flex-wrap gap-1.5">
-          {sorted.map((st, i) => {
-            const active = filterShifts.has(st.names[0]);
-            return (
-              <button key={st.id} type="button" onClick={() => toggleShift(st.names[0])}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
-                  active
-                    ? `${SHIFT_COLORS[i % SHIFT_COLORS.length]} border-current shadow-sm ring-1 ring-current`
-                    : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-400"
-                }`}>
-                {st.names[0]}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="overflow-x-auto sticky-header" style={{ maxHeight: "600px", overflowY: "auto" }}>
+      <div className="flex h-full">
+        <div className="flex-1 min-w-0 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto sticky-header">
           <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-slate-800 text-white">
@@ -694,8 +628,8 @@ export default function ScheduleTable({
                           )}
 
                           {name ? (
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${SHIFT_COLORS[i % SHIFT_COLORS.length]} ${isOverMax ? "ring-1 ring-red-400" : ""}`}>
-                              {name}{isOverMax ? " ⚠" : ""}
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${SHIFT_COLORS[i % SHIFT_COLORS.length]} ${isOverMax ? "ring-1 ring-red-400" : ""}`}>
+                              {name}{isOverMax ? <AlertTriangle className="w-3 h-3 text-red-500" /> : null}
                             </span>
                           ) : (
                             <span className="text-slate-200 text-base">—</span>
@@ -711,20 +645,51 @@ export default function ScheduleTable({
         </div>
       </div>
 
-      {/* Popup overlay */}
-      {popup && (
-        <div
-          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center"
-          onClick={() => setPopup(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-xl border border-slate-100 w-80 max-h-[80vh] overflow-y-auto p-5"
-            onClick={e => e.stopPropagation()}
-          >
-            {renderPopupContent()}
-          </div>
+      {/* Detail panel — always in DOM, animates in/out via width+opacity */}
+      <div
+        className="shrink-0 overflow-hidden flex flex-col"
+        style={{
+          width: panelOpen ? "18rem" : "0",
+          marginRight: panelOpen ? "1rem" : "0",
+          opacity: panelOpen ? 1 : 0,
+          transition: "width 200ms ease-in-out, opacity 150ms ease-in-out, margin-right 200ms ease-in-out",
+        }}
+      >
+        <div className="w-72 h-full flex flex-col bg-white rounded-2xl shadow-sm border border-slate-100">
+          {popup && (
+            <>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
+                <div className="min-w-0">
+                  {popup.stage === "resolve" && (
+                    <button
+                      onClick={() => setPopup({ stage: "select", day: popup.day, shiftName: popup.shiftName })}
+                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 mb-1"
+                    >
+                      ← חזרה לבחירה
+                    </button>
+                  )}
+                  <p className="text-xs font-semibold text-slate-700 truncate">
+                    {popup.stage === "select"
+                      ? `יום ${popup.day} — ${popup.shiftName}`
+                      : `פתרון עמסה — ${popup.targetEmp}`}
+                  </p>
+                </div>
+                <button
+                  onClick={closePanel}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0 mr-2"
+                  aria-label="סגור"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto p-4">
+                {renderPopupContent()}
+              </div>
+            </>
+          )}
         </div>
-      )}
+      </div>
+    </div>
     </>
   );
 }

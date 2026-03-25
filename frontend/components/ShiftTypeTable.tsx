@@ -2,12 +2,15 @@
 import { useState, useRef, useEffect } from "react";
 import type { ShiftType, ScheduleOn, DayType, ShiftConfig } from "@/lib/types";
 import { ShiftCard } from "./ShiftCompositionConfig";
+import { Badge, DeleteIconButton, DropdownPanel, FilterPill } from "@/components/ui";
+import { Check, ChevronDown, Pencil } from "lucide-react";
+import { BADGE_COLORS, getDayTypeActiveColor } from "@/lib/colors";
 
-const SCHEDULE_ON_OPTIONS: { value: string; label: string; color: string }[] = [
-  { value: "all", label: "כל הימים", color: "bg-slate-100 text-slate-600 border-slate-200" },
-  { value: "weekdays", label: "ימי חול", color: "bg-blue-100 text-blue-700 border-blue-200" },
-  { value: "friday", label: "שישי", color: "bg-orange-100 text-orange-600 border-orange-200" },
-  { value: "weekend", label: "סוף שבוע", color: "bg-purple-100 text-purple-700 border-purple-200" },
+const SCHEDULE_ON_OPTIONS: { value: string; label: string; color: string; active: string }[] = [
+  { value: "all",      label: "כל הימים",  color: "bg-slate-100 text-slate-600 border-slate-200",   active: "bg-slate-600 text-white border-slate-600"   },
+  { value: "weekdays", label: "ימי חול",   color: "bg-blue-100 text-blue-700 border-blue-200",      active: "bg-blue-600 text-white border-blue-600"     },
+  { value: "friday",   label: "שישי",      color: "bg-orange-100 text-orange-600 border-orange-200", active: "bg-orange-600 text-white border-orange-600" },
+  { value: "weekend",  label: "סוף שבוע",  color: "bg-purple-100 text-purple-700 border-purple-200", active: "bg-purple-600 text-white border-purple-600" },
 ];
 
 function scheduleOnLabel(value: ScheduleOn | undefined, dayTypes: any[]): { label: string; color: string } {
@@ -22,18 +25,6 @@ function scheduleOnLabel(value: ScheduleOn | undefined, dayTypes: any[]): { labe
   const label = selected.length > 1 ? `${first.label} (+${selected.length - 1})` : first.label;
   return { label: label as string, color: first.color as string };
 }
-
-const BADGE_COLORS = [
-  "bg-violet-100 text-violet-700 border-violet-200",
-  "bg-sky-100 text-sky-700 border-sky-200",
-  "bg-emerald-100 text-emerald-700 border-emerald-200",
-  "bg-rose-100 text-rose-700 border-rose-200",
-  "bg-amber-100 text-amber-700 border-amber-200",
-  "bg-cyan-100 text-cyan-700 border-cyan-200",
-  "bg-pink-100 text-pink-700 border-pink-200",
-  "bg-indigo-100 text-indigo-700 border-indigo-200",
-  "bg-teal-100 text-teal-700 border-teal-200",
-];
 
 export function attrToBadgeColor(attr: string): string {
   const match = attr.match(/^col_(\d+)$/);
@@ -138,29 +129,16 @@ export function AttrEditor({
   onToggle: (attr: string) => void;
   onClose: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
-
   if (columnHeaders.length === 0) {
     return (
-      <div ref={ref} className="absolute z-50 mt-1 right-0 bg-white rounded-xl shadow-lg border border-slate-200 px-4 py-3 text-xs text-slate-400 italic w-64">
-        ייבא קובץ עובדים תחילה כדי לראות תכונות
-      </div>
+      <DropdownPanel open={true} onClose={onClose} className="mt-1 right-0 rounded-xl px-4 py-3 w-64">
+        <p className="text-xs text-slate-400 italic">ייבא קובץ עובדים תחילה כדי לראות תכונות</p>
+      </DropdownPanel>
     );
   }
 
   return (
-    <div
-      ref={ref}
-      className="absolute z-50 mt-1 right-0 bg-white rounded-xl shadow-xl border border-slate-200 p-3 w-72"
-    >
+    <DropdownPanel open={true} onClose={onClose} className="mt-1 right-0 rounded-xl p-3 w-72">
       <p className="text-xs font-semibold text-slate-500 mb-2.5 px-1">בחר תכונות נדרשות</p>
       <div className="flex flex-wrap gap-1.5">
         {columnHeaders.map((header, i) => {
@@ -168,30 +146,24 @@ export function AttrEditor({
           const checked = attrs.includes(attr);
           const color = attrToBadgeColor(attr);
           return (
-            <button
+            <FilterPill
               key={attr}
-              type="button"
+              active={checked}
+              activeClassName={`${color} scale-105`}
               disabled={saving}
               onClick={() => onToggle(attr)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all disabled:opacity-50 ${checked
-                  ? `${color} shadow-sm scale-105`
-                  : "bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600"
-                }`}
+              className="inline-flex items-center gap-1.5 disabled:opacity-50"
             >
-              {checked && (
-                <svg viewBox="0 0 10 10" className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1.5 5l2.5 2.5 4.5-4.5" />
-                </svg>
-              )}
+              {checked && <Check className="w-2.5 h-2.5 shrink-0" />}
               {header}
-            </button>
+            </FilterPill>
           );
         })}
       </div>
       {saving && (
         <p className="text-xs text-slate-400 mt-2 px-1">שומר...</p>
       )}
-    </div>
+    </DropdownPanel>
   );
 }
 
@@ -199,7 +171,6 @@ export function AttrEditor({
 // ── Day-type selector ────────────────────────────────────────────────────────
 function DayTypeSelector({ value, onChange, dayTypes }: { value: ScheduleOn; onChange: (v: ScheduleOn) => void; dayTypes: DayType[] }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
 
   const selected = Array.isArray(value) ? value : (value ? [value as any] : ["all"]);
   const current = scheduleOnLabel(selected, dayTypes);
@@ -232,69 +203,53 @@ function DayTypeSelector({ value, onChange, dayTypes }: { value: ScheduleOn; onC
     }
   };
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
   return (
-    <div ref={ref} className="relative inline-block">
+    <div className="relative inline-block">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all hover:shadow-sm ${current.color} ${open ? "ring-2 ring-offset-1 ring-blue-300" : ""}`}
       >
         {current.label}
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60">
-          <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-        </svg>
+        <ChevronDown className="w-3 h-3 opacity-60" />
       </button>
 
-      {open && (
-        <div className="absolute z-50 mt-1 right-0 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 flex flex-col gap-1 w-48 animate-in slide-in-from-top-1 duration-200">
-          <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase tracking-wider">בחר ימי תזמון</p>
-          {SCHEDULE_ON_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => toggle(opt.value)}
-              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${selected.includes(opt.value)
-                  ? `${opt.color.replace("100", "600").replace(/text-[a-z]+-700|text-[a-z]+-600/, "text-white").replace(/border-[a-z]+-200/, `border-${opt.color.split("-")[1]}-600`)} shadow-sm border border-current`
-                  : "text-slate-500 hover:bg-slate-50 border border-transparent"
-                }`}
-            >
-              <span>{opt.label}</span>
-              {selected.includes(opt.value) && (
-                <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3">
-                  <path d="M2.5 6l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-            </button>
-          ))}
-          {dayTypes.length > 0 && <div className="h-px bg-slate-100 my-1 mx-2" />}
-          {dayTypes.map((dt) => (
-            <button
-              key={dt.id}
-              type="button"
-              onClick={() => toggle(dt.id)}
-              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${selected.includes(dt.id)
-                  ? `${dt.color.replace("100", "600").replace(/text-[a-z]+-800/, "text-white").replace(/border-[a-z]+-200/, `border-${dt.color.split("-")[1]}-600`)} shadow-sm border border-current`
-                  : "text-slate-500 hover:bg-slate-50 border border-transparent"
-                }`}
-            >
-              <span className="truncate max-w-[100px]">{dt.name}</span>
-              {selected.includes(dt.id) && (
-                <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3">
-                  <path d="M2.5 6l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
+      <DropdownPanel open={open} onClose={() => setOpen(false)} className="mt-1 right-0 rounded-2xl p-2 flex flex-col gap-1 w-48 animate-in slide-in-from-top-1 duration-200">
+        <p className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase tracking-wider">בחר ימי תזמון</p>
+        {SCHEDULE_ON_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => toggle(opt.value)}
+            className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${selected.includes(opt.value)
+                ? `${opt.active} shadow-sm border border-current`
+                : "text-slate-500 hover:bg-slate-50 border border-transparent"
+              }`}
+          >
+            <span>{opt.label}</span>
+            {selected.includes(opt.value) && (
+              <Check className="w-3 h-3" />
+            )}
+          </button>
+        ))}
+        {dayTypes.length > 0 && <div className="h-px bg-slate-100 my-1 mx-2" />}
+        {dayTypes.map((dt) => (
+          <button
+            key={dt.id}
+            type="button"
+            onClick={() => toggle(dt.id)}
+            className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${selected.includes(dt.id)
+                ? `${getDayTypeActiveColor(dt.color)} shadow-sm border border-current`
+                : "text-slate-500 hover:bg-slate-50 border border-transparent"
+              }`}
+          >
+            <span className="truncate max-w-[100px]">{dt.name}</span>
+            {selected.includes(dt.id) && (
+              <Check className="w-3 h-3" />
+            )}
+          </button>
+        ))}
+      </DropdownPanel>
     </div>
   );
 }
@@ -523,7 +478,7 @@ function ShiftTypeRow({
           />
         </td>
 
-        {/* Required attributes */}
+        {/* Required attributes — click to edit */}
         <td className="px-4 py-3">
           <div className="relative">
             <button
@@ -537,25 +492,16 @@ function ShiftTypeRow({
               {localAttrs.length === 0 ? (
                 <span className="text-xs text-slate-400 italic flex items-center gap-1">
                   ללא הגבלה
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity">
-                    <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.263a1.75 1.75 0 0 0 0-2.474Z" />
-                    <path d="M4.75 3.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V8a.75.75 0 0 1 1.5 0v3.25A2.75 2.75 0 0 1 11.25 14h-6.5A2.75 2.75 0 0 1 2 11.25v-6.5A2.75 2.75 0 0 1 4.75 2H8a.75.75 0 0 1 0 1.5H4.75Z" />
-                  </svg>
+                  <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
                 </span>
               ) : (
                 <>
                   {localAttrs.map((attr) => (
-                    <span
-                      key={attr}
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${attrToBadgeColor(attr)}`}
-                    >
+                    <Badge key={attr} className={attrToBadgeColor(attr)}>
                       {attrToHeaderName(attr, columnHeaders)}
-                    </span>
+                    </Badge>
                   ))}
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mr-auto">
-                    <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.263a1.75 1.75 0 0 0 0-2.474Z" />
-                    <path d="M4.75 3.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V8a.75.75 0 0 1 1.5 0v3.25A2.75 2.75 0 0 1 11.25 14h-6.5A2.75 2.75 0 0 1 2 11.25v-6.5A2.75 2.75 0 0 1 4.75 2H8a.75.75 0 0 1 0 1.5H4.75Z" />
-                  </svg>
+                  <Pencil className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mr-auto" />
                 </>
               )}
             </button>
@@ -624,17 +570,7 @@ function ShiftTypeRow({
                 </svg>
               </button>
             )}
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="w-7 h-7 inline-flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-40"
-              title="מחק משמרת"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-              </svg>
-            </button>
+            <DeleteIconButton onClick={handleDelete} disabled={deleting} title="מחק משמרת" />
           </div>
         </td>
       </tr>
