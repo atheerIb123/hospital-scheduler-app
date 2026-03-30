@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { ChevronRight, ChevronLeft, Search, X, Loader2, Check, CalendarOff } from "lucide-react";
 import { Button } from "@/components/ui";
 import type { Employee, Constraint, CreateConstraintPayload } from "@/lib/types";
@@ -63,7 +64,10 @@ interface PopupState {
   empName:   string;
   dateIso:   string;
   label:     string;
-  top:       number;
+  /** CSS top — set when opening below the cell */
+  top?:      number;
+  /** CSS bottom — set when opening above the cell (anchors popup bottom to cell) */
+  bottom?:   number;
   left:      number;
   maxHeight: number;
 }
@@ -132,25 +136,37 @@ export default function WeeklyConstraintsTable({
 
   function openPopup(empName: string, day: Date, el: HTMLElement) {
     const dateIso = toIso(day);
-    const r    = el.getBoundingClientRect();
-    const w    = 248;
-    const gap  = 6;
-    const pad  = 8;
+    const r   = el.getBoundingClientRect();
+    const w   = 248;
+    const gap = 8;
+    const pad = 8;
 
+    // Horizontal: align with cell left, clamp to viewport edges
     let left = r.left;
     if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
     if (left < pad) left = pad;
 
     const spaceBelow = window.innerHeight - r.bottom - gap - pad;
     const spaceAbove = r.top - gap - pad;
-    const maxHeight  = Math.min(420, Math.max(spaceBelow, spaceAbove));
-    const top        = spaceBelow >= spaceAbove
-      ? r.bottom + gap
-      : r.top - gap - Math.min(420, spaceAbove);
+
+    let top: number | undefined;
+    let bottom: number | undefined;
+    let maxHeight: number;
+
+    if (spaceBelow >= spaceAbove) {
+      // Open below the cell — anchor top edge
+      top       = r.bottom + gap;
+      maxHeight = Math.min(400, spaceBelow);
+    } else {
+      // Open above the cell — anchor bottom edge so popup grows upward
+      // CSS `bottom` = distance from viewport bottom to popup's bottom edge
+      bottom    = window.innerHeight - r.top + gap;
+      maxHeight = Math.min(400, spaceAbove);
+    }
 
     setReason(getC(empName, dateIso)?.reason ?? "");
     setError(null);
-    setPopup({ empName, dateIso, label: `${HEB_DAYS_SHORT[day.getDay()]} ${fmtDate(day)}`, top, left, maxHeight });
+    setPopup({ empName, dateIso, label: `${HEB_DAYS_SHORT[day.getDay()]} ${fmtDate(day)}`, top, bottom, left, maxHeight });
   }
 
   useEffect(() => {
@@ -407,8 +423,8 @@ export default function WeeklyConstraintsTable({
         <span className="text-[11px] text-slate-400 mr-auto">לחץ על תא לעריכה</span>
       </div>
 
-      {/* Popup */}
-      {popup && (() => {
+      {/* Popup — rendered via portal so fixed positioning is always relative to the viewport */}
+      {popup && createPortal((() => {
         const c   = getC(popup.empName, popup.dateIso);
         const blocked = getBlockedShifts(c);
         const saving = savingKey === `${popup.empName}|${popup.dateIso}`;
@@ -417,7 +433,7 @@ export default function WeeklyConstraintsTable({
             <div className="fixed inset-0 z-[9998]" />
             <div
               ref={popupRef}
-              style={{ position: "fixed", top: popup.top, left: popup.left, width: 248, maxHeight: popup.maxHeight, zIndex: 9999 }}
+              style={{ position: "fixed", top: popup.top, bottom: popup.bottom, left: popup.left, width: 248, maxHeight: popup.maxHeight, zIndex: 9999 }}
               className="bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
               dir="rtl"
               onClick={e => e.stopPropagation()}
@@ -547,7 +563,7 @@ export default function WeeklyConstraintsTable({
             </div>
           </>
         );
-      })()}
+      })(), document.body)}
     </div>
   );
 }
