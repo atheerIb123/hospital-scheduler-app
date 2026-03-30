@@ -10,12 +10,12 @@ import { useDayTypes } from "@/hooks/useDayTypes";
 import DayTypeManager from "@/components/DayTypeManager";
 import CalendarConfigurator from "@/components/CalendarConfigurator";
 import WeekdayScoreManager from "@/components/WeekdayScoreManager";
-import { ShiftCard, Stepper } from "@/components/ShiftCompositionConfig";
+import ShiftCompositionConfig, { ShiftCard, Stepper } from "@/components/ShiftCompositionConfig";
 import SpecialShiftMonthlyConfig from "@/components/SpecialShiftMonthlyConfig";
 import ShiftInstanceOverrides from "@/components/ShiftInstanceOverrides";
 import { useShiftComposition } from "@/hooks/useShiftComposition";
 import { useMode } from "@/components/ModeProvider";
-import { getDepartments } from "@/lib/api";
+import { getDepartments, seedNursingAttributes } from "@/lib/api";
 
 type TabId = "shift-types" | "day-structure" | "specifics";
 
@@ -140,6 +140,8 @@ export default function ShiftTypesPage() {
   const { data: compositionData, seedNursing, save: saveComposition } = useShiftComposition(deptMode);
   const [seedingNursing, setSeedingNursing] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
+  const [seedingAttrs, setSeedingAttrs] = useState(false);
+  const [seedAttrsResult, setSeedAttrsResult] = useState<{ ok: boolean; added: string[]; headers: string[] } | null>(null);
 
   const handleSeedNursing = async () => {
     if (!window.confirm("פעולה זו תאפס את כל סוגי המשמרות לברירות המחדל של סיעוד. להמשיך?")) return;
@@ -155,6 +157,19 @@ export default function ShiftTypesPage() {
     try { await deleteAllShiftTypes(); }
     catch { /* ignore */ }
     finally { setDeletingAll(false); }
+  };
+
+  const handleSeedAttrs = async () => {
+    setSeedingAttrs(true);
+    setSeedAttrsResult(null);
+    try {
+      const res = await seedNursingAttributes();
+      setSeedAttrsResult(res);
+    } catch {
+      setSeedAttrsResult({ ok: false, added: [], headers: [] });
+    } finally {
+      setSeedingAttrs(false);
+    }
   };
 
   // ── Shift type filter state ───────────────────────────────────────────────
@@ -707,6 +722,49 @@ export default function ShiftTypesPage() {
       {/* ── Tab: Specifics (nursing only) ── */}
       {activeTab === "specifics" && isNursing && (
         <div className="space-y-6">
+
+          {/* Seed nursing attributes card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5" dir="rtl">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-1">תכונות סיעוד — ברירת מחדל</h3>
+                <p className="text-xs text-slate-500">
+                  הוספת תכונות סיעוד סטנדרטיות לטבלת העובדים (אח/אחות, אחראי משמרת, גבר/אישה ועוד).
+                  הפעולה אינה מוחקת תכונות קיימות — רק מוסיפה את החסרות.
+                </p>
+                {seedAttrsResult && (
+                  <div className="mt-2">
+                    {seedAttrsResult.ok ? (
+                      seedAttrsResult.added.length > 0 ? (
+                        <Alert type="success">
+                          נוספו {seedAttrsResult.added.length} תכונות: {seedAttrsResult.added.join(", ")}
+                        </Alert>
+                      ) : (
+                        <Alert type="success">כל התכונות כבר קיימות — אין שינוי</Alert>
+                      )
+                    ) : (
+                      <Alert type="error">שגיאה בהוספת התכונות</Alert>
+                    )}
+                  </div>
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleSeedAttrs}
+                disabled={seedingAttrs}
+              >
+                {seedingAttrs ? "מוסיף..." : "הוסף תכונות סיעוד"}
+              </Button>
+            </div>
+          </div>
+
+          <ShiftCompositionConfig
+            columnHeaders={columnHeaders}
+            shiftTypes={shiftTypes}
+            modeOverride={deptMode}
+          />
+
           <SpecialShiftMonthlyConfig shiftTypes={shiftTypes} />
           <ShiftInstanceOverrides
             shiftConfigs={compositionData?.shift_configs ?? []}
