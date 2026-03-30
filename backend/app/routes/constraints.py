@@ -11,6 +11,10 @@ constraints_bp = Blueprint("constraints", __name__)
 
 def _serialize(doc):
     doc["id"] = str(doc.pop("_id"))
+    # Ensure shifts is always present — old docs in DB may not have this field.
+    # Missing shifts means full-day constraint (no specific shift targeted).
+    if "shifts" not in doc or doc["shifts"] is None:
+        doc["shifts"] = []
     return doc
 
 
@@ -245,6 +249,10 @@ def create_constraint():
     date_raw = (data.get("date") or "").strip()
     reason = (data.get("reason") or "").strip()
 
+    shifts = data.get("shifts") or []
+    if not isinstance(shifts, list):
+        shifts = []
+
     if not employee_name:
         return jsonify({"error": "שם עובד הוא שדה חובה"}), 400
     if not date_raw:
@@ -265,6 +273,7 @@ def create_constraint():
         doc = {
             "employee_name": employee_name,
             "date": iso,
+            "shifts": shifts,
             "reason": reason,
             "created_at": datetime.datetime.utcnow(),
         }
@@ -303,6 +312,10 @@ def update_constraint(constraint_id):
 
     if "reason" in data:
         patch["reason"] = (data["reason"] or "").strip()
+
+    if "shifts" in data:
+        shifts_val = data["shifts"]
+        patch["shifts"] = [s for s in shifts_val if isinstance(s, str)] if isinstance(shifts_val, list) else []
 
     if not patch:
         return jsonify({"error": "אין מה לעדכן"}), 400

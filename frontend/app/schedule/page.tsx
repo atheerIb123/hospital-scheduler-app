@@ -7,11 +7,14 @@ import { useShiftTypes } from "@/hooks/useShiftTypes";
 import { useEmployees } from "@/hooks/useEmployees";
 import { useDayTypes } from "@/hooks/useDayTypes";
 import { useDaySettings } from "@/hooks/useDaySettings";
-import { Alert, Button, Input, SearchDropdown, DateRangePicker, MultiSelect } from "@/components/ui";
+import { Alert, Button, Input, SearchDropdown, DateRangePicker, MultiSelect, TabButton, TabsContainer } from "@/components/ui";
 import type { DateRangeValue } from "@/components/ui";
-import { Loader2, Download, Save, AlertTriangle, Calendar, X } from "lucide-react";
+import { Loader2, Download, Save, AlertTriangle, Calendar, X, List, Users } from "lucide-react";
 import ScheduleTable from "@/components/ScheduleTable";
+import SummaryTable from "@/components/SummaryTable";
 import CalendarConfigurator from "@/components/CalendarConfigurator";
+import { useConstraints } from "@/hooks/useConstraints";
+import { useMode } from "@/components/ModeProvider";
 import type { Assignment } from "@/lib/types";
 
 const MONTH_NAMES = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
@@ -22,11 +25,17 @@ export default function SchedulePage() {
   const month = dateRange ? new Date(dateRange.start + "T00:00:00").getMonth() + 1 : now.getMonth() + 1;
   const year  = dateRange ? new Date(dateRange.start + "T00:00:00").getFullYear() : now.getFullYear();
 
+  const { mode } = useMode();
+  const isNursing = mode === "nursing";
+
   const { schedule, loading, generating, error, generate } = useSchedule(month, year);
   const { shiftTypes } = useShiftTypes();
   const { employees, columnHeaders } = useEmployees();
   const { dayTypes } = useDayTypes();
   const { settings: daySettings, setOverride } = useDaySettings(year, month);
+  const { constraints } = useConstraints(month, year);
+
+  const [scheduleView, setScheduleView] = useState<"schedule" | "summary">("schedule");
 
 
   const [localAssignments, setLocalAssignments] = useState<Assignment[]>([]);
@@ -239,58 +248,81 @@ export default function SchedulePage() {
       {/* Results */}
       {!loading && schedule?.status === "generated" && shiftTypes.length > 0 && (
         <div className="flex-1 min-h-0 flex flex-col fade-in">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            {/* RIGHT in RTL: search input */}
-            <SearchDropdown
-              value={searchName}
-              onChange={setSearchName}
-              options={employees.map(e => e.name)}
-              placeholder="חיפוש עובד..."
-              className="w-44"
-            />
-            {/* LEFT in RTL: filter selects + clear */}
-            <div className="flex flex-wrap items-center gap-2">
-              <MultiSelect
-                value={filterDays.map(String)}
-                onChange={vals => setFilterDays(vals.map(Number))}
-                placeholder="כל הימים"
-                options={DOW_LABELS.map((label, d) => ({ value: String(d), label }))}
-              />
-              <MultiSelect
-                value={filterShifts}
-                onChange={setFilterShifts}
-                placeholder="כל המשמרות"
-                options={sortedShiftTypes.map(st => ({ value: st.names[0], label: st.names[0] }))}
-              />
-              {hasAnyFilter && (
-                <Button
-                  variant="ghost"
-                  onClick={() => { setSearchName(""); setFilterShifts([]); setFilterDays([]); }}
-                  className="text-xs text-slate-400 hover:text-slate-600"
-                  icon={<X className="w-3 h-3" />}
-                >
-                  נקה
-                </Button>
-              )}
-            </div>
+          {/* View tabs */}
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <TabsContainer>
+              <TabButton active={scheduleView === "schedule"} onClick={() => setScheduleView("schedule")}>
+                <span className="inline-flex items-center gap-1.5"><List className="w-3.5 h-3.5" />לוח משמרות</span>
+              </TabButton>
+              <TabButton active={scheduleView === "summary"} onClick={() => setScheduleView("summary")}>
+                <span className="inline-flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />סיכום עובדים</span>
+              </TabButton>
+            </TabsContainer>
+
+            {/* Schedule-view filters (only in schedule tab) */}
+            {scheduleView === "schedule" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <SearchDropdown
+                  value={searchName}
+                  onChange={setSearchName}
+                  options={employees.map(e => e.name)}
+                  placeholder="חיפוש עובד..."
+                  className="w-44"
+                />
+                <MultiSelect
+                  value={filterDays.map(String)}
+                  onChange={vals => setFilterDays(vals.map(Number))}
+                  placeholder="כל הימים"
+                  options={DOW_LABELS.map((label, d) => ({ value: String(d), label }))}
+                />
+                <MultiSelect
+                  value={filterShifts}
+                  onChange={setFilterShifts}
+                  placeholder="כל המשמרות"
+                  options={sortedShiftTypes.map(st => ({ value: st.names[0], label: st.names[0] }))}
+                />
+                {hasAnyFilter && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => { setSearchName(""); setFilterShifts([]); setFilterDays([]); }}
+                    className="text-xs text-slate-400 hover:text-slate-600"
+                    icon={<X className="w-3 h-3" />}
+                  >
+                    נקה
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
+
           <div className="flex-1 min-h-0">
-            <ScheduleTable
-              schedule={schedule}
-              shiftTypes={shiftTypes}
-              assignments={localAssignments}
-              onAssignmentChange={handleAssignmentChange}
-              changedCells={changedCells}
-              employees={employees}
-              columnHeaders={columnHeaders}
-              maxShifts={maxShifts}
-              dayTypes={dayTypes}
-              daySettings={daySettings}
-              onDayTypeChange={setOverride}
-              searchName={searchName}
-              filterShifts={filterShifts}
-              filterDays={filterDays}
-            />
+            {scheduleView === "schedule" && (
+              <ScheduleTable
+                schedule={schedule}
+                shiftTypes={shiftTypes}
+                assignments={localAssignments}
+                onAssignmentChange={handleAssignmentChange}
+                changedCells={changedCells}
+                employees={employees}
+                columnHeaders={columnHeaders}
+                maxShifts={maxShifts}
+                dayTypes={dayTypes}
+                daySettings={daySettings}
+                onDayTypeChange={setOverride}
+                searchName={searchName}
+                filterShifts={filterShifts}
+                filterDays={filterDays}
+              />
+            )}
+            {scheduleView === "summary" && (
+              <SummaryTable
+                schedule={schedule}
+                shiftTypes={shiftTypes}
+                assignments={localAssignments}
+                employees={employees}
+                constraints={isNursing ? constraints : undefined}
+              />
+            )}
           </div>
         </div>
       )}
