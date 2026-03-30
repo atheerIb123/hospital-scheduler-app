@@ -44,7 +44,7 @@ def build_eligibility_matrix(
         for shift in shift_types:
             shift_id = str(shift["_id"]) if "_id" in shift else shift["id"]
             required = set(shift.get("required_attributes", []))
-            eligibility[emp_id][shift_id] = bool(required) and required.issubset(
-                expanded
-            )
+            # Empty required_attributes → any employee is eligible.
+        # Non-empty → employee must have ALL required attributes.
+        eligibility[emp_id][shift_id] = required.issubset(expanded)
     return eligibility

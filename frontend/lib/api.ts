@@ -111,6 +111,11 @@ export const seedDefaultEmployees = () =>
     method: "POST",
   });
 
+export const seedNursingAttributes = () =>
+  request<{ ok: boolean; headers: string[]; added: string[] }>("/employees/seed-nursing-attributes", {
+    method: "POST",
+  });
+
 // ---------------------------------------------------------------------------
 // Shift Types
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ from ..db import get_db, get_global_db
 from ..scheduler.solver import generate_schedule
 from .day_management import _get_weekday_scores
 from ..constants import JUSTICE_PTS
+from urllib.parse import unquote
 
 schedule_bp = Blueprint("schedule", __name__)
 
@@ -123,6 +124,37 @@ def generate():
                 pts += day_extra_by_date.get(a_date.isoformat(), 0)  # holidays
                 historical_justice[eid] = historical_justice.get(eid, 0) + pts
 
+        # ── Nursing-only: shift composition + special shifts ─────────────────
+        mode_raw = request.headers.get("X-App-Mode", "").strip()
+        mode_str = unquote(mode_raw).replace(" ", "_").replace("-", "_") if mode_raw else ""
+        is_nursing = mode_str.startswith("nursing")
+
+        shift_composition_arg   = None
+        col_header_names_arg    = None
+        special_shifts_arg      = None
+
+        if is_nursing:
+            # Shift composition dict: {primary_name → config}
+            comp_doc = db.shift_composition.find_one({}, {"_id": 0})
+            if comp_doc:
+                shift_composition_arg = {
+                    cfg["shift_name"]: cfg
+                    for cfg in comp_doc.get("shift_configs", [])
+                    if cfg.get("shift_name")
+                }
+
+            # Column header names for attribute mapping
+            cfg_doc = db.config.find_one({"key": "csv_column_headers"})
+            if cfg_doc:
+                col_header_names_arg = cfg_doc.get("headers", [])
+
+            # Special shift monthly configs for this month
+            special_shifts_arg = list(
+                db.special_shifts_monthly.find(
+                    {"month": month, "year": year}, {"_id": 0}
+                )
+            )
+
         result = generate_schedule(
             employees,
             shift_types,
@@ -134,6 +166,9 @@ def generate():
             historical_justice=historical_justice,
             weekday_scores=weekday_scores,
             day_extra_scores=day_extra_scores,
+            shift_composition=shift_composition_arg,
+            col_header_names=col_header_names_arg,
+            special_shifts_monthly=special_shifts_arg,
         )
 
         doc = {

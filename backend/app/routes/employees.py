@@ -519,6 +519,47 @@ _ALL_EMPLOYEE_NAMES = [
 ]
 
 
+# Default nursing staff attribute columns (in order → col_1 … col_N)
+_NURSING_DEFAULT_ATTRIBUTES = [
+    "אח/אחות",        # col_1 — base nurse role
+    "אחראי משמרת",    # col_2 — shift supervisor (sub-role of nurse)
+    "על בסיסי",       # col_3 — permanently stationed (sub-attr of supervisor)
+    "גבר",            # col_4 — male gender
+    "אישה",           # col_5 — female gender
+    "ותיק",           # col_6 — veteran
+    "צעיר",           # col_7 — junior
+    "כוח עזר",        # col_8 — aide (not a nurse)
+    "סטודנט",         # col_9 — student (not nurse, not aide)
+]
+
+
+@employees_bp.post("/employees/seed-nursing-attributes")
+def seed_nursing_attributes():
+    """
+    Seed the default nursing attribute column headers.
+    Additive: only appends headers that do not already exist.
+    Returns the updated headers list.
+    """
+    db = get_nursing_employees_db()
+    config = db.config.find_one({"key": "csv_column_headers"})
+    existing = list(config["headers"]) if config else []
+    existing_set = set(existing)
+
+    added = []
+    for attr in _NURSING_DEFAULT_ATTRIBUTES:
+        if attr not in existing_set:
+            existing.append(attr)
+            existing_set.add(attr)
+            added.append(attr)
+
+    db.config.update_one(
+        {"key": "csv_column_headers"},
+        {"$set": {"headers": existing}},
+        upsert=True,
+    )
+    return jsonify({"ok": True, "headers": existing, "added": added}), 200
+
+
 @employees_bp.post("/employees/seed-defaults")
 def seed_default_employees():
     """Seed example employees (unique per department) if none exist."""
