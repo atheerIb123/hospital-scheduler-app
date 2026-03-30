@@ -115,8 +115,11 @@ def generate_schedule(
 
     eligibility = build_eligibility_matrix(active_employees, shift_types, rules)
 
-    # ── Blocked days from constraints (הסתייגויות) ───────────────────────────
-    blocked: Dict[str, set] = {emp["id"]: set() for emp in active_employees}
+    # ── Blocked days/shifts from constraints (הסתייגויות) ────────────────────
+    # blocked_days:   emp_id -> set of day numbers where employee is fully off
+    # blocked_shifts: emp_id -> day_number -> set of shift primary-names blocked
+    blocked_days: Dict[str, set] = {emp["id"]: set() for emp in active_employees}
+    blocked_shifts: Dict[str, Dict[int, set]] = {emp["id"]: {} for emp in active_employees}
     if constraints:
         name_to_id = {emp["name"]: emp["id"] for emp in active_employees}
         for c in constraints:
@@ -130,8 +133,17 @@ def generate_schedule(
             if cdate.year != year or cdate.month != month:
                 continue
             eid = name_to_id.get(c.get("employee_name", ""))
-            if eid:
-                blocked[eid].add(cdate.day)
+            if not eid:
+                continue
+            shift_names = c.get("shifts") or []
+            if not shift_names:
+                # No specific shifts listed → full day off
+                blocked_days[eid].add(cdate.day)
+            else:
+                # Specific shifts blocked
+                if cdate.day not in blocked_shifts[eid]:
+                    blocked_shifts[eid][cdate.day] = set()
+                blocked_shifts[eid][cdate.day].update(shift_names)
 
     # ── Keep shift types with ≥1 eligible active employee ────────────────────
     schedulable = [
@@ -173,14 +185,22 @@ def generate_schedule(
     x: Dict = {}
     for emp in active_employees:
         eid = emp["id"]
-        emp_blocked = blocked.get(eid, set())
+        full_blocked = blocked_days.get(eid, set())
+        shift_blocked = blocked_shifts.get(eid, {})
         for shift in shift_types:
             sid = shift["id"]
+            shift_primary = shift["names"][0] if shift.get("names") else ""
             if not eligibility[eid][sid]:
                 continue
             for day in applicable_days(shift):
-                if day not in emp_blocked:
-                    x[(eid, sid, day)] = model.NewBoolVar(f"x_{eid}_{sid}_{day}")
+                # Full-day constraint
+                if day in full_blocked:
+                    continue
+                # Shift-specific constraint
+                day_shift_blocked = shift_blocked.get(day, set())
+                if day_shift_blocked and shift_primary in day_shift_blocked:
+                    continue
+                x[(eid, sid, day)] = model.NewBoolVar(f"x_{eid}_{sid}_{day}")
 
     # C2 – Hard coverage: exactly one employee per shift-day slot
     #   Exception: if no eligible unblocked employee exists for a slot, it is

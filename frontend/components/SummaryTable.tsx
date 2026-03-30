@@ -1,5 +1,5 @@
 "use client";
-import type { Schedule, ShiftType, Assignment, Employee } from "@/lib/types";
+import type { Schedule, ShiftType, Assignment, Employee, Constraint } from "@/lib/types";
 import { SHIFT_COLORS } from "@/lib/colors";
 
 interface Props {
@@ -7,15 +7,32 @@ interface Props {
   shiftTypes: ShiftType[];
   assignments: Assignment[];
   employees?: Employee[];
+  constraints?: Constraint[];  // when provided, shows a vacation column
 }
 
-export default function SummaryTable({ schedule, shiftTypes, assignments, employees = [] }: Props) {
+export default function SummaryTable({ schedule, shiftTypes, assignments, employees = [], constraints }: Props) {
   const inactiveMap = Object.fromEntries(
     employees
       .filter(e => e.active === false)
       .map(e => [e.name, { reason: e.inactive_reason, since: e.inactive_since }])
   );
   if (!schedule.summary) return null;
+
+  // Build vacation map: employee_name -> list of constraint dates in this schedule month
+  const showVacation = !!constraints;
+  const monthPrefix = `${String(schedule.year).padStart(4, "0")}-${String(schedule.month).padStart(2, "0")}-`;
+  const vacationMap: Record<string, { date: string; shifts: string[]; reason: string }[]> = {};
+  if (constraints) {
+    for (const c of constraints) {
+      if (!c.date.startsWith(monthPrefix)) continue;
+      if (!vacationMap[c.employee_name]) vacationMap[c.employee_name] = [];
+      vacationMap[c.employee_name].push({
+        date: c.date,
+        shifts: c.shifts ?? [],
+        reason: c.reason ?? "",
+      });
+    }
+  }
 
   const sorted = [...shiftTypes]
     .sort((a, b) => (a.shift_id ?? 0) - (b.shift_id ?? 0));
@@ -57,6 +74,11 @@ export default function SummaryTable({ schedule, shiftTypes, assignments, employ
                   </div>
                 </th>
               ))}
+              {showVacation && (
+                <th className="px-4 py-3.5 text-center font-semibold text-slate-600 whitespace-nowrap bg-red-50 border-r border-red-100">
+                  <span className="text-xs">חופשות</span>
+                </th>
+              )}
               <th className="px-5 py-3.5 text-center font-bold text-slate-700 whitespace-nowrap bg-slate-50">סה״כ</th>
             </tr>
           </thead>
@@ -106,6 +128,31 @@ export default function SummaryTable({ schedule, shiftTypes, assignments, employ
                       </td>
                     );
                   })}
+                  {showVacation && (() => {
+                    const vList = vacationMap[empName] ?? [];
+                    const fullDays  = vList.filter(v => v.shifts.length === 0).length;
+                    const partDays  = vList.filter(v => v.shifts.length > 0).length;
+                    const total_v   = vList.length;
+                    return (
+                      <td className="px-3 py-3 text-center bg-red-50/40 border-r border-red-50">
+                        {total_v === 0 ? (
+                          <span className="text-slate-300 text-xs">—</span>
+                        ) : (
+                          <div className="inline-flex flex-col items-center gap-0.5">
+                            <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full text-xs font-bold bg-red-100 text-red-600">
+                              {total_v}
+                            </span>
+                            {fullDays > 0 && (
+                              <span className="text-[10px] text-red-400">{fullDays} ימים</span>
+                            )}
+                            {partDays > 0 && (
+                              <span className="text-[10px] text-amber-500">{partDays} חלקי</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })()}
                   <td className="px-5 py-3 text-center">
                     <div className="flex flex-col items-center gap-1">
                       <span className={`text-sm font-bold ${

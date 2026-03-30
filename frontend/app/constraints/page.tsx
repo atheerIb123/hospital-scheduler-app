@@ -3,9 +3,12 @@
 import { useState, useRef } from "react";
 import { useConstraints } from "@/hooks/useConstraints";
 import { useEmployees } from "@/hooks/useEmployees";
+import { useShiftTypes } from "@/hooks/useShiftTypes";
 import type { Constraint, CreateConstraintPayload } from "@/lib/types";
-import { Alert, Badge, Button, Input, TabButton, TabsContainer } from "@/components/ui";
-import { X, Pencil, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FolderOpen, AlertTriangle, Plus, List, Calendar, CheckCircle2 } from "lucide-react";
+import { Alert, Badge, Button, FilterPill, Input, TabButton, TabsContainer } from "@/components/ui";
+import { X, Pencil, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FolderOpen, AlertTriangle, Plus, List, Calendar, CheckCircle2, Table2 } from "lucide-react";
+import WeeklyConstraintsTable from "@/components/WeeklyConstraintsTable";
+import { useMode } from "@/components/ModeProvider";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -18,6 +21,27 @@ const HEB_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","
 function formatDateHebrew(iso: string) {
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
+}
+
+// Shift name → color pill classes
+const SHIFT_PILL: Record<string, string> = {
+  "בוקר":  "bg-sky-100 text-sky-700",
+  "ערב":   "bg-amber-100 text-amber-700",
+  "לילה":  "bg-violet-100 text-violet-700",
+};
+
+function ShiftPills({ shifts }: { shifts?: string[] }) {
+  if (shifts === undefined || shifts === null) return <span className="text-slate-300">—</span>;
+  if (shifts.length === 0) return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">חופש יומי</span>
+  );
+  return (
+    <div className="flex flex-wrap gap-1">
+      {shifts.map(s => (
+        <span key={s} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${SHIFT_PILL[s] ?? "bg-slate-100 text-slate-600"}`}>{s}</span>
+      ))}
+    </div>
+  );
 }
 
 function daysInMonth(year: number, month: number) {
@@ -413,7 +437,7 @@ function GroupedRow({ group, onDelete, onUpdate, employeeNames = [] }: {
 
   if (!isRange && editing) return (
     <tr className="bg-blue-50">
-      <td colSpan={4} className="px-4 py-3">
+      <td colSpan={5} className="px-4 py-3">
         <ConstraintForm
           initial={{ employee_name: group.employee_name, date: group.items[0].date, reason: group.reason }}
           onSubmit={async data => { await onUpdate(group.items[0].id, data); setEditing(false); }}
@@ -437,6 +461,14 @@ function GroupedRow({ group, onDelete, onUpdate, employeeNames = [] }: {
               </span>
             )}
           </div>
+        </td>
+        <td className="px-4 py-3">
+          {(() => {
+            const first = group.items[0]?.shifts;
+            const allSame = group.items.every(c => JSON.stringify(c.shifts ?? []) === JSON.stringify(first ?? []));
+            if (allSame) return <ShiftPills shifts={first} />;
+            return <span className="text-xs text-slate-400 italic">מעורב</span>;
+          })()}
         </td>
         <td className="px-4 py-3 text-sm text-slate-500">
           {group.reason
@@ -464,6 +496,7 @@ function GroupedRow({ group, onDelete, onUpdate, employeeNames = [] }: {
         <tr key={c.id} className="bg-slate-50/70 border-b border-slate-50">
           <td />
           <td className="px-4 py-2 text-xs text-slate-500 tabular-nums">↳ {formatDateHebrew(c.date)}</td>
+          <td className="px-4 py-2"><ShiftPills shifts={c.shifts} /></td>
           <td />
           <td className="px-4 py-2">
             <div className="flex justify-end">
@@ -697,21 +730,49 @@ function CalendarView({ constraints, filterName, setFilterName, filterReason, se
 // ---------------------------------------------------------------------------
 
 export default function ConstraintsPage() {
-  const [activeTab,       setActiveTab]       = useState<"table"|"calendar">("table");
-  const [filterName,      setFilterName]      = useState("");
-  const [filterReason,    setFilterReason]    = useState("");
-  const [filterDateFrom,  setFilterDateFrom]  = useState("");
-  const [filterDateTo,    setFilterDateTo]    = useState("");
+  const { mode } = useMode();
+  const isNursing = mode === "nursing";
+
+  const [activeTab,         setActiveTab]         = useState<"table"|"calendar">("table");
+  const [filterDepartment,  setFilterDepartment]  = useState("");
+  const [filterName,        setFilterName]        = useState("");
+  const [filterReason,      setFilterReason]      = useState("");
+  const [filterDateFrom,    setFilterDateFrom]    = useState("");
+  const [filterDateTo,      setFilterDateTo]      = useState("");
   const [notice,          setNotice]          = useState<{type:"success"|"error";msg:string}|null>(null);
   const [showAddModal,    setShowAddModal]    = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showFormatPopup, setShowFormatPopup] = useState(false);
+  const [showWeeklyTable, setShowWeeklyTable] = useState(true);
 
   const { constraints, loading, error, add, update, remove, clear, importCsv } = useConstraints();
   const { employees } = useEmployees();
+  const { shiftTypes } = useShiftTypes();
   const employeeNames = employees.map(e => e.name);
 
+  // Departments derived from employees (nursing only)
+  const departments = [...new Set(
+    employees.filter(e => e.home_department).map(e => e.home_department as string)
+  )].sort((a, b) => a.localeCompare(b, "he"));
+
+  // Employees visible in weekly table — filtered by department when one is selected
+  const visibleEmployees = filterDepartment
+    ? employees.filter(e => e.home_department === filterDepartment)
+    : employees;
+
+  // Set of employee names in the selected department for fast constraint filtering
+  const deptNameSet = filterDepartment
+    ? new Set(visibleEmployees.map(e => e.name))
+    : null;
+
+  // Shift names for the weekly table: non-special, non-desired shifts
+  const regularShiftNames = shiftTypes
+    .filter(st => !st.is_special && !st.is_desired)
+    .map(st => st.names[0]);
+  const weeklyShiftNames = regularShiftNames.length > 0 ? regularShiftNames : ["בוקר", "ערב", "לילה"];
+
   const filtered = constraints.filter(c => {
+    if (deptNameSet && !deptNameSet.has(c.employee_name)) return false;
     if (filterName && !c.employee_name.includes(filterName)) return false;
     if (filterReason && !(c.reason ?? "").includes(filterReason)) return false;
     if (filterDateFrom && c.date < filterDateFrom) return false;
@@ -763,6 +824,54 @@ export default function ConstraintsPage() {
       </div>
 
       {notice && <Alert type={notice.type} onClose={()=>setNotice(null)}>{notice.msg}</Alert>}
+
+      {/* ── Department filter (nursing only, when departments exist) ── */}
+      {isNursing && departments.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold text-slate-500">מחלקה:</span>
+          <FilterPill active={filterDepartment === ""} onClick={() => setFilterDepartment("")}>
+            הכל
+          </FilterPill>
+          {departments.map(dept => (
+            <FilterPill
+              key={dept}
+              active={filterDepartment === dept}
+              onClick={() => setFilterDepartment(d => d === dept ? "" : dept)}
+            >
+              {dept}
+            </FilterPill>
+          ))}
+        </div>
+      )}
+
+      {/* ── Weekly constraints table (nursing only) ── */}
+      {isNursing && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Table2 className="w-4 h-4 text-blue-600" />
+              <h2 className="text-base font-semibold text-slate-700">הזנת הסתייגויות שבועיות</h2>
+            </div>
+            <Button
+              variant="secondary"
+              size="small"
+              onClick={() => setShowWeeklyTable(v => !v)}
+            >
+              {showWeeklyTable ? "הסתר טבלה" : "הצג טבלה"}
+            </Button>
+          </div>
+          {showWeeklyTable && (
+            <WeeklyConstraintsTable
+              employees={visibleEmployees}
+              constraints={constraints}
+              shiftNames={weeklyShiftNames}
+              onAdd={add}
+              onUpdate={update}
+              onDelete={remove}
+            />
+          )}
+        </div>
+      )}
 
       {/* Action buttons above tabs */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -842,6 +951,7 @@ export default function ConstraintsPage() {
                     <tr>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">שם עובד</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">תאריך</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">משמרות</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">סיבה</th>
                       <th className="px-4 py-3"></th>
                     </tr>

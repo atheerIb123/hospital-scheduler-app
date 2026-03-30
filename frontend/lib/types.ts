@@ -87,7 +87,8 @@ export interface ImportResult {
 export interface Constraint {
   id: string;
   employee_name: string;
-  date: string;       // ISO string: YYYY-MM-DD
+  date: string;         // ISO string: YYYY-MM-DD
+  shifts?: string[];    // undefined/[] = full day off; specific shift names = only those shifts blocked
   reason: string;
   created_at?: string;
 }
@@ -102,6 +103,7 @@ export interface ConstraintImportResult {
 export interface CreateConstraintPayload {
   employee_name: string;
   date: string;
+  shifts?: string[];    // undefined/[] = full day; specific names = partial block
   reason?: string;
 }
 
