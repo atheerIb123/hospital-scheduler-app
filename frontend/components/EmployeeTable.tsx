@@ -339,11 +339,20 @@ export default function EmployeeTable() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
-  const [defaultShiftsPerWeek, setDefaultShiftsPerWeek] = useState(6);
+  const [defaultShiftsPerWeek, setDefaultShiftsPerWeek] = useState(() => {
+    try { const s = localStorage.getItem("defaultShiftsPerWeek"); return s ? Math.max(1, parseInt(s, 10)) : 6; } catch { return 6; }
+  });
   const [savingCell, setSavingCell] = useState<string | null>(null);
   const [initializingNursing, setInitializingNursing] = useState(false);
   const [seedingEmployees, setSeedingEmployees] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const deptFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Import modal state (nursing mode)
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importMode, setImportMode] = useState<"general" | "department">("general");
+  const [importDept, setImportDept] = useState<string>("");
+  const [showImportExample, setShowImportExample] = useState(false);
 
   // department management state
   const [deptModalOpen, setDeptModalOpen] = useState(false);
@@ -371,16 +380,19 @@ export default function EmployeeTable() {
   const isAccepted = (f: File) =>
     ACCEPTED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext));
 
-  const handleFile = async (file: File | null) => {
+  const handleFile = async (file: File | null, department?: string) => {
     if (!file) return;
     if (!isAccepted(file)) {
       setImportError(`סוג קובץ לא נתמך. יש להשתמש ב: ${ACCEPTED_EXTENSIONS.join(", ")}`);
       return;
     }
     setImporting(true); setImportError(null); setImportSuccess(null);
+    setImportModalOpen(false);
     try {
-      const result = await importCsv(file);
-      let msg = `יובאו ${result.imported} עובדים בהצלחה`;
+      const result = await importCsv(file, department);
+      let msg = department
+        ? `יובאו ${result.imported} עובדים למחלקת ${department} בהצלחה`
+        : `יובאו ${result.imported} עובדים בהצלחה`;
       if (result.invalid_departments?.length) {
         msg += ` · מחלקות לא מוכרות (הוסרו): ${result.invalid_departments.join(", ")}`;
       }
@@ -390,6 +402,7 @@ export default function EmployeeTable() {
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (deptFileInputRef.current) deptFileInputRef.current.value = "";
     }
   };
 
@@ -536,14 +549,144 @@ export default function EmployeeTable() {
         </div>
       )}
 
+      {/* Import modal (nursing mode) */}
+      {importModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center" onClick={() => setImportModalOpen(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl p-6 space-y-5" dir="rtl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold text-slate-800 text-base">ייבוא עובדים</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowImportExample(p => !p)}
+                  title="הצג דוגמא לפורמט הקובץ"
+                  className={`w-5 h-5 rounded-full text-xs font-bold border transition-all flex items-center justify-center ${showImportExample ? "bg-blue-600 text-white border-blue-600" : "bg-slate-100 text-slate-500 border-slate-300 hover:border-blue-400 hover:text-blue-600"}`}
+                >?</button>
+              </div>
+              <button type="button" onClick={() => setImportModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Mode tabs */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setImportMode("general")}
+                className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${importMode === "general" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"}`}
+              >
+                ייבוא כללי
+              </button>
+              <button
+                type="button"
+                onClick={() => { setImportMode("department"); if (!importDept && departments.length) setImportDept(departments[0]); }}
+                className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${importMode === "department" ? "bg-teal-600 text-white border-teal-600" : "bg-white text-slate-600 border-slate-200 hover:border-teal-300"}`}
+              >
+                ייבוא למחלקה
+              </button>
+            </div>
+
+            {/* Example preview */}
+            {showImportExample && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-semibold text-slate-600">
+                  {importMode === "general" ? 'דוגמא — ייבוא כללי (עם עמודת "מחלקה")' : 'דוגמא — ייבוא למחלקה (ללא עמודת "מחלקה")'}
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="text-[10px] border-collapse w-full" dir="rtl">
+                    <thead>
+                      <tr>
+                        {(importMode === "general"
+                          ? ["שם", "אח/אחות", "אחראי משמרת", "גבר", "אישה", "ותיק", "צעיר", "מחלקה"]
+                          : ["שם", "אח/אחות", "אחראי משמרת", "גבר", "אישה", "ותיק", "צעיר"]
+                        ).map((h, i) => (
+                          <th key={i} className={`px-2 py-1 font-semibold text-white text-center border border-blue-700 whitespace-nowrap ${h === "מחלקה" ? "bg-emerald-700" : "bg-blue-700"}`}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(importMode === "general" ? [
+                        ["דנה לוי",  "V", "V", "",  "V", "V", "",  "הדס"],
+                        ["יוסי כהן", "V", "",  "V", "",  "",  "V", "הדס"],
+                        ["רון אברהם","V", "",  "V", "",  "V", "",  "אלון"],
+                        ["נועה פרץ", "",  "",  "",  "V", "",  "V", "אלון"],
+                      ] : [
+                        ["דנה לוי",  "V", "V", "",  "V", "V", ""],
+                        ["יוסי כהן", "V", "",  "V", "",  "",  "V"],
+                        ["רון אברהם","V", "",  "V", "",  "V", ""],
+                        ["נועה פרץ", "",  "",  "",  "V", "",  "V"],
+                      ]).map((row, ri) => (
+                        <tr key={ri} className={ri % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                          {row.map((cell, ci) => (
+                            <td key={ci} className={`px-2 py-0.5 border border-slate-200 text-center whitespace-nowrap ${ci === 0 ? "font-semibold text-right" : cell === "V" ? "text-emerald-700 font-bold bg-emerald-50" : "text-slate-300"}`}>
+                              {cell || "—"}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {importMode === "general" && (
+                  <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                    ⚠ עמודת <strong>מחלקה</strong> חובה — עובד ללא מחלקה לא ישויך לאף מחלקה
+                  </p>
+                )}
+                {importMode === "department" && (
+                  <p className="text-[10px] text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2 py-1">
+                    ✓ אין עמודת מחלקה — כל העובדים ישויכו אוטומטית למחלקה שנבחרה
+                  </p>
+                )}
+              </div>
+            )}
+
+            {importMode === "general" ? (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-500">ייבוא כל העובדים — הקובץ <span className="font-semibold text-slate-700">חייב לכלול עמודת "מחלקה"</span> עם שם המחלקה לכל עובד. יחליף את <span className="font-semibold text-red-600">כל</span> העובדים הקיימים.</p>
+                <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
+                  onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
+                <Button type="button" disabled={importing} onClick={() => fileInputRef.current?.click()} className="w-full justify-center">
+                  <FileUp className="w-4 h-4" />
+                  {importing ? "מייבא…" : "בחר קובץ"}
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-500">ייבוא עובדים למחלקה ספציפית — <span className="font-semibold text-slate-700">אין צורך בעמודת "מחלקה"</span> בקובץ. יחליף רק את עובדי המחלקה הנבחרת.</p>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">מחלקה</label>
+                  <select
+                    dir="rtl"
+                    value={importDept}
+                    onChange={e => setImportDept(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400 bg-white"
+                  >
+                    {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <input ref={deptFileInputRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
+                  onChange={(e) => handleFile(e.target.files?.[0] ?? null, importDept || undefined)} />
+                <Button type="button" disabled={importing || !importDept} variant="success" onClick={() => deptFileInputRef.current?.click()} className="w-full justify-center">
+                  <FileUp className="w-4 h-4" />
+                  {importing ? "מייבא…" : "בחר קובץ"}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Toolbar: import button on left, search + filter on right */}
       <div className="flex items-center gap-3" dir="ltr">
-        <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
-          onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
+        {/* For non-nursing: direct file input; for nursing: open modal */}
+        {!isNursing && (
+          <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
+            onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
+        )}
         <Button
           type="button"
           disabled={importing}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => isNursing ? (setImportModalOpen(true), setImportMode("general")) : fileInputRef.current?.click()}
         >
           <FileUp className="w-4 h-4" />
           {importing ? "מייבא…" : "ייבא קובץ"}
@@ -621,7 +764,10 @@ export default function EmployeeTable() {
                   value={defaultShiftsPerWeek}
                   onChange={(e) => {
                     const n = parseInt(e.target.value, 10);
-                    if (!isNaN(n) && n >= 1) setDefaultShiftsPerWeek(n);
+                    if (!isNaN(n) && n >= 1) {
+                      setDefaultShiftsPerWeek(n);
+                      try { localStorage.setItem("defaultShiftsPerWeek", String(n)); } catch {}
+                    }
                   }}
                   className="w-14 text-center text-xs font-semibold px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 transition-all"
                 />

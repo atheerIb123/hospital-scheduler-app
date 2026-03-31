@@ -27,8 +27,9 @@ export function useEmployees() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const importCsv = async (file: File) => {
-    const result = await api.importEmployeesCsv(file);
+  const importCsv = async (file: File, department?: string) => {
+    const result = await api.importEmployeesCsv(file, department);
+    // result.employees contains all employees from DB (correct after any import type)
     setEmployees(result.employees);
     setColumnHeaders(result.column_headers);
     return result;

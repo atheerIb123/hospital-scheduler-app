@@ -91,12 +91,15 @@ export const deleteEmployee = (id: string) =>
 export const clearEmployees = () =>
   request<{ ok: boolean }>("/employees", { method: "DELETE" });
 
-export const importEmployeesCsv = async (file: File): Promise<ImportResult> => {
+export const importEmployeesCsv = async (file: File, department?: string): Promise<ImportResult> => {
   const form = new FormData();
   form.append("file", file);
   const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
   const headers: Record<string, string> = mode ? { "X-App-Mode": encodeURIComponent(mode) } : {};
-  const res = await fetch(`${BASE}/employees/import`, { method: "POST", body: form, headers });
+  const url = department
+    ? `${BASE}/employees/import?department=${encodeURIComponent(department)}`
+    : `${BASE}/employees/import`;
+  const res = await fetch(url, { method: "POST", body: form, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
