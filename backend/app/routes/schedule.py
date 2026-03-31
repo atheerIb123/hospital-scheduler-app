@@ -494,6 +494,20 @@ def get_latest():
     return jsonify(schedule)
 
 
+@schedule_bp.route("/schedules/<schedule_id>", methods=["DELETE"])
+def delete_schedule(schedule_id):
+    oid = ObjectId(schedule_id)
+    department = request.args.get("department", "")
+    if department:
+        target_db = ensure_nursing_dept_db(department)
+    else:
+        target_db = get_db()
+    result = target_db.schedules.delete_one({"_id": oid})
+    if result.deleted_count == 0:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    return jsonify({"ok": True})
+
+
 @schedule_bp.route("/schedules/<schedule_id>/assignments", methods=["PATCH"])
 def update_assignments(schedule_id):
     db = get_db()

@@ -194,6 +194,11 @@ export const getLatestWeeklySchedule = (weekStart: string, department?: string) 
 export const getScheduleByMonth = (month: number, year: number) =>
   request<Schedule | null>(`/schedules/latest?month=${month}&year=${year}`);
 
+export const deleteSchedule = (id: string, department?: string) => {
+  const qs = department ? `?department=${encodeURIComponent(department)}` : "";
+  return request<{ ok: boolean }>(`/schedules/${id}${qs}`, { method: "DELETE" });
+};
+
 export const updateAssignments = (id: string, assignments: Assignment[]) =>
   request<Schedule>(`/schedules/${id}/assignments`, {
     method: "PATCH",
