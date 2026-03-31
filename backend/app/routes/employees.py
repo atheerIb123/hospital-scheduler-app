@@ -110,6 +110,7 @@ def col_attr(i):
 
 
 HOME_DEPT_HEADER = "מחלקת אם"
+HOME_DEPT_HEADER_ALT = "מחלקה"
 
 
 def _parse_rows(rows: list[list[str]]) -> tuple[list[str], list[dict]]:
@@ -131,7 +132,7 @@ def _parse_rows(rows: list[list[str]]) -> tuple[list[str], list[dict]]:
 
     # Find the home_department column index (1-based), if present
     home_dept_col = next(
-        (i for i, h in enumerate(headers) if h == HOME_DEPT_HEADER), None
+        (i for i, h in enumerate(headers) if h in (HOME_DEPT_HEADER, HOME_DEPT_HEADER_ALT)), None
     )
 
     # Build attribute column headers, skipping the home_department column
@@ -421,30 +422,97 @@ def import_employees():
     mode_str = unquote(raw_mode).replace(" ", "_").replace("-", "_") if raw_mode else ""
     is_nursing = mode_str.startswith("nursing")
 
-    # Auto-add unknown departments (nursing mode) instead of rejecting them
+    # Optional: import into a specific department (overrides any dept column in CSV)
+    target_department = request.args.get("department", "").strip() or None
+
     from .departments import build_department_list, auto_add_department
     known_departments = set(build_department_list())
-    new_depts: set = set()
+    invalid_depts: set = set()
     for e in parsed:
-        dept = e.get("home_department")
-        if dept and dept not in known_departments:
-            new_depts.add(dept)
-            if is_nursing:
-                auto_add_department(dept)
-                known_departments.add(dept)
-            else:
-                e["home_department"] = None
+        if target_department:
+            e["home_department"] = target_department
+        else:
+            dept = e.get("home_department")
+            if dept and dept not in known_departments:
+                if is_nursing:
+                    auto_add_department(dept)
+                    known_departments.add(dept)
+                else:
+                    invalid_depts.add(dept)
+                    e["home_department"] = None
 
-    # Replace all employees
-    db.employees.delete_many({})
-    db.employees.insert_many([
-        {k: v for k, v in {
-            "name": e["name"],
-            "attributes": e["attributes"],
-            "home_department": e.get("home_department"),
-        }.items() if v is not None}
-        for e in parsed
-    ])
+    # ── Gender-based name disambiguation ─────────────────────────────────────
+    # Detect which attribute columns represent gender
+    male_attr = next((f"col_{i+1}" for i, h in enumerate(col_headers) if h == "גבר"), None)
+    female_attr = next((f"col_{i+1}" for i, h in enumerate(col_headers) if h == "אישה"), None)
+
+    def _gender(attrs):
+        if male_attr and male_attr in attrs:
+            return "male"
+        if female_attr and female_attr in attrs:
+            return "female"
+        return None
+
+    def _suffix(gender):
+        return " בן" if gender == "male" else " בת" if gender == "female" else ""
+
+    # Step 1: disambiguate name conflicts WITHIN the imported CSV
+    from collections import defaultdict
+    name_groups = defaultdict(list)
+    for e in parsed:
+        name_groups[e["name"]].append(e)
+
+    for base_name, group in name_groups.items():
+        if len(group) > 1:
+            genders = [_gender(e["attributes"]) for e in group]
+            if len(set(genders)) > 1:          # at least two different genders
+                for e in group:
+                    e["name"] = base_name + _suffix(_gender(e["attributes"]))
+
+    # Step 2: resolve conflicts between imported employees and existing DB employees,
+    # then upsert (update if name exists, insert if new).
+    # For general imports (no target_department) also remove employees no longer in the file.
+    imported_names = set()
+    for e in parsed:
+        base_name = e["name"]
+        existing = db.employees.find_one({"name": base_name})
+
+        if existing:
+            existing_gender = _gender(existing.get("attributes", []))
+            import_gender   = _gender(e["attributes"])
+
+            if existing_gender and import_gender and existing_gender != import_gender:
+                # Same name, different gender — rename the existing employee and add suffix to new
+                existing_suffix = _suffix(existing_gender)
+                db.employees.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"name": base_name + existing_suffix}}
+                )
+                e["name"] = base_name + _suffix(import_gender)
+                # Insert the newly-suffixed employee
+                doc = {"name": e["name"], "attributes": e["attributes"]}
+                if e.get("home_department"):
+                    doc["home_department"] = e["home_department"]
+                db.employees.insert_one(doc)
+            else:
+                # Same name, same (or unknown) gender — update in place
+                patch = {"attributes": e["attributes"]}
+                if e.get("home_department") is not None:
+                    patch["home_department"] = e["home_department"]
+                elif "home_department" in e:
+                    patch["home_department"] = None
+                db.employees.update_one({"_id": existing["_id"]}, {"$set": patch})
+        else:
+            doc = {"name": e["name"], "attributes": e["attributes"]}
+            if e.get("home_department"):
+                doc["home_department"] = e["home_department"]
+            db.employees.insert_one(doc)
+
+        imported_names.add(e["name"])
+
+    # For general imports: remove employees not present in the file
+    if not target_department:
+        db.employees.delete_many({"name": {"$nin": list(imported_names)}})
 
     # Store column headers for UI display
     if col_headers:
@@ -482,8 +550,8 @@ def import_employees():
             "employees": employees,
             "column_headers": col_headers,
             "shift_types_auto_seeded": auto_seeded,
-            "new_departments": sorted(new_depts) if is_nursing else [],
-            "invalid_departments": sorted(new_depts) if not is_nursing else [],
+            "new_departments": [],
+            "invalid_departments": sorted(invalid_depts),
         }
     ), 201
 
