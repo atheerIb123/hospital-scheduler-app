@@ -9,7 +9,8 @@ from ..constants import JUSTICE_PTS
 CONSEC_PENALTY = 30        # penalty per consecutive-day pair (different days)
 DOUBLE_SHIFT_PENALTY = 80  # penalty per consecutive shift pair on the SAME day
 PREFER_BONUS = 3           # objective bonus for using preferred sub-attribute
-UNFILLED_PENALTY = 5000    # penalty per unfilled slot in nursing exact-staffing mode
+UNFILLED_PENALTY = 50000   # penalty per unfilled slot in nursing exact-staffing mode
+C4_EXCEED_PENALTY = 200    # penalty per excess shift above max_shifts_per_week (nursing)
 
 
 # ── Time helpers ─────────────────────────────────────────────────────────────
@@ -61,6 +62,7 @@ def generate_schedule(
     special_shifts_monthly: Optional[List[Dict]] = None,
     # [{shift_name, total_count, week_distribution?: [w0,w1,w2,w3]}]
     specific_days: Optional[List[int]] = None,
+    force_nursing_mode: bool = False,
 ) -> Dict[str, Any]:
     """
     Generate a monthly schedule using OR-Tools CP-SAT.
@@ -76,7 +78,9 @@ def generate_schedule(
         incentive.  Understaffed slots emit a warning.
     C3  Each employee works at most 2 shifts per day.
     C4  Max shifts per week per employee (from employee.max_shifts_per_week,
-        default 6).
+        default 6).  Nursing mode: soft constraint — exceedances are penalised
+        (C4_EXCEED_PENALTY) so all slots can be filled even when employees
+        must work beyond their weekly limit.
     C5  Role slot minimums: for each role slot in the composition, at least
         `count` assigned employees must hold that attribute.
     C6  Gender minimums: at least min_male / min_female per shift-day.
@@ -277,7 +281,7 @@ def generate_schedule(
     }
 
     warnings: List[Dict] = []
-    nursing_mode = bool(comp)
+    nursing_mode = force_nursing_mode or bool(comp)
     nursing_slack_vars: List[Any] = []  # collected here, added to objective later
     for shift in shift_types:
         sid  = shift["id"]
@@ -413,10 +417,16 @@ def generate_schedule(
                 model.Add(cp_model.LinearExpr.Sum(day_vars) <= 2)
 
     # ── C4 – Max shifts per week per employee ────────────────────────────────
+    # Nursing mode: soft constraint — filling all slots takes priority over
+    # respecting max-shifts.  Overages are penalised in the objective and
+    # reported as warnings so the user can manually adjust.
+    # Doctors mode: hard constraint (unchanged).
+    nursing_c4_slack_vars: List[Any] = []
+    emp_max_wpw: Dict[str, int] = {}
     for emp in active_employees:
         eid     = emp["id"]
         max_wpw = int(emp.get("max_shifts_per_week") or 6)
-        # Weeks: days 1-7, 8-14, 15-21, 22-end
+        emp_max_wpw[eid] = max_wpw
         for week_start in range(1, days_in_month + 1, 7):
             week_day_range = list(range(week_start, min(week_start + 7, days_in_month + 1)))
             week_vars = [
@@ -425,7 +435,15 @@ def generate_schedule(
                 for d   in week_day_range
                 if (eid, sid, d) in x
             ]
-            if week_vars:
+            if not week_vars:
+                continue
+            if nursing_mode:
+                slack = model.NewIntVar(0, len(week_vars), f"c4slk_{eid}_{week_start}")
+                model.Add(
+                    cp_model.LinearExpr.Sum(week_vars) <= max_wpw + slack
+                )
+                nursing_c4_slack_vars.append(slack)
+            else:
                 model.Add(cp_model.LinearExpr.Sum(week_vars) <= max_wpw)
 
     # ── C7 – Special-shift weekly distribution ───────────────────────────────
@@ -472,6 +490,11 @@ def generate_schedule(
     for sv in nursing_slack_vars:
         obj_terms.append(sv)
         obj_weights.append(UNFILLED_PENALTY)
+
+    # Nursing C4 slack penalties: penalise exceeding max shifts per week
+    for sv in nursing_c4_slack_vars:
+        obj_terms.append(sv)
+        obj_weights.append(C4_EXCEED_PENALTY)
 
     # Term 1 – Justice spread
     max_w_per_slot = (
@@ -635,7 +658,7 @@ def generate_schedule(
 
     # ── Solve ────────────────────────────────────────────────────────────────
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 20.0
+    solver.parameters.max_time_in_seconds = 30.0
     status = solver.Solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -682,7 +705,26 @@ def generate_schedule(
                         "consecutive_with": name_for_sid[sid_b],
                     })
 
-    warnings.sort(key=lambda w: (w["day"], w.get("shift_name", "")))
+    # ── Detect max-shifts-per-week violations (nursing soft C4) ─────────────
+    if nursing_mode:
+        for emp in active_employees:
+            eid = emp["id"]
+            max_wpw = emp_max_wpw.get(eid, 6)
+            total_assigned = sum(
+                1 for shift in shift_types for day in days
+                if (eid, shift["id"], day) in x
+                and solver.Value(x[(eid, shift["id"], day)]) == 1
+            )
+            if total_assigned > max_wpw:
+                warnings.append({
+                    "type": "max_shifts_exceeded",
+                    "employee_id": eid,
+                    "employee_name": emp["name"],
+                    "assigned": total_assigned,
+                    "max": max_wpw,
+                })
+
+    warnings.sort(key=lambda w: (w.get("day", 0), w.get("shift_name", "")))
 
     # ── Per-employee summary ─────────────────────────────────────────────────
     summary = []

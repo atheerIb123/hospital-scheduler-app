@@ -15,7 +15,7 @@ import SummaryTable from "@/components/SummaryTable";
 import CalendarConfigurator from "@/components/CalendarConfigurator";
 import { useConstraints } from "@/hooks/useConstraints";
 import { useMode } from "@/components/ModeProvider";
-import type { Assignment } from "@/lib/types";
+import type { Assignment, WeeklyShiftRow } from "@/lib/types";
 import { useWeeklySchedule } from "@/hooks/useWeeklySchedule";
 import WeeklyShiftGrid from "@/components/WeeklyShiftGrid";
 import EmployeeWeeklyPlan from "@/components/EmployeeWeeklyPlan";
@@ -55,12 +55,34 @@ function weekLabel(iso: string) {
 
 // ─── Nursing Schedule View ────────────────────────────────────────────────────
 
+function buildGridFromAssignments(
+  originalGrid: WeeklyShiftRow[],
+  assignments: Assignment[],
+  weekDays: string[],
+): WeeklyShiftRow[] {
+  const dayOfMonthToIso: Record<number, string> = {};
+  for (const iso of weekDays) {
+    dayOfMonthToIso[new Date(iso + "T12:00:00").getDate()] = iso;
+  }
+  return originalGrid.map(row => ({
+    shift_name: row.shift_name,
+    hours: row.hours,
+    by_day: Object.fromEntries(
+      weekDays.map(iso => [
+        iso,
+        assignments
+          .filter(a => dayOfMonthToIso[a.day] === iso && a.shift_name === row.shift_name)
+          .map(a => ({ employee_id: a.employee_id, employee_name: a.employee_name })),
+      ]),
+    ),
+  }));
+}
+
 function NursingSchedulePage() {
-  const { employees } = useEmployees();
+  const { employees, columnHeaders } = useEmployees();
   const rollingWeeks = useMemo(() => buildRollingWeeks(2, 7), []);
   const currentWeekIso = toWeekSunday(new Date());
 
-  // Department selector — derived from employees
   const departments = useMemo(() => {
     const set = new Set<string>();
     for (const e of employees) {
@@ -73,7 +95,6 @@ function NursingSchedulePage() {
   const [selectedWeek, setSelectedWeek] = useState<string>(currentWeekIso);
   const [weeklyTab, setWeeklyTab] = useState<"grid" | "plan">("grid");
 
-  // Sync department default when employees load
   useEffect(() => {
     if (!selectedDept && departments.length > 0) {
       setSelectedDept(departments[0]);
@@ -85,7 +106,20 @@ function NursingSchedulePage() {
     selectedDept || undefined,
   );
 
-  // week nav arrows
+  // ── Local assignment state (ported from doctors mode) ──────────────────────
+  const [localAssignments, setLocalAssignments] = useState<Assignment[]>([]);
+  const [changedCells, setChangedCells] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  useEffect(() => {
+    if (schedule?.assignments) {
+      setLocalAssignments(schedule.assignments);
+      setChangedCells(new Set());
+      setSaveSuccess(false);
+    }
+  }, [schedule]);
+
   const weekIdx = rollingWeeks.indexOf(selectedWeek);
   const canPrev = weekIdx > 0;
   const canNext = weekIdx < rollingWeeks.length - 1;
@@ -95,6 +129,160 @@ function NursingSchedulePage() {
     if (schedule?.employee_plan?.[0]) return Object.keys(schedule.employee_plan[0].days).sort();
     return [];
   }, [schedule]);
+
+  // shift_name → shift_type_id lookup (for constructing new assignments)
+  const shiftNameToId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const a of schedule?.assignments ?? []) {
+      if (a.shift_name && a.shift_type_id) map[a.shift_name] = a.shift_type_id;
+    }
+    return map;
+  }, [schedule]);
+
+  // Derive the display grid from localAssignments so edits are reflected immediately
+  const localGrid = useMemo(() => {
+    if (!schedule?.weekly_grid || weekDays.length === 0) return schedule?.weekly_grid ?? [];
+    return buildGridFromAssignments(schedule.weekly_grid, localAssignments, weekDays);
+  }, [schedule?.weekly_grid, localAssignments, weekDays]);
+
+  // Compute per-employee shift counts from local assignments (keyed by employee_id)
+  const empShiftCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const a of localAssignments) {
+      if (a.employee_id) counts[a.employee_id] = (counts[a.employee_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [localAssignments]);
+
+  // Detect max-shift violations: employees whose count exceeds their max_shifts_per_week
+  const maxShiftsWarningIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const ep of schedule?.employee_plan ?? []) {
+      const count = empShiftCounts[ep.employee_id] ?? 0;
+      if (count > ep.max_shifts_per_week) ids.add(ep.employee_id);
+    }
+    return ids;
+  }, [empShiftCounts, schedule?.employee_plan]);
+
+  // Warnings from the solver (max_shifts_exceeded + unfilled)
+  const unfilledWarnings = useMemo(
+    () => (schedule?.warnings ?? []).filter(w => w.type !== "max_shifts_exceeded"),
+    [schedule?.warnings],
+  );
+  const solverMaxWarnings = useMemo(
+    () => (schedule?.warnings ?? []).filter(w => w.type === "max_shifts_exceeded"),
+    [schedule?.warnings],
+  );
+
+  // Combine solver max warnings with locally detected violations
+  const maxShiftWarningDetails = useMemo(() => {
+    const details: { employee_id: string; employee_name: string; assigned: number; max: number }[] = [];
+    const seen = new Set<string>();
+    for (const w of solverMaxWarnings) {
+      if (w.employee_id) {
+        seen.add(w.employee_id);
+        details.push({
+          employee_id: w.employee_id,
+          employee_name: w.employee_name ?? "",
+          assigned: empShiftCounts[w.employee_id] ?? (w.assigned ?? 0),
+          max: w.max ?? 6,
+        });
+      }
+    }
+    for (const ep of schedule?.employee_plan ?? []) {
+      if (maxShiftsWarningIds.has(ep.employee_id) && !seen.has(ep.employee_id)) {
+        details.push({
+          employee_id: ep.employee_id,
+          employee_name: ep.employee_name,
+          assigned: empShiftCounts[ep.employee_id] ?? 0,
+          max: ep.max_shifts_per_week,
+        });
+      }
+    }
+    return details;
+  }, [solverMaxWarnings, maxShiftsWarningIds, empShiftCounts, schedule?.employee_plan]);
+
+  const shiftLeaderIds = useMemo(() => {
+    const leaderCol = columnHeaders.indexOf("אחראי משמרת");
+    if (leaderCol === -1) return new Set<string>();
+    const colKey = `col_${leaderCol + 1}`;
+    const ids = new Set<string>();
+    for (const e of employees) {
+      if (e.attributes?.includes(colKey)) ids.add(e.id);
+    }
+    return ids;
+  }, [employees, columnHeaders]);
+
+  const handleAddEmployee = useCallback((iso: string, shiftName: string, empId: string, empName: string) => {
+    const dayOfMonth = new Date(iso + "T12:00:00").getDate();
+    setLocalAssignments(prev => [
+      ...prev,
+      {
+        day: dayOfMonth,
+        shift_type_id: shiftNameToId[shiftName] ?? "",
+        shift_name: shiftName,
+        employee_id: empId,
+        employee_name: empName,
+      },
+    ]);
+    setChangedCells(prev => new Set(prev).add(`${iso}-${shiftName}`));
+    setSaveSuccess(false);
+  }, [shiftNameToId]);
+
+  const handleRemoveEmployee = useCallback((iso: string, shiftName: string, empId: string) => {
+    const dayOfMonth = new Date(iso + "T12:00:00").getDate();
+    setLocalAssignments(prev => {
+      const idx = prev.findIndex(
+        a => a.day === dayOfMonth && a.shift_name === shiftName && a.employee_id === empId,
+      );
+      if (idx === -1) return prev;
+      return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
+    setChangedCells(prev => new Set(prev).add(`${iso}-${shiftName}`));
+    setSaveSuccess(false);
+  }, []);
+
+  const handleMoveEmployee = useCallback((
+    srcIso: string, srcShift: string, srcEmpId: string, _srcEmpName: string,
+    tgtIso: string, tgtShift: string,
+  ) => {
+    const srcDay = new Date(srcIso + "T12:00:00").getDate();
+    const tgtDay = new Date(tgtIso + "T12:00:00").getDate();
+    setLocalAssignments(prev => {
+      const idx = prev.findIndex(
+        a => a.day === srcDay && a.shift_name === srcShift && a.employee_id === srcEmpId,
+      );
+      if (idx === -1) return prev;
+      const updated = [...prev];
+      updated[idx] = {
+        ...updated[idx],
+        day: tgtDay,
+        shift_name: tgtShift,
+        shift_type_id: shiftNameToId[tgtShift] ?? updated[idx].shift_type_id,
+      };
+      return updated;
+    });
+    setChangedCells(prev => {
+      const next = new Set(prev);
+      next.add(`${srcIso}-${srcShift}`);
+      next.add(`${tgtIso}-${tgtShift}`);
+      return next;
+    });
+    setSaveSuccess(false);
+  }, [shiftNameToId]);
+
+  const handleSave = async () => {
+    if (!schedule) return;
+    setSaving(true);
+    try {
+      await api.updateAssignments(schedule.id, localAssignments);
+      setChangedCells(new Set());
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-5 fade-in" dir="rtl">
@@ -108,7 +296,7 @@ function NursingSchedulePage() {
 
       {/* Controls card */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-        {/* Row 1: department + generate */}
+        {/* Row 1: department + generate + save */}
         <div className="flex items-center gap-3 flex-wrap">
           {departments.length > 0 && (
             <div className="flex items-center gap-2">
@@ -127,6 +315,20 @@ function NursingSchedulePage() {
           )}
 
           <div className="flex-1" />
+
+          {changedCells.size > 0 && (
+            <Button
+              variant="success"
+              onClick={handleSave}
+              disabled={saving}
+              icon={saving ? <Loader2 className="animate-spin h-4 w-4" /> : <Save className="w-4 h-4" />}
+            >
+              {saving ? "שומר…" : `שמור שינויים (${changedCells.size})`}
+            </Button>
+          )}
+          {saveSuccess && (
+            <span className="text-sm text-emerald-600 font-medium">נשמר בהצלחה</span>
+          )}
 
           <Button
             variant="primary"
@@ -196,6 +398,60 @@ function NursingSchedulePage() {
         </Alert>
       )}
 
+      {/* Unfilled-shift warnings */}
+      {unfilledWarnings.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-semibold text-amber-800">
+                {unfilledWarnings.length === 1 ? "משמרת אחת לא אוישה" : `${unfilledWarnings.length} משמרות לא אוישו`}
+              </p>
+              <p className="text-sm text-amber-700 mt-0.5">
+                הסולבר לא הצליח למצוא עובד זכאי לאותן משמרות. ניתן לאייש אותן ידנית בלוח.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {unfilledWarnings.map((w, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                    <span className="font-bold">יום {w.day}</span>
+                    <span className="text-amber-500">·</span>
+                    {w.shift_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Max-shift-exceeded warnings */}
+      {maxShiftWarningDetails.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-semibold text-red-800">
+                {maxShiftWarningDetails.length === 1
+                  ? "עובד אחד חורג ממכסת המשמרות השבועית"
+                  : `${maxShiftWarningDetails.length} עובדים חורגים ממכסת המשמרות השבועית`}
+              </p>
+              <p className="text-sm text-red-700 mt-0.5">
+                עובדים אלו שובצו ליותר משמרות מהמותר כדי לאייש את כל המשבצות. ניתן להתאים ידנית בלוח.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {maxShiftWarningDetails.map(d => (
+                  <span key={d.employee_id} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-red-100 text-red-800 border border-red-200">
+                    <span className="font-bold">{d.employee_name}</span>
+                    <span className="text-red-500">·</span>
+                    {d.assigned}/{d.max} משמרות
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Loading */}
       {loading && <div className="h-24 rounded-2xl shimmer" />}
 
@@ -211,8 +467,20 @@ function NursingSchedulePage() {
             </TabButton>
           </TabsContainer>
 
-          {weeklyTab === "grid" && schedule.weekly_grid && (
-            <WeeklyShiftGrid grid={schedule.weekly_grid} weekDays={weekDays} />
+          {weeklyTab === "grid" && localGrid.length > 0 && (
+            <WeeklyShiftGrid
+              grid={localGrid}
+              weekDays={weekDays}
+              editable
+              employees={schedule.employee_plan}
+              changedCells={changedCells}
+              maxShiftsWarningIds={maxShiftsWarningIds}
+              empShiftCounts={empShiftCounts}
+              onAddEmployee={handleAddEmployee}
+              onRemoveEmployee={handleRemoveEmployee}
+              onMoveEmployee={handleMoveEmployee}
+              shiftLeaderIds={shiftLeaderIds}
+            />
           )}
           {weeklyTab === "plan" && schedule.employee_plan && (
             <EmployeeWeeklyPlan plan={schedule.employee_plan} weekDays={weekDays} />

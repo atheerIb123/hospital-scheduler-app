@@ -59,6 +59,11 @@ export interface ScheduleWarning {
   day: number;
   shift_type_id: string;
   shift_name: string;
+  type?: string;
+  employee_name?: string;
+  employee_id?: string;
+  assigned?: number;
+  max?: number;
 }
 
 export interface Schedule {
@@ -186,6 +191,7 @@ export interface EmployeeWeekPlan {
   employee_name: string;
   home_department: string;
   active: boolean;
+  max_shifts_per_week: number;
   days: Record<string, DayStatus[]>;
 }
 

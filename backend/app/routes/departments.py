@@ -48,6 +48,17 @@ def build_department_list():
 
     return merged
 
+
+def auto_add_department(name: str):
+    """Add a department to the known list if it doesn't exist yet."""
+    name = name.strip()
+    if not name:
+        return
+    db = get_config_db()
+    defaults = load_default_departments()
+    if name not in defaults and not db.departments.find_one({"name": name}):
+        db.departments.insert_one({"name": name})
+
 @departments_bp.get("/departments")
 def get_departments():
     return jsonify(build_department_list())

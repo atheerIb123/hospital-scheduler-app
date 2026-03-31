@@ -2,7 +2,7 @@ import traceback
 from datetime import datetime, timezone, date as date_type, timedelta
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
-from ..db import get_db, get_global_db, get_nursing_employees_db, get_client
+from ..db import get_db, get_global_db, get_nursing_employees_db, get_client, ensure_nursing_dept_db
 from ..scheduler.solver import generate_schedule
 from .day_management import _get_weekday_scores
 from ..constants import JUSTICE_PTS
@@ -261,6 +261,7 @@ def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_
             "employee_name": name,
             "home_department": emp.get("home_department", ""),
             "active": emp.get("active", True),
+            "max_shifts_per_week": int(emp.get("max_shifts_per_week") or 6),
             "days": days_out,
         })
 
@@ -300,19 +301,15 @@ def generate_weekly():
         if department:
             all_employees = [e for e in all_employees if e.get("home_department") == department]
 
-        # Shift types live in the per-department DB when configured there,
-        # otherwise fall back to the base nursing DB so any imported CSV works.
+        # Each department has its own fully-provisioned DB.
+        # ensure_nursing_dept_db creates it (with shift types, composition,
+        # rules, column headers) if it doesn't exist yet.
         if department:
-            dept_db = get_client()[f"{db.name}_{department}"]
+            dept_db = ensure_nursing_dept_db(department)
         else:
             dept_db = db
 
         shift_types = [s for s in dept_db.shift_types.find() if not s.get("skip", False)]
-        if not shift_types and department:
-            # Department has no shift types configured yet — fall back to base nursing DB
-            dept_db = db
-            shift_types = [s for s in dept_db.shift_types.find() if not s.get("skip", False)]
-
         rules = list(dept_db.attribute_rules.find())
 
         month_prefix = f"{year:04d}-{month:02d}-"
@@ -378,10 +375,8 @@ def generate_weekly():
         col_header_names_arg = None
         special_shifts_arg = None
 
-        # Composition: prefer dept DB, fall back to base nursing DB
+        # Each department DB is self-contained — no fallbacks
         comp_doc = dept_db.shift_composition.find_one({}, {"_id": 0})
-        if not comp_doc and department and dept_db.name != db.name:
-            comp_doc = db.shift_composition.find_one({}, {"_id": 0})
         if comp_doc:
             shift_composition_arg = {
                 cfg["shift_name"]: cfg
@@ -389,7 +384,7 @@ def generate_weekly():
                 if cfg.get("shift_name")
             }
         cfg_doc = dept_db.config.find_one({"key": "csv_column_headers"})
-        if not cfg_doc and department and dept_db.name != db.name:
+        if not cfg_doc:
             cfg_doc = db.config.find_one({"key": "csv_column_headers"})
         if cfg_doc:
             col_header_names_arg = cfg_doc.get("headers", [])
@@ -412,6 +407,7 @@ def generate_weekly():
             col_header_names=col_header_names_arg,
             special_shifts_monthly=special_shifts_arg,
             specific_days=specific_day_nums,
+            force_nursing_mode=True,
         )
         if result["status"] != "generated":
             return jsonify({"status": "failed", "reason": result.get("reason", "שגיאה לא ידועה")}), 422
@@ -464,7 +460,7 @@ def get_latest_weekly():
         query["week_start"] = week_start
     if department:
         query["department"] = department
-        search_db = get_client()[f"{db.name}_{department}"]
+        search_db = ensure_nursing_dept_db(department)
     else:
         search_db = db
     schedule = search_db.schedules.find_one(query, sort=[("generated_at", -1)])
@@ -503,8 +499,53 @@ def update_assignments(schedule_id):
     db = get_db()
     data = request.get_json()
     assignments = data.get("assignments", [])
+
+    update_fields: dict = {"assignments": assignments}
+
+    existing = db.schedules.find_one({"_id": ObjectId(schedule_id)})
+    if existing and existing.get("schedule_type") == "weekly":
+        week_start_str = existing.get("week_start", "")
+        department = existing.get("department", "")
+        if week_start_str:
+            ws = date_type.fromisoformat(week_start_str)
+            week_days = [ws + timedelta(days=i) for i in range(7)]
+            same_month_days = [d for d in week_days if d.month == ws.month]
+
+            dept_db = ensure_nursing_dept_db(department) if department else db
+            shift_types = [
+                s for s in dept_db.shift_types.find()
+                if not s.get("skip", False)
+            ]
+            comp_doc = dept_db.shift_composition.find_one({}, {"_id": 0})
+            shift_composition = {}
+            if comp_doc:
+                for sc in comp_doc.get("shift_configs", []):
+                    shift_composition[sc["shift_name"]] = sc
+
+            emp_db = get_nursing_employees_db()
+            emp_query = {"active": {"$ne": False}}
+            if department:
+                emp_query["home_department"] = department
+            all_employees = []
+            for e in emp_db.employees.find(emp_query):
+                e["id"] = str(e.pop("_id"))
+                all_employees.append(e)
+
+            constraints = list(dept_db.constraints.find())
+
+            weekly_grid, employee_plan = _build_nursing_weekly_outputs(
+                assignments=assignments,
+                all_employees=all_employees,
+                shift_types=shift_types,
+                week_days=same_month_days,
+                constraints=constraints,
+                shift_composition=shift_composition,
+            )
+            update_fields["weekly_grid"] = weekly_grid
+            update_fields["employee_plan"] = employee_plan
+
     db.schedules.update_one(
-        {"_id": ObjectId(schedule_id)}, {"$set": {"assignments": assignments}}
+        {"_id": ObjectId(schedule_id)}, {"$set": update_fields}
     )
     schedule = db.schedules.find_one({"_id": ObjectId(schedule_id)})
     schedule["id"] = str(schedule.pop("_id"))

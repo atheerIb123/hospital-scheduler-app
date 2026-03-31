@@ -2,9 +2,10 @@ import csv
 import io
 import os
 import datetime
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, has_request_context
 from bson import ObjectId
-from ..db import get_db, get_nursing_employees_db
+from urllib.parse import unquote
+from ..db import get_db, get_nursing_employees_db, ensure_nursing_dept_db
 
 ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".ods"}
 
@@ -349,6 +350,17 @@ def update_employee(emp_id):
         emp = db.employees.find_one({"_id": ObjectId(emp_id)})
         return jsonify(_serialize(emp))
     db.employees.update_one({"_id": ObjectId(emp_id)}, {"$set": patch})
+
+    # Auto-provision department DB when home_department changes (nursing mode)
+    new_dept = patch.get("home_department")
+    if new_dept and has_request_context():
+        raw = request.headers.get("X-App-Mode", "").strip()
+        mode = unquote(raw).replace(" ", "_").replace("-", "_") if raw else ""
+        if mode.startswith("nursing"):
+            from .departments import auto_add_department
+            auto_add_department(new_dept)
+            ensure_nursing_dept_db(new_dept)
+
     emp = db.employees.find_one({"_id": ObjectId(emp_id)})
     return jsonify(_serialize(emp))
 
@@ -404,15 +416,24 @@ def import_employees():
 
     db = get_nursing_employees_db()
 
-    # Validate home_department against known departments
-    from .departments import build_department_list
+    # Detect if we're in nursing mode
+    raw_mode = request.headers.get("X-App-Mode", "").strip()
+    mode_str = unquote(raw_mode).replace(" ", "_").replace("-", "_") if raw_mode else ""
+    is_nursing = mode_str.startswith("nursing")
+
+    # Auto-add unknown departments (nursing mode) instead of rejecting them
+    from .departments import build_department_list, auto_add_department
     known_departments = set(build_department_list())
-    invalid_depts = set()
+    new_depts: set = set()
     for e in parsed:
         dept = e.get("home_department")
         if dept and dept not in known_departments:
-            invalid_depts.add(dept)
-            e["home_department"] = None
+            new_depts.add(dept)
+            if is_nursing:
+                auto_add_department(dept)
+                known_departments.add(dept)
+            else:
+                e["home_department"] = None
 
     # Replace all employees
     db.employees.delete_many({})
@@ -449,13 +470,20 @@ def import_employees():
                 db.shift_types.insert_many(parsed_shifts)
                 auto_seeded = True
 
+    # Nursing: auto-provision a per-department DB for every unique department
+    if is_nursing:
+        all_depts = {e.get("home_department") for e in parsed if e.get("home_department")}
+        for dept in all_depts:
+            ensure_nursing_dept_db(dept)
+
     return jsonify(
         {
             "imported": len(employees),
             "employees": employees,
             "column_headers": col_headers,
             "shift_types_auto_seeded": auto_seeded,
-            "invalid_departments": sorted(invalid_depts),
+            "new_departments": sorted(new_depts) if is_nursing else [],
+            "invalid_departments": sorted(new_depts) if not is_nursing else [],
         }
     ), 201
 
