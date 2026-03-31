@@ -27,6 +27,8 @@ interface Props {
   weekDays: string[];
   editable?: boolean;
   employees?: EmployeeWeekPlan[];
+  /** Full roster for the replacement picker (all depts). Falls back to employees. */
+  replacePickerEmployees?: EmployeeWeekPlan[];
   changedCells?: Set<string>;
   maxShiftsWarningIds?: Set<string>;
   empShiftCounts?: Record<string, number>;
@@ -43,6 +45,7 @@ export default function WeeklyShiftGrid({
   weekDays,
   editable = false,
   employees = [],
+  replacePickerEmployees,
   changedCells,
   maxShiftsWarningIds,
   empShiftCounts = {},
@@ -56,28 +59,44 @@ export default function WeeklyShiftGrid({
   const [selectedCell, setSelectedCell] = useState<{ iso: string; shiftName: string; roleSlot?: string } | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [showAtMax, setShowAtMax] = useState(false);
+  const [showIneligible, setShowIneligible] = useState(false);
   const [panelRole, setPanelRole] = useState("");
   const [panelSearch, setPanelSearch] = useState("");
   const [panelDept, setPanelDept] = useState("");
   const [replaceEmp, setReplaceEmp] = useState<{ id: string; name: string } | null>(null);
   const [gridSearch, setGridSearch] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["sd-ok"]));
+  const [replaceDeptFilter, setReplaceDeptFilter] = useState("");
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Drag-and-drop state
   const [dragSrc, setDragSrc] = useState<DragSource | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ iso: string; shiftName: string } | null>(null);
 
-  function openPanel(iso: string, shiftName: string, roleSlot?: string, replace?: { id: string; name: string }) {
+  /** Infer which role_slot an employee fills in a shift based on their attributes. */
+  function inferRoleSlot(empId: string, shiftName: string): string {
+    const emp = empById[empId];
+    if (!emp?.attributes?.length || !shiftComposition || !columnToAttrName) return "";
+    const slots = shiftComposition[shiftName]?.role_slots ?? [];
+    for (const slot of slots) {
+      const colKey = Object.entries(columnToAttrName).find(([, n]) => n === slot.attribute_name)?.[0];
+      if (colKey && emp.attributes.includes(colKey)) return slot.attribute_name;
+    }
+    return "";
+  }
+
+  function openPanel(iso: string, shiftName: string, roleSlot?: string, replace?: { id: string; name: string }, overridePanelRole?: string) {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     setSelectedCell({ iso, shiftName, roleSlot });
     setPanelOpen(true);
     setShowAtMax(false);
+    setShowIneligible(false);
     setPanelSearch("");
     setPanelDept("");
-    setPanelRole(roleSlot ?? "");
+    setPanelRole(overridePanelRole ?? roleSlot ?? "");
     setReplaceEmp(replace ?? null);
     setExpandedGroups(new Set(["sd-ok"]));
+    setReplaceDeptFilter("");
   }
 
   function closePanel() {
@@ -88,7 +107,10 @@ export default function WeeklyShiftGrid({
   if (!grid.length) return null;
 
   const empById: Record<string, EmployeeWeekPlan> = {};
+  // employees (schedule.employee_plan) may lack attributes on old schedules — load first
   for (const e of employees) empById[e.employee_id] = e;
+  // replacePickerEmployees (raw Employee data) always has attributes — overwrite to preserve them
+  for (const e of (replacePickerEmployees ?? [])) empById[e.employee_id] = e;
 
   // Unique departments from the employee list (for the dept filter dropdown)
   const deptOptions = Array.from(new Set(employees.map(e => e.home_department).filter(Boolean))).sort();
@@ -120,13 +142,14 @@ export default function WeeklyShiftGrid({
     const panelRoleColKey = panelRole && panelRole !== "__free__" && columnToAttrName
       ? Object.entries(columnToAttrName).find(([, name]) => name === panelRole)?.[0]
       : undefined;
-    const available = employees.filter(e =>
+    const basePool = employees.filter(e =>
       e.active &&
       !currentIds.has(e.employee_id) &&
       (!searchLower || e.employee_name.toLowerCase().includes(searchLower)) &&
-      (!panelDept || e.home_department === panelDept) &&
-      (!panelRoleColKey || e.attributes?.includes(panelRoleColKey)),
+      (!panelDept || e.home_department === panelDept),
     );
+    const available = basePool.filter(e => !panelRoleColKey || e.attributes?.includes(panelRoleColKey));
+    const ineligible = panelRoleColKey ? basePool.filter(e => !e.attributes?.includes(panelRoleColKey)) : [];
     const underMax = available.filter(e => (empShiftCounts[e.employee_id] ?? 0) < e.max_shifts_per_week);
     const atMax = available.filter(e => (empShiftCounts[e.employee_id] ?? 0) >= e.max_shifts_per_week);
 
@@ -295,13 +318,18 @@ export default function WeeklyShiftGrid({
           const replacedEmpDept = empById[replaceEmp.id]?.home_department ?? "";
           const ineligibilityReason = panelRole ? `חסר תפקיד: ${panelRole}` : "";
           const isEligible = (e: EmployeeWeekPlan) => !panelRoleColKey || !!e.attributes?.includes(panelRoleColKey);
-          const candidatesBase = employees.filter(e =>
+          const pickerPool = replacePickerEmployees ?? employees;
+          const candidatesBase = pickerPool.filter(e =>
             e.active &&
             !currentIds.has(e.employee_id) &&
             (!searchLower || e.employee_name.toLowerCase().includes(searchLower)),
           );
 
-          const groups: { key: string; label: string; eligible: boolean; emps: EmployeeWeekPlan[]; reason: string }[] = [
+          const otherDeptOptions = Array.from(
+            new Set(candidatesBase.filter(e => e.home_department !== replacedEmpDept).map(e => e.home_department).filter(Boolean))
+          ).sort();
+
+          const groups: { key: string; label: string; eligible: boolean; emps: EmployeeWeekPlan[]; reason: string; isOtherDept?: boolean }[] = [
             {
               key: "sd-ok",
               label: `מתאימים — ${replacedEmpDept || "המחלקה"}`,
@@ -320,14 +348,22 @@ export default function WeeklyShiftGrid({
               key: "od-ok",
               label: "מתאימים — מחלקות אחרות",
               eligible: true,
-              emps: candidatesBase.filter(e => e.home_department !== replacedEmpDept && isEligible(e)),
+              isOtherDept: true,
+              emps: candidatesBase.filter(e =>
+                e.home_department !== replacedEmpDept && isEligible(e) &&
+                (!replaceDeptFilter || e.home_department === replaceDeptFilter)
+              ),
               reason: "",
             },
             {
               key: "od-no",
               label: "לא מתאימים — מחלקות אחרות",
               eligible: false,
-              emps: candidatesBase.filter(e => e.home_department !== replacedEmpDept && !isEligible(e)),
+              isOtherDept: true,
+              emps: candidatesBase.filter(e =>
+                e.home_department !== replacedEmpDept && !isEligible(e) &&
+                (!replaceDeptFilter || e.home_department === replaceDeptFilter)
+              ),
               reason: ineligibilityReason,
             },
           ];
@@ -370,22 +406,42 @@ export default function WeeklyShiftGrid({
             );
           };
 
+          // Unfiltered counts for other-dept groups (for the badge)
+          const odOkTotal = candidatesBase.filter(e => e.home_department !== replacedEmpDept && isEligible(e)).length;
+          const odNoTotal = candidatesBase.filter(e => e.home_department !== replacedEmpDept && !isEligible(e)).length;
+          const odTotals: Record<string, number> = { "od-ok": odOkTotal, "od-no": odNoTotal };
+
           const total = candidatesBase.length;
           return (
             <div className="space-y-1">
               {total === 0 && (
                 <p className="text-slate-400 text-sm text-center py-3">לא נמצאו עובדים</p>
               )}
+              {otherDeptOptions.length > 1 && (
+                <select
+                  value={replaceDeptFilter}
+                  onChange={e => setReplaceDeptFilter(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-slate-50 text-slate-600"
+                  dir="rtl"
+                >
+                  <option value="">כל המחלקות האחרות</option>
+                  {otherDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              )}
               {groups.map(g => {
-                if (g.emps.length === 0) return null;
                 const expanded = expandedGroups.has(g.key);
+                const displayCount = g.isOtherDept ? (odTotals[g.key] ?? g.emps.length) : g.emps.length;
+                const isEmpty = displayCount === 0;
                 return (
-                  <div key={g.key} className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div key={g.key} className={`border rounded-xl overflow-hidden ${isEmpty ? "border-slate-100" : "border-slate-200"}`}>
                     <button
                       type="button"
-                      onClick={() => toggleGroup(g.key)}
+                      onClick={() => !isEmpty && toggleGroup(g.key)}
+                      disabled={isEmpty}
                       className={`w-full flex items-center justify-between px-3 py-2 text-xs font-semibold transition-colors ${
-                        g.eligible
+                        isEmpty
+                          ? "bg-slate-50/40 text-slate-300 cursor-default"
+                          : g.eligible
                           ? "bg-slate-50 hover:bg-slate-100 text-slate-700"
                           : "bg-slate-50/60 hover:bg-slate-100 text-slate-500"
                       }`}
@@ -393,12 +449,12 @@ export default function WeeklyShiftGrid({
                       <span>{g.label}</span>
                       <span className="inline-flex items-center gap-1.5">
                         <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          g.eligible ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"
-                        }`}>{g.emps.length}</span>
-                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                          isEmpty ? "bg-slate-100 text-slate-300" : g.eligible ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"
+                        }`}>{displayCount}</span>
+                        {!isEmpty && <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />}
                       </span>
                     </button>
-                    {expanded && (
+                    {!isEmpty && expanded && (
                       <div className="py-1">
                         {g.emps.map(e => renderEmpButton(e, g.reason))}
                       </div>
@@ -477,12 +533,43 @@ export default function WeeklyShiftGrid({
               </>
             )}
 
-            {available.length === 0 && (
+            {available.length === 0 && ineligible.length === 0 && (
               <p className="text-slate-400 text-sm text-center py-3">
-                {searchLower || panelDept || panelRoleColKey
-                  ? "לא נמצאו עובדים התואמים את הסינון"
-                  : "אין עובדים זמינים"}
+                {searchLower || panelDept ? "לא נמצאו עובדים התואמים את הסינון" : "אין עובדים זמינים"}
               </p>
+            )}
+
+            {ineligible.length > 0 && (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowIneligible(!showIneligible)}
+                  className="w-full flex items-center justify-center gap-1.5 mt-1 py-1.5 text-slate-400 hover:text-slate-600"
+                  icon={<ChevronDown className={`w-3.5 h-3.5 transition-transform ${showIneligible ? "rotate-180" : ""}`} />}
+                  iconSide="after"
+                >
+                  {showIneligible ? "הסתר לא מתאימים" : `הצג לא מתאימים (${ineligible.length})`}
+                </Button>
+                {showIneligible && (
+                  <div className="space-y-1 mt-1">
+                    {ineligible.map(e => (
+                      <button
+                        key={e.employee_id}
+                        onClick={() => handleSelectEmployee(e.employee_id, e.employee_name)}
+                        className="w-full flex flex-col items-start px-3 py-2 rounded-lg text-sm bg-slate-50 text-slate-500 border border-slate-100 hover:bg-slate-100 transition-colors text-right"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {e.employee_name}
+                          {shiftLeaderIds?.has(e.employee_id) && (
+                            <span className="text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-300 rounded px-0.5 leading-none whitespace-nowrap">א׳&nbsp;משמרת</span>
+                          )}
+                        </span>
+                        <span className="text-[10px] text-rose-400 font-medium">חסר תפקיד: {panelRole}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
@@ -627,7 +714,8 @@ export default function WeeklyShiftGrid({
                               } : undefined}
                               onClick={editable ? (ev) => {
                                 ev.stopPropagation();
-                                openPanel(iso, row.shift_name, row.role_slot, { id: e.employee_id, name: e.employee_name });
+                                const inferredRole = inferRoleSlot(e.employee_id, row.shift_name);
+                                openPanel(iso, row.shift_name, row.role_slot, { id: e.employee_id, name: e.employee_name }, inferredRole || undefined);
                               } : undefined}
                               className={`text-xs ${SHIFT_COLORS[idx % SHIFT_COLORS.length]} border rounded px-1.5 py-0.5 leading-tight inline-flex items-center gap-0.5 justify-center ${
                                 over ? "ring-1 ring-red-400" : ""

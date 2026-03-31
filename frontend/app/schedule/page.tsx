@@ -403,7 +403,7 @@ function NursingSchedulePage() {
     if (!schedule) return;
     setSaving(true);
     try {
-      await api.updateAssignments(schedule.id, localAssignments);
+      await api.updateAssignments(schedule.id, localAssignments, selectedDept || undefined);
       setChangedCells(new Set());
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -469,10 +469,6 @@ function NursingSchedulePage() {
     return counts;
   }, [lockedAssignments, preAssignDept]);
 
-  // The backend now injects cross-dept day statuses into employee_plan directly,
-  // so we can use it as-is.
-  const augmentedEmployeePlan = schedule?.employee_plan ?? null;
-
   // All employees as EmployeeWeekPlan stubs (for the pre-assignment grid employee picker)
   const allEmployeesAsPlan = useMemo(() => employees.map(e => ({
     employee_id: e.id,
@@ -483,6 +479,57 @@ function NursingSchedulePage() {
     attributes: e.attributes,
     days: {},
   })), [employees]);
+
+  // Derive a live employee plan that reflects localAssignments edits.
+  const augmentedEmployeePlan = useMemo(() => {
+    if (!schedule?.employee_plan || weekDays.length === 0) return schedule?.employee_plan ?? null;
+
+    const dayToIso: Record<number, string> = {};
+    for (const iso of weekDays) dayToIso[new Date(iso + "T12:00:00").getDate()] = iso;
+
+    // emp_id → iso → shift_names[]
+    const aLookup: Record<string, Record<string, string[]>> = {};
+    for (const a of localAssignments) {
+      const iso = dayToIso[a.day];
+      if (!iso) continue;
+      if (!aLookup[a.employee_id]) aLookup[a.employee_id] = {};
+      (aLookup[a.employee_id][iso] ??= []).push(a.shift_name);
+    }
+
+    const planIds = new Set(schedule.employee_plan.map(ep => ep.employee_id));
+
+    const updated = schedule.employee_plan.map(ep => {
+      const newDays: typeof ep.days = {};
+      for (const iso of weekDays) {
+        const shifts = aLookup[ep.employee_id]?.[iso];
+        if (shifts?.length) {
+          newDays[iso] = shifts.map(s => ({ type: "shift" as const, shift_name: s }));
+        } else {
+          const orig = ep.days[iso] ?? [];
+          // If original showed a shift but it's no longer in localAssignments → off
+          newDays[iso] = orig.some(d => d.type === "shift") ? [{ type: "off" as const }] : orig;
+        }
+      }
+      return { ...ep, days: newDays };
+    });
+
+    // Add employees from other depts manually assigned to this schedule
+    for (const empId of Object.keys(aLookup)) {
+      if (planIds.has(empId)) continue;
+      const empInfo = allEmployeesAsPlan.find(e => e.employee_id === empId);
+      if (!empInfo) continue;
+      const days: typeof empInfo.days = {};
+      for (const iso of weekDays) {
+        const shifts = aLookup[empId]?.[iso];
+        days[iso] = shifts?.length
+          ? shifts.map(s => ({ type: "shift" as const, shift_name: s }))
+          : [{ type: "off" as const }];
+      }
+      updated.push({ ...empInfo, days });
+    }
+
+    return updated;
+  }, [schedule?.employee_plan, localAssignments, weekDays, allEmployeesAsPlan]);
 
   return (
     <div className="flex flex-col gap-5 fade-in" dir="rtl">
@@ -689,6 +736,7 @@ function NursingSchedulePage() {
               weekDays={weekDays}
               editable
               employees={schedule.employee_plan}
+              replacePickerEmployees={allEmployeesAsPlan}
               changedCells={changedCells}
               maxShiftsWarningIds={maxShiftsWarningIds}
               empShiftCounts={empShiftCounts}
@@ -696,6 +744,8 @@ function NursingSchedulePage() {
               onRemoveEmployee={handleRemoveEmployee}
               onMoveEmployee={handleMoveEmployee}
               shiftLeaderIds={shiftLeaderIds}
+              shiftComposition={preCompositionMap}
+              columnToAttrName={columnToAttrName}
             />
           )}
           {weeklyTab === "plan" && augmentedEmployeePlan && (

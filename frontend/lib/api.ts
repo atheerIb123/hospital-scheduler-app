@@ -209,10 +209,10 @@ export const deleteSchedule = (id: string, department?: string) => {
   return request<{ ok: boolean }>(`/schedules/${id}${qs}`, { method: "DELETE" });
 };
 
-export const updateAssignments = (id: string, assignments: Assignment[]) =>
+export const updateAssignments = (id: string, assignments: Assignment[], department?: string) =>
   request<Schedule>(`/schedules/${id}/assignments`, {
     method: "PATCH",
-    body: JSON.stringify({ assignments }),
+    body: JSON.stringify({ assignments, department }),
   });
 
 // ---------------------------------------------------------------------------

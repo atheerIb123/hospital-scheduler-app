@@ -283,6 +283,7 @@ def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_
             "home_department": emp.get("home_department", ""),
             "active": emp.get("active", True),
             "max_shifts_per_week": int(emp.get("max_shifts_per_week") or 6),
+            "attributes": emp.get("attributes", []),
             "days": days_out,
         })
 
