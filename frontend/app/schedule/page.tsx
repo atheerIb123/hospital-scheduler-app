@@ -26,7 +26,8 @@ const MONTH_NAMES = ["ינואר", "פברואר", "מרץ", "אפריל", "מא
 /** Returns the ISO date string of the Sunday starting the week that contains `d`. */
 function toWeekSunday(d: Date): string {
   const sun = new Date(d);
-  sun.setDate(d.getDate() - d.getDay());
+  sun.setHours(12, 0, 0, 0); // normalize to noon so toISOString() stays on the same local date
+  sun.setDate(sun.getDate() - sun.getDay());
   return sun.toISOString().split("T")[0];
 }
 
@@ -247,11 +248,17 @@ function NursingSchedulePage() {
   const canPrev = weekIdx > 0;
   const canNext = weekIdx < rollingWeeks.length - 1;
 
+  // Always derive 7 days from the selected week start — never from schedule data,
+  // so cross-month weeks always show all 7 days even for schedules generated before this fix.
   const weekDays = useMemo(() => {
-    if (schedule?.weekly_grid?.[0]) return Object.keys(schedule.weekly_grid[0].by_day).sort();
-    if (schedule?.employee_plan?.[0]) return Object.keys(schedule.employee_plan[0].days).sort();
-    return [];
-  }, [schedule]);
+    if (!selectedWeek) return [];
+    const sun = new Date(selectedWeek + "T12:00:00");
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(sun);
+      d.setDate(d.getDate() + i);
+      return d.toISOString().split("T")[0];
+    });
+  }, [selectedWeek]);
 
   // shift_name → shift_type_id lookup (for constructing new assignments)
   const shiftNameToId = useMemo(() => {

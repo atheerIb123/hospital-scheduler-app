@@ -65,6 +65,8 @@ def generate_schedule(
     force_nursing_mode: bool = False,
     locked_assignments: Optional[List[Dict]] = None,
     extra_blocked_days: Optional[Dict[str, List[int]]] = None,
+    day_to_actual_date: Optional[Dict[int, Any]] = None,
+    # Maps day-number → actual date object. Required when specific_days spans month boundaries.
 ) -> Dict[str, Any]:
     """
     Generate a monthly schedule using OR-Tools CP-SAT.
@@ -136,8 +138,13 @@ def generate_schedule(
             except (ValueError, KeyError, IndexError):
                 continue
 
-    friday_days  = {d for d in days if date(year, month, d).weekday() == 4}
-    saturday_days = {d for d in days if date(year, month, d).weekday() == 5}
+    def _day_date(d):
+        if day_to_actual_date and d in day_to_actual_date:
+            return day_to_actual_date[d]
+        return date(year, month, d)
+
+    friday_days  = {d for d in days if _day_date(d).weekday() == 4}
+    saturday_days = {d for d in days if _day_date(d).weekday() == 5}
     weekend_days  = friday_days | saturday_days
     weekday_days  = set(days) - weekend_days
 
@@ -194,7 +201,11 @@ def generate_schedule(
                 cdate = date.fromisoformat(date_str)
             except ValueError:
                 continue
-            if cdate.year != year or cdate.month != month:
+            valid_dates = set(day_to_actual_date.values()) if day_to_actual_date else None
+            if valid_dates:
+                if cdate not in valid_dates:
+                    continue
+            elif cdate.year != year or cdate.month != month:
                 continue
             eid = name_to_id.get(c.get("employee_name", ""))
             if not eid:
@@ -238,7 +249,7 @@ def generate_schedule(
     }
 
     def justice_weight(sid: str, day: int) -> int:
-        wd = date(year, month, day).weekday()
+        wd = _day_date(day).weekday()
         return shift_des[sid] + wd_scores.get(str(wd), 0) + day_extra.get(day, 0)
 
     # ── Consecutive shift pairs (same-day penalty) ───────────────────────────

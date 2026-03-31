@@ -1,4 +1,5 @@
 import traceback
+import calendar as calendar_mod
 from datetime import datetime, timezone, date as date_type, timedelta
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
@@ -307,14 +308,15 @@ def generate_weekly():
         except ValueError:
             return jsonify({"status": "failed", "reason": "פורמט week_start לא תקין. נדרש YYYY-MM-DD"}), 400
 
-        # 7-day window starting from week_start
+        # Full 7-day window starting from week_start (may span two months)
         week_days = [week_start + timedelta(days=i) for i in range(7)]
         month = week_start.month
         year  = week_start.year
 
-        # Keep only days in the same month (weeks can straddle month boundaries)
-        same_month_days = [d for d in week_days if d.month == month]
-        specific_day_nums = [d.day for d in same_month_days]
+        # Day numbers for all 7 days — unique within any 7-day window (no month overlap)
+        specific_day_nums = [d.day for d in week_days]
+        # Map day-of-month → actual date for cross-month correctness in the solver
+        day_to_actual_date = {d.day: d for d in week_days}
 
         department = data.get("department")  # optional department filter
         locked_assignments = data.get("locked_assignments", [])  # pre-assigned slots
@@ -368,9 +370,14 @@ def generate_weekly():
         shift_types = [s for s in dept_db.shift_types.find() if not s.get("skip", False)]
         rules = list(dept_db.attribute_rules.find())
 
-        month_prefix = f"{year:04d}-{month:02d}-"
-        constraints = list(db.constraints.find({"date": {"$regex": f"^{month_prefix}"}}))
-        day_settings = list(global_db.day_settings.find({"date": {"$regex": f"^{month_prefix}"}}))
+        # Fetch constraints and day settings from all months covered by this week
+        covered_months = set((d.year, d.month) for d in week_days)
+        constraints = []
+        day_settings = []
+        for cy, cm in covered_months:
+            prefix = f"{cy:04d}-{cm:02d}-"
+            constraints += list(db.constraints.find({"date": {"$regex": f"^{prefix}"}}))
+            day_settings += list(global_db.day_settings.find({"date": {"$regex": f"^{prefix}"}}))
 
         if not all_employees:
             return jsonify({"status": "failed", "reason": "אין עובדים מוגדרים."}), 400
@@ -500,6 +507,7 @@ def generate_weekly():
             force_nursing_mode=True,
             locked_assignments=locked_assignments,
             extra_blocked_days=extra_blocked_days or None,
+            day_to_actual_date=day_to_actual_date if len(covered_months) > 1 else None,
         )
         if result["status"] != "generated":
             return jsonify({"status": "failed", "reason": result.get("reason", "שגיאה לא ידועה")}), 422
@@ -509,7 +517,7 @@ def generate_weekly():
             assignments=result["assignments"],
             all_employees=all_employees,
             shift_types=shift_types,
-            week_days=same_month_days,
+            week_days=week_days,
             constraints=constraints,
             shift_composition=shift_composition_arg or {},
             cross_dept_assignments=cross_dept_assignments_for_plan or None,
@@ -654,7 +662,6 @@ def update_assignments(schedule_id):
         if week_start_str:
             ws = date_type.fromisoformat(week_start_str)
             week_days = [ws + timedelta(days=i) for i in range(7)]
-            same_month_days = [d for d in week_days if d.month == ws.month]
 
             dept_db = ensure_nursing_dept_db(department) if department else target_db
             shift_types = [
@@ -676,14 +683,17 @@ def update_assignments(schedule_id):
                 e["id"] = str(e.pop("_id"))
                 all_employees.append(e)
 
-            month_prefix = f"{ws.year:04d}-{ws.month:02d}-"
-            constraints = list(db.constraints.find({"date": {"$regex": f"^{month_prefix}"}}))
+            covered = set((d.year, d.month) for d in week_days)
+            constraints = []
+            for cy, cm in covered:
+                prefix = f"{cy:04d}-{cm:02d}-"
+                constraints += list(db.constraints.find({"date": {"$regex": f"^{prefix}"}}))
 
             weekly_grid, employee_plan = _build_nursing_weekly_outputs(
                 assignments=assignments,
                 all_employees=all_employees,
                 shift_types=shift_types,
-                week_days=same_month_days,
+                week_days=week_days,
                 constraints=constraints,
                 shift_composition=shift_composition,
             )
