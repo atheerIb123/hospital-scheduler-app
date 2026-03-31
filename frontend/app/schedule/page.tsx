@@ -756,7 +756,7 @@ function NursingSchedulePage() {
             />
           )}
           {weeklyTab === "plan" && augmentedEmployeePlan && (
-            <EmployeeWeeklyPlan plan={augmentedEmployeePlan} weekDays={weekDays} />
+            <EmployeeWeeklyPlan plan={augmentedEmployeePlan} weekDays={weekDays} columnToAttrName={columnToAttrName} />
           )}
         </div>
       )}
