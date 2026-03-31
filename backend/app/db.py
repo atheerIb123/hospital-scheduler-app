@@ -1,3 +1,4 @@
+import copy
 from pymongo import MongoClient
 from flask import request, current_app, has_request_context
 from urllib.parse import unquote
@@ -17,7 +18,6 @@ def get_db():
     if has_request_context():
         raw = request.headers.get("X-App-Mode", "").strip()
         if raw:
-            # Decode URI component and sanitize string for MongoDB
             mode = unquote(raw).replace(" ", "_").replace("-", "_")
 
     base_name = current_app.config["MONGO_DB_NAME"]
@@ -51,3 +51,64 @@ def get_nursing_employees_db():
             base_name = current_app.config["MONGO_DB_NAME"]
             return _client[f"{base_name}_nursing"]
     return get_db()
+
+
+def ensure_nursing_dept_db(department_name: str):
+    """Ensure the nursing department DB has shift types and composition.
+
+    If the department's DB is empty, copies config from the first sibling
+    department that has shift types configured.  If no sibling exists,
+    seeds with the built-in nursing defaults.
+
+    Returns the pymongo Database for ``{base}_nursing_{department_name}``.
+    """
+    base_name = current_app.config["MONGO_DB_NAME"]
+    dept_db = _client[f"{base_name}_nursing_{department_name}"]
+
+    if dept_db.shift_types.count_documents({}) > 0:
+        return dept_db
+
+    # --- find a template department that already has config ---
+    from .routes.departments import build_department_list
+
+    template_db = None
+    for dep in build_department_list():
+        if dep == department_name:
+            continue
+        trial = _client[f"{base_name}_nursing_{dep}"]
+        if trial.shift_types.count_documents({}) > 0:
+            template_db = trial
+            break
+
+    if template_db is not None:
+        for st in template_db.shift_types.find():
+            st.pop("_id", None)
+            dept_db.shift_types.insert_one(st)
+        comp = template_db.shift_composition.find_one({}, {"_id": 0})
+        if comp:
+            dept_db.shift_composition.replace_one({}, comp, upsert=True)
+        for rule in template_db.attribute_rules.find():
+            rule.pop("_id", None)
+            dept_db.attribute_rules.insert_one(rule)
+        cfg = template_db.config.find_one({"key": "csv_column_headers"}, {"_id": 0})
+        if cfg:
+            dept_db.config.replace_one({"key": "csv_column_headers"}, cfg, upsert=True)
+    else:
+        from .routes.shift_composition import (
+            _NURSING_SHIFT_TYPES,
+            _NURSING_DEFAULT_COMPOSITION,
+        )
+        dept_db.shift_types.insert_many(
+            [copy.deepcopy(st) for st in _NURSING_SHIFT_TYPES]
+        )
+        dept_db.shift_composition.replace_one(
+            {},
+            {"shift_configs": copy.deepcopy(_NURSING_DEFAULT_COMPOSITION)},
+            upsert=True,
+        )
+        nursing_db = _client[f"{base_name}_nursing"]
+        cfg = nursing_db.config.find_one({"key": "csv_column_headers"}, {"_id": 0})
+        if cfg:
+            dept_db.config.replace_one({"key": "csv_column_headers"}, cfg, upsert=True)
+
+    return dept_db

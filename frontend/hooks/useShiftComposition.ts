@@ -7,35 +7,26 @@ export function useShiftComposition(modeOverride?: string) {
   const [data, setData] = useState<ShiftCompositionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const autoSeededRef = useRef(false);
+  const latestModeRef = useRef(modeOverride);
+  latestModeRef.current = modeOverride;
 
   const reload = useCallback(async () => {
+    const fetchMode = modeOverride;
     try {
-      const result = await api.getShiftComposition(modeOverride);
+      setLoading(true);
+      const result = await api.getShiftComposition(fetchMode);
+      if (latestModeRef.current !== fetchMode) return;
       setData(result);
       setError(null);
     } catch (e) {
+      if (latestModeRef.current !== fetchMode) return;
       setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (latestModeRef.current === fetchMode) setLoading(false);
     }
   }, [modeOverride]);
 
   useEffect(() => { reload(); }, [reload]);
-
-  // Auto-add reserve/special if nursing base shifts exist but they're missing
-  useEffect(() => {
-    if (!data || autoSeededRef.current) return;
-    const names = new Set(data.shift_configs.map(c => c.shift_name));
-    const baseNursing = ["משמרת בוקר", "משמרת ערב", "משמרת לילה"];
-    const missing = ["רזרבה", "משמרת מיוחדת"].filter(n => !names.has(n));
-    if (data.shift_configs.length > 0 && baseNursing.every(n => names.has(n)) && missing.length > 0) {
-      autoSeededRef.current = true;
-      api.seedNursingComposition(modeOverride).then(result => {
-        if (result.shift_configs) setData({ shift_configs: result.shift_configs });
-      }).catch(() => {});
-    }
-  }, [data, modeOverride]);
 
   const save = async (configs: ShiftConfig[]) => {
     const result = await api.saveShiftComposition({ shift_configs: configs }, modeOverride);
@@ -50,23 +41,28 @@ export function useShiftComposition(modeOverride?: string) {
   return { data, loading, error, reload, save, seedNursing };
 }
 
-export function useSpecialShifts(year: number) {
+export function useSpecialShifts(year: number, modeOverride?: string) {
   const [configs, setConfigs] = useState<SpecialShiftMonthConfig[]>([]);
   const [loading, setLoading] = useState(true);
+  const latestKeyRef = useRef(`${year}|${modeOverride}`);
+  latestKeyRef.current = `${year}|${modeOverride}`;
 
   const reload = useCallback(async () => {
+    const key = `${year}|${modeOverride}`;
     try {
-      const result = await api.getMonthlySpecialShifts(year);
+      setLoading(true);
+      const result = await api.getMonthlySpecialShifts(year, modeOverride);
+      if (latestKeyRef.current !== key) return;
       setConfigs(result);
     } finally {
-      setLoading(false);
+      if (latestKeyRef.current === key) setLoading(false);
     }
-  }, [year]);
+  }, [year, modeOverride]);
 
   useEffect(() => { reload(); }, [reload]);
 
   const setMonth = async (month: number, total_count: number, week_distribution?: number[], shift_name?: string) => {
-    const result = await api.setMonthlySpecialShifts(month, year, total_count, week_distribution, shift_name);
+    const result = await api.setMonthlySpecialShifts(month, year, total_count, week_distribution, shift_name, modeOverride);
     setConfigs(prev => {
       const next = prev.filter(c => !(c.shift_name === result.shift_name && c.month === month && c.year === year));
       if (result.total_count > 0) next.push({

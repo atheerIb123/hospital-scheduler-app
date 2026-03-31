@@ -1,8 +1,8 @@
 import traceback
-from datetime import datetime, timezone, date as date_type
+from datetime import datetime, timezone, date as date_type, timedelta
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
-from ..db import get_db, get_global_db
+from ..db import get_db, get_global_db, get_nursing_employees_db, get_client, ensure_nursing_dept_db
 from ..scheduler.solver import generate_schedule
 from .day_management import _get_weekday_scores
 from ..constants import JUSTICE_PTS
@@ -199,6 +199,279 @@ def generate():
         ), 500
 
 
+def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_days, constraints, shift_composition):
+    """Build weekly_grid and employee_plan from flat assignments."""
+    # Map day number → ISO date string
+    day_to_iso = {d.day: d.isoformat() for d in week_days}
+
+    # ── weekly_grid ──────────────────────────────────────────────────────────
+    weekly_grid = []
+    for shift in shift_types:
+        name = shift["names"][0] if shift.get("names") else shift.get("id", "")
+        hours = shift_composition.get(name, {}).get("hours", "")
+        by_day = {d.isoformat(): [] for d in week_days}
+        weekly_grid.append({"shift_name": name, "hours": hours, "by_day": by_day})
+
+    grid_by_name = {g["shift_name"]: g for g in weekly_grid}
+    for a in assignments:
+        iso = day_to_iso.get(a["day"])
+        g = grid_by_name.get(a["shift_name"])
+        if iso and g:
+            g["by_day"][iso].append({"employee_id": a["employee_id"], "employee_name": a["employee_name"]})
+
+    # ── employee_plan ─────────────────────────────────────────────────────────
+    week_isos = {d.isoformat() for d in week_days}
+
+    # constraint lookup: emp_name → day_iso → {full, reason, shifts}
+    c_lookup: dict = {}
+    for c in constraints:
+        iso = c.get("date", "")
+        if iso not in week_isos:
+            continue
+        emp = c.get("employee_name", "")
+        c_lookup.setdefault(emp, {})[iso] = {
+            "full": not bool(c.get("shifts")),
+            "reason": c.get("reason", ""),
+        }
+
+    # assignment lookup: emp_id → day_iso → [shift_name]
+    a_lookup: dict = {}
+    for a in assignments:
+        iso = day_to_iso.get(a["day"])
+        if iso:
+            a_lookup.setdefault(a["employee_id"], {}).setdefault(iso, []).append(a["shift_name"])
+
+    employee_plan = []
+    for emp in all_employees:
+        eid = str(emp.get("id") or emp.get("_id", ""))
+        name = emp["name"]
+        days_out = {}
+        for d in week_days:
+            iso = d.isoformat()
+            assigned = a_lookup.get(eid, {}).get(iso, [])
+            constraint = c_lookup.get(name, {}).get(iso)
+            if assigned:
+                days_out[iso] = [{"type": "shift", "shift_name": s} for s in assigned]
+            elif constraint and constraint["full"]:
+                days_out[iso] = [{"type": "constraint", "reason": constraint["reason"]}]
+            else:
+                days_out[iso] = [{"type": "off"}]
+        employee_plan.append({
+            "employee_id": eid,
+            "employee_name": name,
+            "home_department": emp.get("home_department", ""),
+            "active": emp.get("active", True),
+            "max_shifts_per_week": int(emp.get("max_shifts_per_week") or 6),
+            "days": days_out,
+        })
+
+    employee_plan.sort(key=lambda e: (not e["active"], e["employee_name"]))
+    return weekly_grid, employee_plan
+
+
+@schedule_bp.post("/schedules/generate-weekly")
+def generate_weekly():
+    """Generate a nursing weekly schedule for a specific 7-day window."""
+    db = get_db()
+    global_db = get_global_db()
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        week_start_str = data.get("week_start")
+        if not week_start_str:
+            return jsonify({"status": "failed", "reason": "week_start נדרש (YYYY-MM-DD)"}), 400
+
+        try:
+            week_start = date_type.fromisoformat(week_start_str)
+        except ValueError:
+            return jsonify({"status": "failed", "reason": "פורמט week_start לא תקין. נדרש YYYY-MM-DD"}), 400
+
+        # 7-day window starting from week_start
+        week_days = [week_start + timedelta(days=i) for i in range(7)]
+        month = week_start.month
+        year  = week_start.year
+
+        # Keep only days in the same month (weeks can straddle month boundaries)
+        same_month_days = [d for d in week_days if d.month == month]
+        specific_day_nums = [d.day for d in same_month_days]
+
+        department = data.get("department")  # optional department filter
+
+        # Employees live in the base nursing DB (shared across all departments)
+        all_employees = list(db.employees.find())
+        if department:
+            all_employees = [e for e in all_employees if e.get("home_department") == department]
+
+        # Each department has its own fully-provisioned DB.
+        # ensure_nursing_dept_db creates it (with shift types, composition,
+        # rules, column headers) if it doesn't exist yet.
+        if department:
+            dept_db = ensure_nursing_dept_db(department)
+        else:
+            dept_db = db
+
+        shift_types = [s for s in dept_db.shift_types.find() if not s.get("skip", False)]
+        rules = list(dept_db.attribute_rules.find())
+
+        month_prefix = f"{year:04d}-{month:02d}-"
+        constraints = list(db.constraints.find({"date": {"$regex": f"^{month_prefix}"}}))
+        day_settings = list(global_db.day_settings.find({"date": {"$regex": f"^{month_prefix}"}}))
+
+        if not all_employees:
+            return jsonify({"status": "failed", "reason": "אין עובדים מוגדרים."}), 400
+        if not shift_types:
+            return jsonify({"status": "failed", "reason": "אין סוגי משמרות מוגדרים."}), 400
+
+        weekday_scores = _get_weekday_scores(global_db)
+
+        # Day-type extra scores
+        day_type_score_map = {str(dt["_id"]): int(dt.get("score", 0)) for dt in global_db.day_types.find()}
+        day_extra_scores: dict = {}
+        for ds in day_settings:
+            dnum = int(ds["date"].split("-")[-1])
+            if dnum not in specific_day_nums:
+                continue
+            dt_id = ds.get("day_type_id", "")
+            extra = ds["score"] if ds.get("score") is not None else day_type_score_map.get(dt_id, 0)
+            day_extra_scores[dnum] = extra
+
+        # Historical justice (reuse same logic as monthly)
+        des_map: dict = {}
+        for st in dept_db.shift_types.find():
+            pts = JUSTICE_PTS.get(int(st.get("desirability", 3)), 4)
+            for n in st.get("names", []):
+                des_map[n] = pts
+
+        name_to_eid = {str(e["name"]): str(e["_id"]) for e in all_employees}
+        day_extra_by_date: dict = {}
+        for ds in global_db.day_settings.find():
+            dt_id = ds.get("day_type_id", "")
+            extra = ds["score"] if ds.get("score") is not None else day_type_score_map.get(dt_id, 0)
+            day_extra_by_date[ds["date"]] = extra
+
+        historical_justice: dict = {}
+        latest_per_month: dict = {}
+        for sched in dept_db.schedules.find(
+            {"status": "generated", "year": year, "month": {"$lte": month}},
+            sort=[("generated_at", 1)],
+        ):
+            latest_per_month[sched.get("month")] = sched
+        for sched in latest_per_month.values():
+            sy, sm = sched.get("year"), sched.get("month")
+            for a in sched.get("assignments", []):
+                eid = name_to_eid.get(a.get("employee_name", ""))
+                if not eid:
+                    continue
+                try:
+                    a_date = date_type(sy, sm, int(a["day"]))
+                except (ValueError, TypeError, KeyError):
+                    continue
+                pts = des_map.get(a.get("shift_name", ""), 4)
+                pts += weekday_scores.get(str(a_date.weekday()), 0)
+                pts += day_extra_by_date.get(a_date.isoformat(), 0)
+                historical_justice[eid] = historical_justice.get(eid, 0) + pts
+
+        # Nursing composition + special shifts
+        shift_composition_arg = None
+        col_header_names_arg = None
+        special_shifts_arg = None
+
+        # Each department DB is self-contained — no fallbacks
+        comp_doc = dept_db.shift_composition.find_one({}, {"_id": 0})
+        if comp_doc:
+            shift_composition_arg = {
+                cfg["shift_name"]: cfg
+                for cfg in comp_doc.get("shift_configs", [])
+                if cfg.get("shift_name")
+            }
+        cfg_doc = dept_db.config.find_one({"key": "csv_column_headers"})
+        if not cfg_doc:
+            cfg_doc = db.config.find_one({"key": "csv_column_headers"})
+        if cfg_doc:
+            col_header_names_arg = cfg_doc.get("headers", [])
+        special_shifts_arg = list(
+            dept_db.special_shifts_monthly.find({"month": month, "year": year}, {"_id": 0})
+        )
+
+        result = generate_schedule(
+            all_employees,
+            shift_types,
+            rules,
+            month,
+            year,
+            constraints,
+            day_settings,
+            historical_justice=historical_justice,
+            weekday_scores=weekday_scores,
+            day_extra_scores=day_extra_scores,
+            shift_composition=shift_composition_arg,
+            col_header_names=col_header_names_arg,
+            special_shifts_monthly=special_shifts_arg,
+            specific_days=specific_day_nums,
+            force_nursing_mode=True,
+        )
+        if result["status"] != "generated":
+            return jsonify({"status": "failed", "reason": result.get("reason", "שגיאה לא ידועה")}), 422
+
+        # Build nursing-specific outputs
+        weekly_grid, employee_plan = _build_nursing_weekly_outputs(
+            assignments=result["assignments"],
+            all_employees=all_employees,
+            shift_types=shift_types,
+            week_days=same_month_days,
+            constraints=constraints,
+            shift_composition=shift_composition_arg or {},
+        )
+
+        doc = {
+            "month": month,
+            "year": year,
+            "week_start": week_start_str,
+            "schedule_type": "weekly",
+            "department": department or "",
+            "generated_at": datetime.now(timezone.utc),
+            "status": "generated",
+            "assignments": result["assignments"],
+            "summary": result["summary"],
+            "weekly_grid": weekly_grid,
+            "employee_plan": employee_plan,
+        }
+
+        inserted = dept_db.schedules.insert_one(doc)
+        saved = dept_db.schedules.find_one({"_id": inserted.inserted_id})
+        saved["id"] = str(saved.pop("_id"))
+        saved["generated_at"] = saved["generated_at"].isoformat()
+        saved["warnings"] = result.get("warnings", [])
+
+        return jsonify(saved), 200
+
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"status": "failed", "reason": "שגיאת שרת פנימית. ראה לוג."}), 500
+
+
+@schedule_bp.get("/schedules/latest-weekly")
+def get_latest_weekly():
+    """Get the most recently generated weekly schedule for a given week_start."""
+    db = get_db()
+    week_start = request.args.get("week_start")
+    department = request.args.get("department")
+    query: dict = {"status": "generated", "schedule_type": "weekly"}
+    if week_start:
+        query["week_start"] = week_start
+    if department:
+        query["department"] = department
+        search_db = ensure_nursing_dept_db(department)
+    else:
+        search_db = db
+    schedule = search_db.schedules.find_one(query, sort=[("generated_at", -1)])
+    if not schedule:
+        return jsonify(None)
+    schedule["id"] = str(schedule.pop("_id"))
+    if "generated_at" in schedule:
+        schedule["generated_at"] = schedule["generated_at"].isoformat()
+    return jsonify(schedule)
+
+
 @schedule_bp.get("/schedules/latest")
 def get_latest():
     """
@@ -226,8 +499,53 @@ def update_assignments(schedule_id):
     db = get_db()
     data = request.get_json()
     assignments = data.get("assignments", [])
+
+    update_fields: dict = {"assignments": assignments}
+
+    existing = db.schedules.find_one({"_id": ObjectId(schedule_id)})
+    if existing and existing.get("schedule_type") == "weekly":
+        week_start_str = existing.get("week_start", "")
+        department = existing.get("department", "")
+        if week_start_str:
+            ws = date_type.fromisoformat(week_start_str)
+            week_days = [ws + timedelta(days=i) for i in range(7)]
+            same_month_days = [d for d in week_days if d.month == ws.month]
+
+            dept_db = ensure_nursing_dept_db(department) if department else db
+            shift_types = [
+                s for s in dept_db.shift_types.find()
+                if not s.get("skip", False)
+            ]
+            comp_doc = dept_db.shift_composition.find_one({}, {"_id": 0})
+            shift_composition = {}
+            if comp_doc:
+                for sc in comp_doc.get("shift_configs", []):
+                    shift_composition[sc["shift_name"]] = sc
+
+            emp_db = get_nursing_employees_db()
+            emp_query = {"active": {"$ne": False}}
+            if department:
+                emp_query["home_department"] = department
+            all_employees = []
+            for e in emp_db.employees.find(emp_query):
+                e["id"] = str(e.pop("_id"))
+                all_employees.append(e)
+
+            constraints = list(dept_db.constraints.find())
+
+            weekly_grid, employee_plan = _build_nursing_weekly_outputs(
+                assignments=assignments,
+                all_employees=all_employees,
+                shift_types=shift_types,
+                week_days=same_month_days,
+                constraints=constraints,
+                shift_composition=shift_composition,
+            )
+            update_fields["weekly_grid"] = weekly_grid
+            update_fields["employee_plan"] = employee_plan
+
     db.schedules.update_one(
-        {"_id": ObjectId(schedule_id)}, {"$set": {"assignments": assignments}}
+        {"_id": ObjectId(schedule_id)}, {"$set": update_fields}
     )
     schedule = db.schedules.find_one({"_id": ObjectId(schedule_id)})
     schedule["id"] = str(schedule.pop("_id"))

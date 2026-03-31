@@ -747,13 +747,17 @@ export default function ConstraintsPage() {
 
   const { constraints, loading, error, add, update, remove, clear, importCsv } = useConstraints();
   const { employees } = useEmployees();
-  const { shiftTypes } = useShiftTypes();
   const employeeNames = employees.map(e => e.name);
 
   // Departments derived from employees (nursing only)
   const departments = [...new Set(
     employees.filter(e => e.home_department).map(e => e.home_department as string)
   )].sort((a, b) => a.localeCompare(b, "he"));
+
+  // Load shift types from the department-specific DB so nursing shifts are shown
+  const shiftDept = filterDepartment || departments[0] || "";
+  const deptMode = isNursing && shiftDept ? `nursing_${shiftDept}` : undefined;
+  const { shiftTypes } = useShiftTypes(deptMode);
 
   // Employees visible in weekly table — filtered by department when one is selected
   const visibleEmployees = filterDepartment

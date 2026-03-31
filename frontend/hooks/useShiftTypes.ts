@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ShiftType, CreateShiftTypePayload } from "@/lib/types";
 import * as api from "@/lib/api";
 
@@ -8,20 +8,26 @@ export function useShiftTypes(modeOverride?: string) {
   const [columnHeaders, setColumnHeaders] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const latestModeRef = useRef(modeOverride);
+  latestModeRef.current = modeOverride;
 
   const reload = useCallback(async () => {
+    const fetchMode = modeOverride;
     try {
+      setLoading(true);
       const [data, headers] = await Promise.all([
-        api.getShiftTypes(modeOverride),
+        api.getShiftTypes(fetchMode),
         api.getColumnHeaders(),
       ]);
+      if (latestModeRef.current !== fetchMode) return;
       setShiftTypes(data);
       setColumnHeaders(headers);
       setError(null);
     } catch (e) {
+      if (latestModeRef.current !== fetchMode) return;
       setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (latestModeRef.current === fetchMode) setLoading(false);
     }
   }, [modeOverride]);
 

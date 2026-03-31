@@ -59,6 +59,11 @@ export interface ScheduleWarning {
   day: number;
   shift_type_id: string;
   shift_name: string;
+  type?: string;
+  employee_name?: string;
+  employee_id?: string;
+  assigned?: number;
+  max?: number;
 }
 
 export interface Schedule {
@@ -115,6 +120,7 @@ export interface RoleSlot {
   attribute_name: string;
   count: number;
   prefer_sub_attribute?: string;
+  score?: number;
 }
 
 export interface ShiftConfig {
@@ -163,4 +169,43 @@ export interface DaySetting {
   date: string;
   day_type_id: string;
   score?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Weekly Schedule (nursing)
+// ---------------------------------------------------------------------------
+
+export interface WeeklyShiftRow {
+  shift_name: string;
+  hours: string;
+  by_day: Record<string, { employee_id: string; employee_name: string }[]>;
+}
+
+export type DayStatus =
+  | { type: "shift"; shift_name: string }
+  | { type: "constraint"; reason: string }
+  | { type: "off" };
+
+export interface EmployeeWeekPlan {
+  employee_id: string;
+  employee_name: string;
+  home_department: string;
+  active: boolean;
+  max_shifts_per_week: number;
+  days: Record<string, DayStatus[]>;
+}
+
+export interface WeeklySchedule {
+  id: string;
+  week_start: string;
+  month: number;
+  year: number;
+  generated_at: string;
+  status: "generated" | "failed";
+  weekly_grid: WeeklyShiftRow[];
+  employee_plan: EmployeeWeekPlan[];
+  assignments?: Assignment[];
+  warnings?: ScheduleWarning[];
+  summary?: EmployeeSummary[];
+  reason?: string;
 }
