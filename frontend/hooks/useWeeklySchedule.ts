@@ -39,5 +39,15 @@ export function useWeeklySchedule(weekStart: string | null, department?: string)
     }
   };
 
-  return { schedule, loading, generating, error, generate };
+  const clear = async () => {
+    if (!schedule?.id) return;
+    try {
+      await api.deleteSchedule(schedule.id, department);
+      setSchedule(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return { schedule, loading, generating, error, generate, clear };
 }

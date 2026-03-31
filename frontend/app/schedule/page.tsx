@@ -9,7 +9,7 @@ import { useDayTypes } from "@/hooks/useDayTypes";
 import { useDaySettings } from "@/hooks/useDaySettings";
 import { Alert, Button, Input, SearchDropdown, DateRangePicker, MultiSelect, TabButton, TabsContainer, Select } from "@/components/ui";
 import type { DateRangeValue } from "@/components/ui";
-import { Loader2, Download, Save, AlertTriangle, Calendar, X, List, Users, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Download, Save, AlertTriangle, Calendar, X, List, Users, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import ScheduleTable from "@/components/ScheduleTable";
 import SummaryTable from "@/components/SummaryTable";
 import CalendarConfigurator from "@/components/CalendarConfigurator";
@@ -101,10 +101,11 @@ function NursingSchedulePage() {
     }
   }, [departments, selectedDept]);
 
-  const { schedule, loading, generating, error, generate } = useWeeklySchedule(
+  const { schedule, loading, generating, error, generate, clear } = useWeeklySchedule(
     selectedWeek,
     selectedDept || undefined,
   );
+  const [clearing, setClearing] = useState(false);
 
   // ── Local assignment state (ported from doctors mode) ──────────────────────
   const [localAssignments, setLocalAssignments] = useState<Assignment[]>([]);
@@ -338,6 +339,25 @@ function NursingSchedulePage() {
           >
             {generating ? "מחשב..." : "צור סידור שבועי"}
           </Button>
+
+          {schedule && (
+            <Button
+              variant="danger"
+              onClick={async () => {
+                if (!confirm("למחוק את הסידור לשבוע הנבחר?")) return;
+                setClearing(true);
+                await clear();
+                setLocalAssignments([]);
+                setChangedCells(new Set());
+                setSaveSuccess(false);
+                setClearing(false);
+              }}
+              disabled={clearing}
+              icon={clearing ? <Loader2 className="animate-spin h-4 w-4" /> : <Trash2 className="w-4 h-4" />}
+            >
+              {clearing ? "מוחק..." : "מחק סידור"}
+            </Button>
+          )}
         </div>
 
         {/* Row 2: week selector */}
