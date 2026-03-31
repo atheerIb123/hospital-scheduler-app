@@ -11,6 +11,7 @@ from .departments import departments_bp
 from .shift_composition import shift_composition_bp
 from .special_shifts import special_shifts_bp
 from .shift_overrides import shift_overrides_bp
+from .locked_pre_assignments import locked_pre_bp
 
 
 def register_routes(app):
@@ -27,3 +28,4 @@ def register_routes(app):
     app.register_blueprint(shift_composition_bp, url_prefix="/api")
     app.register_blueprint(special_shifts_bp, url_prefix="/api")
     app.register_blueprint(shift_overrides_bp, url_prefix="/api")
+    app.register_blueprint(locked_pre_bp, url_prefix="/api")

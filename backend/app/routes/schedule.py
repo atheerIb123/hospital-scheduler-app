@@ -199,7 +199,7 @@ def generate():
         ), 500
 
 
-def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_days, constraints, shift_composition):
+def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_days, constraints, shift_composition, cross_dept_assignments=None):
     """Build weekly_grid and employee_plan from flat assignments."""
     # Map day number → ISO date string
     day_to_iso = {d.day: d.isoformat() for d in week_days}
@@ -217,7 +217,13 @@ def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_
         iso = day_to_iso.get(a["day"])
         g = grid_by_name.get(a["shift_name"])
         if iso and g:
-            g["by_day"][iso].append({"employee_id": a["employee_id"], "employee_name": a["employee_name"]})
+            entry = {"employee_id": a["employee_id"], "employee_name": a["employee_name"]}
+            # Pre-assigned employees (with explicit role_slot) go first so the
+            # leader badge is correctly attributed to them in the frontend.
+            if a.get("role_slot"):
+                g["by_day"][iso].insert(0, entry)
+            else:
+                g["by_day"][iso].append(entry)
 
     # ── employee_plan ─────────────────────────────────────────────────────────
     week_isos = {d.isoformat() for d in week_days}
@@ -241,6 +247,18 @@ def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_
         if iso:
             a_lookup.setdefault(a["employee_id"], {}).setdefault(iso, []).append(a["shift_name"])
 
+    # cross-dept lookup: employee_id → day_number → {shift_name, department}
+    cd_lookup: dict = {}
+    if cross_dept_assignments:
+        for la in cross_dept_assignments:
+            eid_la = la.get("employee_id", "")
+            day_la = la.get("day")
+            if eid_la and day_la is not None:
+                cd_lookup.setdefault(eid_la, {})[day_la] = {
+                    "shift_name": la.get("shift_name", ""),
+                    "department": la.get("department", ""),
+                }
+
     employee_plan = []
     for emp in all_employees:
         eid = str(emp.get("id") or emp.get("_id", ""))
@@ -250,8 +268,11 @@ def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_
             iso = d.isoformat()
             assigned = a_lookup.get(eid, {}).get(iso, [])
             constraint = c_lookup.get(name, {}).get(iso)
+            cross = cd_lookup.get(eid, {}).get(d.day)
             if assigned:
                 days_out[iso] = [{"type": "shift", "shift_name": s} for s in assigned]
+            elif cross:
+                days_out[iso] = [{"type": "cross_dept", "shift_name": cross["shift_name"], "department": cross["department"]}]
             elif constraint and constraint["full"]:
                 days_out[iso] = [{"type": "constraint", "reason": constraint["reason"]}]
             else:
@@ -295,11 +316,45 @@ def generate_weekly():
         specific_day_nums = [d.day for d in same_month_days]
 
         department = data.get("department")  # optional department filter
+        locked_assignments = data.get("locked_assignments", [])  # pre-assigned slots
 
         # Employees live in the base nursing DB (shared across all departments)
-        all_employees = list(db.employees.find())
+        all_employees_db = list(db.employees.find())
         if department:
-            all_employees = [e for e in all_employees if e.get("home_department") == department]
+            all_employees = [e for e in all_employees_db if e.get("home_department") == department]
+        else:
+            all_employees = all_employees_db
+
+        # ── Load all locked pre-assignments for this week from DB ─────────────
+        # Must happen before cross-dept employee inclusion below.
+        nursing_db = get_nursing_employees_db()
+        all_week_locked = list(nursing_db.locked_pre_assignments.find(
+            {"week_start": week_start_str}, {"_id": 0}
+        ))
+
+        # If not sent from frontend, load locked assignments from DB for this dept
+        if not locked_assignments and department:
+            locked_assignments = [la for la in all_week_locked if la.get("department") == department]
+
+        # Add cross-department employees who appear in locked_assignments but
+        # are not in this department's employee list (e.g. a הדס nurse pre-assigned
+        # to an אלון shift).  They are included with max_shifts_per_week capped to
+        # exactly the number of slots locked for them so the solver cannot freely
+        # schedule them beyond those pre-assigned shifts.
+        if department and locked_assignments:
+            dept_id_set = {str(e["_id"]) for e in all_employees}
+            cross_counts: dict = {}
+            for la in locked_assignments:
+                eid = la.get("employee_id", "")
+                if eid and eid not in dept_id_set:
+                    cross_counts[eid] = cross_counts.get(eid, 0) + 1
+            if cross_counts:
+                for emp in all_employees_db:
+                    eid = str(emp["_id"])
+                    if eid in cross_counts:
+                        emp_copy = dict(emp)
+                        emp_copy["max_shifts_per_week"] = cross_counts[eid]
+                        all_employees.append(emp_copy)
 
         # Each department has its own fully-provisioned DB.
         # ensure_nursing_dept_db creates it (with shift types, composition,
@@ -392,6 +447,40 @@ def generate_weekly():
             dept_db.special_shifts_monthly.find({"month": month, "year": year}, {"_id": 0})
         )
 
+        # ── Locked assignments fallback ───────────────────────────────────────
+        # DB load already done above. Fall back to preserving manual edits from
+        # an existing generated schedule if no locked assignments found.
+        if not locked_assignments:
+            existing_schedule = dept_db.schedules.find_one(
+                {"week_start": week_start_str, "department": department, "status": "generated"},
+                sort=[("generated_at", -1)]
+            )
+            if existing_schedule and existing_schedule.get("assignments"):
+                locked_assignments = [
+                    {
+                        "employee_id": a["employee_id"],
+                        "shift_name": a["shift_name"],
+                        "day": a["day"]
+                    }
+                    for a in existing_schedule["assignments"]
+                    if a["day"] in specific_day_nums
+                ]
+
+        # ── Compute extra_blocked_days from cross-dept locked assignments ─────
+        # If a home-dept employee is locked to ANOTHER dept's shift, block them
+        # from being scheduled in their home dept on those days.
+        extra_blocked_days: dict = {}
+        cross_dept_assignments_for_plan = []
+        if department and all_week_locked:
+            dept_emp_ids = {str(e["_id"]) for e in all_employees}
+            for la in all_week_locked:
+                if la.get("department") != department:  # assignment to a different dept
+                    eid = la.get("employee_id", "")
+                    day = la.get("day")
+                    if eid and day is not None and eid in dept_emp_ids:
+                        extra_blocked_days.setdefault(eid, []).append(day)
+                        cross_dept_assignments_for_plan.append(la)
+
         result = generate_schedule(
             all_employees,
             shift_types,
@@ -408,6 +497,8 @@ def generate_weekly():
             special_shifts_monthly=special_shifts_arg,
             specific_days=specific_day_nums,
             force_nursing_mode=True,
+            locked_assignments=locked_assignments,
+            extra_blocked_days=extra_blocked_days or None,
         )
         if result["status"] != "generated":
             return jsonify({"status": "failed", "reason": result.get("reason", "שגיאה לא ידועה")}), 422
@@ -420,6 +511,7 @@ def generate_weekly():
             week_days=same_month_days,
             constraints=constraints,
             shift_composition=shift_composition_arg or {},
+            cross_dept_assignments=cross_dept_assignments_for_plan or None,
         )
 
         doc = {
@@ -458,11 +550,11 @@ def get_latest_weekly():
     query: dict = {"status": "generated", "schedule_type": "weekly"}
     if week_start:
         query["week_start"] = week_start
-    if department:
-        query["department"] = department
-        search_db = ensure_nursing_dept_db(department)
-    else:
-        search_db = db
+        if department:
+            query["department"] = department
+            search_db = ensure_nursing_dept_db(department)
+        else:
+            search_db = db
     schedule = search_db.schedules.find_one(query, sort=[("generated_at", -1)])
     if not schedule:
         return jsonify(None)
@@ -470,6 +562,26 @@ def get_latest_weekly():
     if "generated_at" in schedule:
         schedule["generated_at"] = schedule["generated_at"].isoformat()
     return jsonify(schedule)
+
+
+@schedule_bp.delete("/schedules/latest-weekly")
+def delete_latest_weekly():
+    """Delete the most recently generated weekly schedule for a given week_start and department."""
+    db = get_db()
+    week_start = request.args.get("week_start")
+    department = request.args.get("department")
+    query: dict = {"status": "generated", "schedule_type": "weekly"}
+    if week_start:
+        query["week_start"] = week_start
+    if department:
+        query["department"] = department
+        search_db = ensure_nursing_dept_db(department)
+    else:
+        search_db = db
+    result = search_db.schedules.delete_one(query)
+    if result.deleted_count > 0:
+        return jsonify({"deleted": True})
+    return jsonify({"deleted": False, "reason": "לא נמצא לוח זמנים למחיקה"}), 404
 
 
 @schedule_bp.get("/schedules/latest")
@@ -511,21 +623,39 @@ def delete_schedule(schedule_id):
 @schedule_bp.route("/schedules/<schedule_id>/assignments", methods=["PATCH"])
 def update_assignments(schedule_id):
     db = get_db()
-    data = request.get_json()
+    data = request.get_json() or {}
     assignments = data.get("assignments", [])
+    # Optional: frontend may pass department to locate the right nursing dept DB
+    dept_hint = data.get("department", "")
 
     update_fields: dict = {"assignments": assignments}
 
-    existing = db.schedules.find_one({"_id": ObjectId(schedule_id)})
-    if existing and existing.get("schedule_type") == "weekly":
+    try:
+        oid = ObjectId(schedule_id)
+    except Exception:
+        return jsonify({"error": "invalid id"}), 400
+
+    # Locate the correct DB — check base DB first, then nursing dept DB if hinted
+    target_db = db
+    existing = db.schedules.find_one({"_id": oid})
+    if existing is None and dept_hint:
+        dept_db_candidate = ensure_nursing_dept_db(dept_hint)
+        existing = dept_db_candidate.schedules.find_one({"_id": oid})
+        if existing is not None:
+            target_db = dept_db_candidate
+
+    if existing is None:
+        return jsonify({"error": "לא נמצא"}), 404
+
+    if existing.get("schedule_type") == "weekly":
         week_start_str = existing.get("week_start", "")
-        department = existing.get("department", "")
+        department = existing.get("department", "") or dept_hint
         if week_start_str:
             ws = date_type.fromisoformat(week_start_str)
             week_days = [ws + timedelta(days=i) for i in range(7)]
             same_month_days = [d for d in week_days if d.month == ws.month]
 
-            dept_db = ensure_nursing_dept_db(department) if department else db
+            dept_db = ensure_nursing_dept_db(department) if department else target_db
             shift_types = [
                 s for s in dept_db.shift_types.find()
                 if not s.get("skip", False)
@@ -537,7 +667,7 @@ def update_assignments(schedule_id):
                     shift_composition[sc["shift_name"]] = sc
 
             emp_db = get_nursing_employees_db()
-            emp_query = {"active": {"$ne": False}}
+            emp_query: dict = {"active": {"$ne": False}}
             if department:
                 emp_query["home_department"] = department
             all_employees = []
@@ -545,7 +675,8 @@ def update_assignments(schedule_id):
                 e["id"] = str(e.pop("_id"))
                 all_employees.append(e)
 
-            constraints = list(dept_db.constraints.find())
+            month_prefix = f"{ws.year:04d}-{ws.month:02d}-"
+            constraints = list(db.constraints.find({"date": {"$regex": f"^{month_prefix}"}}))
 
             weekly_grid, employee_plan = _build_nursing_weekly_outputs(
                 assignments=assignments,
@@ -558,14 +689,12 @@ def update_assignments(schedule_id):
             update_fields["weekly_grid"] = weekly_grid
             update_fields["employee_plan"] = employee_plan
 
-    db.schedules.update_one(
-        {"_id": ObjectId(schedule_id)}, {"$set": update_fields}
-    )
-    schedule = db.schedules.find_one({"_id": ObjectId(schedule_id)})
-    schedule["id"] = str(schedule.pop("_id"))
-    if "generated_at" in schedule:
-        schedule["generated_at"] = schedule["generated_at"].isoformat()
-    return jsonify(schedule)
+    target_db.schedules.update_one({"_id": oid}, {"$set": update_fields})
+    saved = target_db.schedules.find_one({"_id": oid})
+    saved["id"] = str(saved.pop("_id"))
+    if "generated_at" in saved:
+        saved["generated_at"] = saved["generated_at"].isoformat()
+    return jsonify(saved)
 
 
 @schedule_bp.get("/justice")

@@ -45,6 +45,8 @@ export interface Assignment {
   shift_name: string;
   employee_id: string;
   employee_name: string;
+  role_slot?: string;    // role slot attribute_name (for pre-assignment)
+  department?: string;   // owning department (for pre-assignment)
 }
 
 export interface EmployeeSummary {
@@ -178,12 +180,15 @@ export interface DaySetting {
 export interface WeeklyShiftRow {
   shift_name: string;
   hours: string;
+  role_slot?: string;   // set when this row represents one role slot within the shift
+  slot_count?: number;  // expected workers for this role slot
   by_day: Record<string, { employee_id: string; employee_name: string }[]>;
 }
 
 export type DayStatus =
   | { type: "shift"; shift_name: string }
   | { type: "constraint"; reason: string }
+  | { type: "cross_dept"; shift_name: string; department: string }
   | { type: "off" };
 
 export interface EmployeeWeekPlan {
@@ -192,6 +197,7 @@ export interface EmployeeWeekPlan {
   home_department: string;
   active: boolean;
   max_shifts_per_week: number;
+  attributes?: string[]; // col_N keys, for role eligibility filtering
   days: Record<string, DayStatus[]>;
 }
 

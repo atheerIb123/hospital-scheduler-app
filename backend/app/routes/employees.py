@@ -510,9 +510,9 @@ def import_employees():
 
         imported_names.add(e["name"])
 
-    # For general imports: remove employees not present in the file
-    if not target_department:
-        db.employees.delete_many({"name": {"$nin": list(imported_names)}})
+    # Department-specific imports never delete employees from other departments.
+    # General imports also do not delete employees missing from the file —
+    # import is additive/update-only; deletions must be done manually.
 
     # Store column headers for UI display
     if col_headers:

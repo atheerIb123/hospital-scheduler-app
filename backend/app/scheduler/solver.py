@@ -63,6 +63,8 @@ def generate_schedule(
     # [{shift_name, total_count, week_distribution?: [w0,w1,w2,w3]}]
     specific_days: Optional[List[int]] = None,
     force_nursing_mode: bool = False,
+    locked_assignments: Optional[List[Dict]] = None,
+    extra_blocked_days: Optional[Dict[str, List[int]]] = None,
 ) -> Dict[str, Any]:
     """
     Generate a monthly schedule using OR-Tools CP-SAT.
@@ -203,6 +205,12 @@ def generate_schedule(
             else:
                 blocked_shifts[eid].setdefault(cdate.day, set()).update(shift_names)
 
+    # ── Apply extra blocked days (e.g., from cross-dept pre-assignments) ─────
+    if extra_blocked_days:
+        for eid, blocked in extra_blocked_days.items():
+            if eid in blocked_days:
+                blocked_days[eid].update(blocked)
+
     # ── Schedulable shift types ──────────────────────────────────────────────
     schedulable = [
         s for s in shift_types
@@ -267,6 +275,51 @@ def generate_schedule(
                 if day_blocked and shift_primary in day_blocked:
                     continue
                 x[(eid, sid, day)] = model.NewBoolVar(f"x_{eid}_{sid}_{day}")
+
+    # ── Locked assignments (pre-assignments from UI) ──────────────────────────
+    shift_name_to_id: Dict[str, str] = {}
+    for st in shift_types:
+        for n in st.get("names", []):
+            shift_name_to_id[n] = st["id"]
+
+    # locked_role_slot_map: (eid, sid, day) -> role_slot_name
+    # Used to (a) inject the role attribute so C5 counts the locked employee,
+    # and (b) carry role_slot through to assignment output.
+    locked_role_slot_map: Dict[tuple, str] = {}
+
+    if locked_assignments:
+        emp_id_set = {e["id"] for e in active_employees}
+        for la in locked_assignments:
+            eid = la.get("employee_id", "")
+            shift_name = la.get("shift_name", "")
+            day = la.get("day")
+            if not eid or not shift_name or day is None:
+                continue
+            if eid not in emp_id_set:
+                continue
+            sid = shift_name_to_id.get(shift_name)
+            if not sid:
+                continue
+            # Force-create variable if it doesn't exist (bypasses eligibility)
+            if (eid, sid, day) not in x:
+                x[(eid, sid, day)] = model.NewBoolVar(f"x_{eid}_{sid}_{day}")
+            model.Add(x[(eid, sid, day)] == 1)
+
+            # Track role_slot for output and attribute injection
+            role_slot_name = la.get("role_slot", "")
+            if role_slot_name and role_slot_name != "__free__":
+                locked_role_slot_map[(eid, sid, day)] = role_slot_name
+                # Inject the role attribute so this employee satisfies C5
+                # for that role slot (even if they're from a different dept).
+                attr_col = name_to_col.get(role_slot_name)
+                if attr_col:
+                    for emp in active_employees:
+                        if emp["id"] == eid:
+                            attrs = list(emp.get("attributes", []))
+                            if attr_col not in attrs:
+                                attrs.append(attr_col)
+                                emp["attributes"] = attrs
+                            break
 
     # ── C2 – Coverage: fill total_workers slots per shift-day ────────────────
     # Special shifts (is_special=True) are excluded from per-day coverage;
@@ -678,13 +731,17 @@ def generate_schedule(
             for emp in active_employees:
                 eid = emp["id"]
                 if (eid, sid, day) in x and solver.Value(x[(eid, sid, day)]) == 1:
-                    assignments.append({
+                    a = {
                         "day":           day,
                         "shift_type_id": sid,
                         "shift_name":    name,
                         "employee_id":   eid,
                         "employee_name": emp["name"],
-                    })
+                    }
+                    role_slot = locked_role_slot_map.get((eid, sid, day))
+                    if role_slot:
+                        a["role_slot"] = role_slot
+                    assignments.append(a)
 
     # ── Detect consecutive same-day violations in output ────────────────────
     name_for_sid = {s["id"]: (s["names"][0] if s.get("names") else s["id"]) for s in shift_types}
