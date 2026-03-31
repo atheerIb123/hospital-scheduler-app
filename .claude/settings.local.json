@@ -8,7 +8,8 @@
       "Bash(ls -la /c/Users/guyah/Documents/validation/team/sm/hospital-scheduler-app/frontend/components/*.tsx)",
       "Bash(npm install:*)",
       "Bash(node -e \"const lucide = require\\(''c:/Users/guyah/Documents/validation/team/sm/hospital-scheduler-app/frontend/node_modules/lucide-react''\\); const icons = [''X'',''Trash2'',''Pencil'',''Plus'',''ChevronDown'',''ChevronUp'',''ChevronLeft'',''ChevronRight'',''Calendar'',''Download'',''Save'',''Loader2'',''AlertTriangle'',''Check'',''ArrowLeftRight'',''FileUp'',''RotateCcw'',''Activity'',''Building2'',''Users'',''FolderOpen'',''Ban'',''Handshake'',''List'',''GripVertical'',''CheckCircle2'',''Minus'',''Star'',''Heart'']; icons.forEach\\(i => console.log\\(i, !!lucide[i]\\)\\)\")",
-      "Bash(node -e \"const lucide = require\\(''./node_modules/lucide-react''\\); const icons = [''X'',''Trash2'',''Pencil'',''Plus'',''ChevronDown'',''ChevronUp'',''ChevronLeft'',''ChevronRight'',''Calendar'',''Download'',''Save'',''Loader2'',''AlertTriangle'',''Check'',''ArrowLeftRight'',''FileUp'',''RotateCcw'',''Activity'',''Building2'',''Users'',''FolderOpen'',''Ban'',''Handshake'',''List'',''GripVertical'',''CheckCircle2'',''Minus'']; icons.forEach\\(function\\(i\\){console.log\\(i, typeof lucide[i]\\)}\\)\")"
+      "Bash(node -e \"const lucide = require\\(''./node_modules/lucide-react''\\); const icons = [''X'',''Trash2'',''Pencil'',''Plus'',''ChevronDown'',''ChevronUp'',''ChevronLeft'',''ChevronRight'',''Calendar'',''Download'',''Save'',''Loader2'',''AlertTriangle'',''Check'',''ArrowLeftRight'',''FileUp'',''RotateCcw'',''Activity'',''Building2'',''Users'',''FolderOpen'',''Ban'',''Handshake'',''List'',''GripVertical'',''CheckCircle2'',''Minus'']; icons.forEach\\(function\\(i\\){console.log\\(i, typeof lucide[i]\\)}\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''backend/app/routes/schedule.py''\\).read\\(\\)\\); print\\(''OK''\\)\")"
     ]
   }
 }

@@ -155,11 +155,11 @@ function SingleShiftConfig({
   );
 }
 
-export default function SpecialShiftMonthlyConfig({ shiftTypes }: { shiftTypes: ShiftType[] }) {
+export default function SpecialShiftMonthlyConfig({ shiftTypes, modeOverride }: { shiftTypes: ShiftType[]; modeOverride?: string }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1-based
-  const { getCount, getDistribution, setMonth: saveMonth, loading } = useSpecialShifts(year);
+  const { getCount, getDistribution, setMonth: saveMonth, loading } = useSpecialShifts(year, modeOverride);
 
   const weeks = weeksInMonth(year, month);
 

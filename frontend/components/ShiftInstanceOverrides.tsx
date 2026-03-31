@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type { ShiftOverride, RoleSlot, ShiftConfig, ShiftType } from "@/lib/types";
 import * as api from "@/lib/api";
 
@@ -419,14 +419,18 @@ export default function ShiftInstanceOverrides({
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<{ override: Partial<ShiftOverride>; rangeEnd?: string } | null>(null);
   const groupedOverrides = useMemo(() => groupShiftOverrides(overrides), [overrides]);
+  const latestKeyRef = useRef(`${year}|${month}|${modeOverride}`);
+  latestKeyRef.current = `${year}|${month}|${modeOverride}`;
 
   const reload = useCallback(async () => {
+    const key = `${year}|${month}|${modeOverride}`;
     setLoading(true);
     try {
       const result = await api.getShiftOverrides(year, month, modeOverride);
+      if (latestKeyRef.current !== key) return;
       setOverrides(result.sort((a, b) => a.date.localeCompare(b.date) || a.shift_name.localeCompare(b.shift_name)));
     } finally {
-      setLoading(false);
+      if (latestKeyRef.current === key) setLoading(false);
     }
   }, [year, month, modeOverride]);
 

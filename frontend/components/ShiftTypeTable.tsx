@@ -305,7 +305,7 @@ export default function ShiftTypeTable({
               <tr className="bg-slate-50 border-b border-slate-200 text-right">
                 <th className="px-4 py-3 font-semibold text-slate-500 w-10 text-center">#</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">שם משמרת</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">תכונות נדרשות</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{onSaveComposition ? "הרכב תפקידים" : "תכונות נדרשות"}</th>
                 <th className="px-4 py-3 font-semibold text-slate-600 text-center w-28">ימי תזמון</th>
                 <th className="px-4 py-3 font-semibold text-slate-600 text-center w-36">ניקוד רצוי</th>
                 {onSaveComposition && <th className="px-4 py-3 font-semibold text-slate-600 text-center w-20">מיוחדת</th>}
@@ -478,44 +478,60 @@ function ShiftTypeRow({
           />
         </td>
 
-        {/* Required attributes — click to edit */}
+        {/* Required attributes — derived from role_slots in nursing, editable otherwise */}
         <td className="px-4 py-3">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setAttrOpen((v) => !v)}
-              className={`group w-full text-right flex flex-wrap gap-1.5 items-center rounded-lg px-2 py-1.5 border transition-all min-h-[2rem] ${attrOpen
-                  ? "border-blue-300 bg-blue-50/50 ring-2 ring-blue-100"
-                  : "border-transparent hover:border-slate-200 hover:bg-slate-50"
-                }`}
-            >
-              {localAttrs.length === 0 ? (
-                <span className="text-xs text-slate-400 italic flex items-center gap-1">
-                  ללא הגבלה
-                  <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
-                </span>
+          {onSaveComposition ? (
+            // Nursing mode: read-only display derived from composition role_slots
+            <div className="flex flex-wrap gap-1.5 items-center min-h-[2rem] px-2 py-1.5">
+              {displayConfig.role_slots.length === 0 ? (
+                <span className="text-xs text-slate-400 italic">לפי הרכב</span>
               ) : (
-                <>
-                  {localAttrs.map((attr) => (
-                    <Badge key={attr} className={attrToBadgeColor(attr)}>
-                      {attrToHeaderName(attr, columnHeaders)}
-                    </Badge>
-                  ))}
-                  <Pencil className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mr-auto" />
-                </>
+                displayConfig.role_slots.map((slot, i) => (
+                  <Badge key={i} className={attrToBadgeColor(slot.attribute_name)}>
+                    {slot.attribute_name} ×{slot.count}
+                  </Badge>
+                ))
               )}
-            </button>
+            </div>
+          ) : (
+            // Standard mode: manual editor
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setAttrOpen((v) => !v)}
+                className={`group w-full text-right flex flex-wrap gap-1.5 items-center rounded-lg px-2 py-1.5 border transition-all min-h-[2rem] ${attrOpen
+                    ? "border-blue-300 bg-blue-50/50 ring-2 ring-blue-100"
+                    : "border-transparent hover:border-slate-200 hover:bg-slate-50"
+                  }`}
+              >
+                {localAttrs.length === 0 ? (
+                  <span className="text-xs text-slate-400 italic flex items-center gap-1">
+                    ללא הגבלה
+                    <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                  </span>
+                ) : (
+                  <>
+                    {localAttrs.map((attr) => (
+                      <Badge key={attr} className={attrToBadgeColor(attr)}>
+                        {attrToHeaderName(attr, columnHeaders)}
+                      </Badge>
+                    ))}
+                    <Pencil className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mr-auto" />
+                  </>
+                )}
+              </button>
 
-            {attrOpen && (
-              <AttrEditor
-                attrs={localAttrs}
-                columnHeaders={columnHeaders}
-                saving={savingAttr}
-                onToggle={handleAttrToggle}
-                onClose={() => setAttrOpen(false)}
-              />
-            )}
-          </div>
+              {attrOpen && (
+                <AttrEditor
+                  attrs={localAttrs}
+                  columnHeaders={columnHeaders}
+                  saving={savingAttr}
+                  onToggle={handleAttrToggle}
+                  onClose={() => setAttrOpen(false)}
+                />
+              )}
+            </div>
+          )}
         </td>
 
         {/* Day-type selector */}

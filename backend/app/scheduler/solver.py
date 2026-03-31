@@ -9,6 +9,7 @@ from ..constants import JUSTICE_PTS
 CONSEC_PENALTY = 30        # penalty per consecutive-day pair (different days)
 DOUBLE_SHIFT_PENALTY = 80  # penalty per consecutive shift pair on the SAME day
 PREFER_BONUS = 3           # objective bonus for using preferred sub-attribute
+UNFILLED_PENALTY = 5000    # penalty per unfilled slot in nursing exact-staffing mode
 
 
 # ── Time helpers ─────────────────────────────────────────────────────────────
@@ -59,16 +60,20 @@ def generate_schedule(
     # ordered list of column-header display names → maps to col_1, col_2, …
     special_shifts_monthly: Optional[List[Dict]] = None,
     # [{shift_name, total_count, week_distribution?: [w0,w1,w2,w3]}]
+    specific_days: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """
     Generate a monthly schedule using OR-Tools CP-SAT.
 
     Hard constraints
     ----------------
-    C2  Every shift-day slot must be filled by exactly total_workers employees
+    C2  Every shift-day slot must be filled by total_workers employees
         (from shift_composition; defaults to 1 if not specified).
-        Slots with too few eligible employees are filled to capacity and a
-        warning is emitted.
+        Nursing mode: equality via slack variable — the solver fills
+        exactly total_workers; shortfalls are penalised (UNFILLED_PENALTY)
+        rather than making the model infeasible.
+        Doctors mode: soft upper bound (<= total_workers) with FILL_BONUS
+        incentive.  Understaffed slots emit a warning.
     C3  Each employee works at most 2 shifts per day.
     C4  Max shifts per week per employee (from employee.max_shifts_per_week,
         default 6).
@@ -94,7 +99,8 @@ def generate_schedule(
     5.  -PREFER_BONUS × preferred-sub-attribute role assignments (reward).
     """
     days_in_month = calendar.monthrange(year, month)[1]
-    days = list(range(1, days_in_month + 1))
+    all_days = list(range(1, days_in_month + 1))
+    days = specific_days if specific_days else all_days
 
     # ── Composition lookup ───────────────────────────────────────────────────
     comp: Dict[str, Dict] = shift_composition or {}
@@ -108,6 +114,11 @@ def generate_schedule(
     # Gender column keys (look for exact matches "גבר" / "אישה")
     male_col   = name_to_col.get("גבר")
     female_col = name_to_col.get("אישה")
+
+    # Pre-compute attr_col on each role_slot so eligibility matrix can use it
+    for shift_name, cfg in comp.items():
+        for slot in cfg.get("role_slots", []):
+            slot["attr_col"] = name_to_col.get(slot.get("attribute_name", ""))
 
     # ── Day-category sets ────────────────────────────────────────────────────
     day_overrides: Dict[int, str] = {}
@@ -158,7 +169,11 @@ def generate_schedule(
     if not active_employees:
         return {"status": "failed", "reason": "אין עובדים פעילים. הפעל לפחות עובד אחד."}
 
-    eligibility = build_eligibility_matrix(active_employees, shift_types, rules)
+    # Pass composition to eligibility builder for nursing mode
+    eligibility = build_eligibility_matrix(
+        active_employees, shift_types, rules,
+        composition=comp if comp else None,
+    )
 
     # ── Blocked days/shifts from constraints ─────────────────────────────────
     blocked_days:   Dict[str, set]            = {e["id"]: set() for e in active_employees}
@@ -187,7 +202,7 @@ def generate_schedule(
     # ── Schedulable shift types ──────────────────────────────────────────────
     schedulable = [
         s for s in shift_types
-        if any(eligibility[e["id"]][s["id"]] for e in active_employees)
+        if any(eligibility.get(e["id"], {}).get(s["id"], False) for e in active_employees)
     ]
     if not schedulable:
         return {
@@ -239,7 +254,7 @@ def generate_schedule(
         for shift in shift_types:
             sid = shift["id"]
             shift_primary = shift["names"][0] if shift.get("names") else ""
-            if not eligibility[eid][sid]:
+            if not eligibility.get(eid, {}).get(sid, False):
                 continue
             for day in applicable_days(shift):
                 if day in full_blocked:
@@ -250,12 +265,37 @@ def generate_schedule(
                 x[(eid, sid, day)] = model.NewBoolVar(f"x_{eid}_{sid}_{day}")
 
     # ── C2 – Coverage: fill total_workers slots per shift-day ────────────────
+    # Special shifts (is_special=True) are excluded from per-day coverage;
+    # their total count is capped globally via C7 instead.
+    special_shift_ids = {
+        s["id"] for s in shift_types if s.get("is_special")
+    }
+    # Build set of special shift names that already have a C7 entry
+    special_with_c7 = {
+        ssm.get("shift_name") for ssm in (special_shifts_monthly or [])
+        if ssm.get("shift_name")
+    }
+
     warnings: List[Dict] = []
+    nursing_mode = bool(comp)
+    nursing_slack_vars: List[Any] = []  # collected here, added to objective later
     for shift in shift_types:
         sid  = shift["id"]
         name = shift["names"][0] if shift.get("names") else sid
         shift_comp_cfg = comp.get(name, {})
         total_w = max(1, int(shift_comp_cfg.get("total_workers", 1)))
+
+        # Special shifts: apply a total-period cap instead of per-day coverage
+        if sid in special_shift_ids and name not in special_with_c7:
+            all_sv = [
+                x[(e["id"], sid, d)]
+                for e in active_employees
+                for d in applicable_days(shift)
+                if (e["id"], sid, d) in x
+            ]
+            if all_sv:
+                model.Add(cp_model.LinearExpr.Sum(all_sv) <= total_w)
+            continue
 
         for day in applicable_days(shift):
             covering = [
@@ -267,20 +307,56 @@ def generate_schedule(
                 warnings.append({"day": day, "shift_type_id": sid, "shift_name": name})
                 continue
 
-            if len(covering) < total_w:
-                # Not enough eligible employees — fill what we can, warn for shortfall
-                for _ in range(total_w - len(covering)):
-                    warnings.append({
-                        "day": day, "shift_type_id": sid, "shift_name": name,
-                        "issue": "understaffed",
-                    })
-                model.Add(cp_model.LinearExpr.Sum(covering) == len(covering))
+            if nursing_mode:
+                # Nursing: exact staffing via slack variable — the solver fills
+                # all slots unless C4/eligibility makes it impossible, in which
+                # case it minimises the shortfall instead of going infeasible.
+                actual_target = min(total_w, len(covering))
+                slack = model.NewIntVar(0, actual_target, f"slk_{sid}_{day}")
+                model.Add(
+                    cp_model.LinearExpr.Sum(covering) + slack == actual_target
+                )
+                nursing_slack_vars.append(slack)
+                if len(covering) < total_w:
+                    for _ in range(total_w - len(covering)):
+                        warnings.append({
+                            "day": day, "shift_type_id": sid, "shift_name": name,
+                            "issue": "understaffed",
+                        })
             else:
-                model.Add(cp_model.LinearExpr.Sum(covering) == total_w)
+                # Doctors: soft upper bound with fill incentive (existing behaviour)
+                model.Add(cp_model.LinearExpr.Sum(covering) <= total_w)
+                if len(covering) < total_w:
+                    for _ in range(total_w - len(covering)):
+                        warnings.append({
+                            "day": day, "shift_type_id": sid, "shift_name": name,
+                            "issue": "understaffed",
+                        })
 
-    # ── C5 – Role slot minimums ──────────────────────────────────────────────
+    # ── C5 – Role slot minimums (skip special shifts — they use global caps) ─
+    # Pre-compute total demand per attribute across all non-special shifts
+    # so we can skip hard enforcement when weekly capacity is insufficient.
+    attr_total_demand: Dict[str, int] = {}
+    attr_qualified_capacity: Dict[str, int] = {}
+    for shift in shift_types:
+        if shift["id"] in special_shift_ids:
+            continue
+        name = shift["names"][0] if shift.get("names") else shift["id"]
+        for slot in comp.get(name, {}).get("role_slots", []):
+            acol = name_to_col.get(slot.get("attribute_name", ""))
+            if not acol:
+                continue
+            n_days = len(applicable_days(shift))
+            attr_total_demand[acol] = attr_total_demand.get(acol, 0) + max(1, int(slot.get("count", 1))) * n_days
+            if acol not in attr_qualified_capacity:
+                qualified_emps = [e for e in active_employees if acol in e.get("attributes", [])]
+                cap = sum(int(e.get("max_shifts_per_week") or 6) for e in qualified_emps)
+                attr_qualified_capacity[acol] = cap
+
     for shift in shift_types:
         sid  = shift["id"]
+        if sid in special_shift_ids:
+            continue
         name = shift["names"][0] if shift.get("names") else sid
         role_slots = comp.get(name, {}).get("role_slots", [])
         for slot in role_slots:
@@ -288,19 +364,24 @@ def generate_schedule(
             if not attr_col:
                 continue
             req_count = max(1, int(slot.get("count", 1)))
+            # Skip hard enforcement when total demand for this attribute across
+            # all shifts exceeds the weekly capacity of qualified employees.
+            if attr_total_demand.get(attr_col, 0) > attr_qualified_capacity.get(attr_col, 0):
+                continue
             for day in applicable_days(shift):
                 qualified = [
                     x[(e["id"], sid, day)]
                     for e in active_employees
                     if attr_col in e.get("attributes", []) and (e["id"], sid, day) in x
                 ]
-                if len(qualified) >= req_count:
+                if len(qualified) > req_count:
                     model.Add(cp_model.LinearExpr.Sum(qualified) >= req_count)
-                # else: not enough qualified staff → skip hard constraint (will show via understaffed warning)
 
-    # ── C6 – Gender minimums ─────────────────────────────────────────────────
+    # ── C6 – Gender minimums (skip special shifts — they use global caps) ────
     for shift in shift_types:
         sid  = shift["id"]
+        if sid in special_shift_ids:
+            continue
         name = shift["names"][0] if shift.get("names") else sid
         cfg      = comp.get(name, {})
         min_male   = int(cfg.get("min_male", 0))
@@ -387,6 +468,11 @@ def generate_schedule(
     obj_terms:   List[Any] = []
     obj_weights: List[int] = []
 
+    # Nursing slack penalties (from C2): strongly penalise unfilled slots
+    for sv in nursing_slack_vars:
+        obj_terms.append(sv)
+        obj_weights.append(UNFILLED_PENALTY)
+
     # Term 1 – Justice spread
     max_w_per_slot = (
         max(JUSTICE_PTS.values())
@@ -433,10 +519,15 @@ def generate_schedule(
         obj_terms.append(range_jt)
         obj_weights.append(1)
 
-    # Term 2 – Scoped-shift fairness (כונן / weekend / friday — weighted 3×)
+    # Term 2 – Per-shift-type fairness (weighted 3×)
+    # Nursing mode: fair distribution across ALL non-special shifts (incl. reserve)
+    # Doctors mode: only scoped (weekend/friday) shifts (existing behaviour)
     all_days_set = set(days)
-    scoped_types = [s for s in shift_types if applicable_days(s) != all_days_set]
-    for fs in scoped_types:
+    if nursing_mode:
+        fairness_types = [s for s in shift_types if s["id"] not in special_shift_ids]
+    else:
+        fairness_types = [s for s in shift_types if applicable_days(s) != all_days_set]
+    for fs in fairness_types:
         fsid = fs["id"]
         app  = applicable_days(fs)
         eligible_emp = [
@@ -524,6 +615,20 @@ def generate_schedule(
                     if prefer_col in attrs and attr_col in attrs and (eid, sid, day) in x:
                         obj_terms.append(x[(eid, sid, day)])
                         obj_weights.append(-PREFER_BONUS)
+
+    # Term 6 – Fill bonus: reward filling regular shift slots
+    # (needed when C2 uses <= instead of == due to understaffing)
+    FILL_BONUS = 500  # large enough to dominate fairness terms
+    for shift in shift_types:
+        if shift["id"] in special_shift_ids:
+            continue  # special shifts are capped, not rewarded for filling
+        sid  = shift["id"]
+        for day in applicable_days(shift):
+            for emp in active_employees:
+                eid = emp["id"]
+                if (eid, sid, day) in x:
+                    obj_terms.append(x[(eid, sid, day)])
+                    obj_weights.append(-FILL_BONUS)
 
     if obj_terms:
         model.Minimize(cp_model.LinearExpr.WeightedSum(obj_terms, obj_weights))

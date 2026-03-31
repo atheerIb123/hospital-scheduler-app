@@ -329,7 +329,7 @@ export default function WeeklyConstraintsTable({
                 const wknd  = day.getDay() === 5 || day.getDay() === 6;
                 return (
                   <th key={i} className={[
-                    "py-2.5 px-2 text-center min-w-[90px] relative",
+                    "py-2.5 px-2 text-center min-w-[100px] relative",
                     today ? "bg-blue-50" : wknd ? "bg-amber-50/50" : "bg-slate-50",
                   ].join(" ")}>
                     {today && <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-blue-400" />}
@@ -363,13 +363,16 @@ export default function WeeklyConstraintsTable({
                   const wknd    = day.getDay() === 5 || day.getDay() === 6;
                   const today   = isToday(day);
 
+                  const isFullDay = blocked !== null && blocked.length === 0;
+                  const hasConstraint = blocked !== null;
+
                   return (
                     <td key={j}
                       onClick={e => !saving && openPopup(emp.name, day, e.currentTarget)}
                       className={[
-                        "px-2 py-2 text-center cursor-pointer transition-colors h-[44px]",
+                        "px-1.5 py-1.5 text-center cursor-pointer transition-colors h-[52px]",
                         today  ? "bg-blue-50/30"  : wknd ? "bg-amber-50/20" : "",
-                        (blocked !== null && blocked.length === 0) ? "!bg-red-50/60" : "",
+                        isFullDay ? "!bg-red-50/60" : "",
                         isOpen  ? "ring-2 ring-inset ring-blue-400" :
                         saving  ? "opacity-50 cursor-default" :
                                   "hover:bg-blue-50/50",
@@ -377,20 +380,27 @@ export default function WeeklyConstraintsTable({
                     >
                       {saving ? (
                         <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin mx-auto" />
-                      ) : blocked === null ? (
+                      ) : !hasConstraint ? (
                         <span className="text-slate-200 text-xs select-none">—</span>
-                      ) : blocked.length === 0 ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-600 border border-red-200">
-                          חופש
-                        </span>
-                      ) : (
-                        <span className="flex flex-wrap gap-0.5 justify-center">
-                          {blocked.map(s => (
-                            <span key={s} className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${shiftStyle(s).pill}`}>
-                              {s[0]}
+                      ) : isFullDay ? (
+                        <div className="flex flex-col gap-[3px] items-center">
+                          {shiftNames.map(s => (
+                            <span key={s} className="inline-flex items-center justify-center w-full max-w-[72px] px-1 py-[1px] rounded text-[9px] font-bold bg-red-500/90 text-white">
+                              {s}
                             </span>
                           ))}
-                        </span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-[3px] items-center">
+                          {blocked.map(s => {
+                            const st = shiftStyle(s);
+                            return (
+                              <span key={s} className={`inline-flex items-center justify-center w-full max-w-[72px] px-1 py-[1px] rounded text-[9px] font-bold ${st.active.replace(/border-\S+/g, "")}`}>
+                                {s}
+                              </span>
+                            );
+                          })}
+                        </div>
                       )}
                     </td>
                   );
@@ -412,14 +422,18 @@ export default function WeeklyConstraintsTable({
       <div className="flex items-center gap-4 px-5 py-2.5 border-t border-slate-100 bg-slate-50/40 flex-wrap">
         <span className="text-[11px] text-slate-400 font-medium">מקרא:</span>
         <span className="inline-flex items-center gap-1.5 text-[11px]">
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-600 border border-red-200">חופש</span>
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold bg-red-500/90 text-white">{shiftNames[0] ?? "בוקר"}</span>
           <span className="text-slate-500">חופש יומי</span>
         </span>
-        {shiftNames.map(sh => (
-          <span key={sh} className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${shiftStyle(sh).pill}`}>
-            {sh}
-          </span>
-        ))}
+        {shiftNames.map(sh => {
+          const st = shiftStyle(sh);
+          return (
+            <span key={sh} className="inline-flex items-center gap-1.5 text-[11px]">
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold ${st.active}`}>{sh}</span>
+              <span className="text-slate-500">חסום</span>
+            </span>
+          );
+        })}
         <span className="text-[11px] text-slate-400 mr-auto">לחץ על תא לעריכה</span>
       </div>
 
@@ -494,7 +508,8 @@ export default function WeeklyConstraintsTable({
                   <div className="flex gap-1.5">
                     {shiftNames.map(shift => {
                       const st = shiftStyle(shift);
-                      const isActive = blocked !== null && blocked.length > 0 && blocked.includes(shift);
+                      const isFullDay = blocked !== null && blocked.length === 0;
+                      const isActive = blocked !== null && (isFullDay || blocked.includes(shift));
                       return (
                         <button
                           key={shift}
@@ -502,7 +517,11 @@ export default function WeeklyConstraintsTable({
                           disabled={saving}
                           className={[
                             "flex-1 py-2.5 rounded-xl text-xs font-bold border-2 transition-all",
-                            isActive ? st.active + " shadow-sm" : st.inactive,
+                            isActive
+                              ? isFullDay
+                                ? "bg-red-500 text-white border-red-500 shadow-sm shadow-red-100"
+                                : st.active + " shadow-sm"
+                              : st.inactive,
                             saving ? "opacity-60 cursor-not-allowed" : "",
                           ].join(" ")}
                         >

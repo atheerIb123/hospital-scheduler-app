@@ -1,4 +1,4 @@
-import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload, DayType, DaySetting, ShiftCompositionData, ShiftConfig, SpecialShiftMonthConfig, ShiftOverride } from "./types";
+import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload, DayType, DaySetting, ShiftCompositionData, ShiftConfig, SpecialShiftMonthConfig, ShiftOverride, WeeklySchedule } from "./types";
 
 const BASE = "/api";
 
@@ -15,8 +15,8 @@ async function request<T>(path: string, options?: RequestInit, modeOverride?: st
     },
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
+    const err = await res.json().catch(() => ({})) as { error?: string; reason?: string };
+    throw new Error(err.reason ?? err.error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
@@ -175,6 +175,18 @@ export const generateSchedule = (month: number, year: number) =>
     method: "POST",
     body: JSON.stringify({ month, year }),
   });
+
+export const generateWeeklySchedule = (weekStart: string, department?: string) =>
+  request<WeeklySchedule>("/schedules/generate-weekly", {
+    method: "POST",
+    body: JSON.stringify({ week_start: weekStart, ...(department ? { department } : {}) }),
+  });
+
+export const getLatestWeeklySchedule = (weekStart: string, department?: string) => {
+  const params = new URLSearchParams({ week_start: weekStart });
+  if (department) params.set("department", department);
+  return request<WeeklySchedule | null>(`/schedules/latest-weekly?${params.toString()}`);
+};
 
 export const getScheduleByMonth = (month: number, year: number) =>
   request<Schedule | null>(`/schedules/latest?month=${month}&year=${year}`);
@@ -549,17 +561,18 @@ export const seedNursingComposition = (m?: string) =>
 // Special Shifts (monthly)
 // ---------------------------------------------------------------------------
 
-export const getMonthlySpecialShifts = (year?: number) =>
-  request<SpecialShiftMonthConfig[]>(`/special-shifts/monthly${year ? `?year=${year}` : ""}`);
+export const getMonthlySpecialShifts = (year?: number, m?: string) =>
+  request<SpecialShiftMonthConfig[]>(`/special-shifts/monthly${year ? `?year=${year}` : ""}`, undefined, m);
 
-export const setMonthlySpecialShifts = (month: number, year: number, total_count: number, week_distribution?: number[], shift_name?: string) =>
+export const setMonthlySpecialShifts = (month: number, year: number, total_count: number, week_distribution?: number[], shift_name?: string, m?: string) =>
   request<{ ok: boolean; shift_name: string; month: number; year: number; total_count: number; week_distribution?: number[] }>(
     "/special-shifts/monthly",
-    { method: "POST", body: JSON.stringify({ month, year, total_count, week_distribution, shift_name }) }
+    { method: "POST", body: JSON.stringify({ month, year, total_count, week_distribution, shift_name }) },
+    m,
   );
 
-export const deleteMonthlySpecialShifts = (year: number, month: number) =>
-  request<{ ok: boolean }>(`/special-shifts/monthly/${year}/${month}`, { method: "DELETE" });
+export const deleteMonthlySpecialShifts = (year: number, month: number, m?: string) =>
+  request<{ ok: boolean }>(`/special-shifts/monthly/${year}/${month}`, { method: "DELETE" }, m);
 
 export const getShiftOverrides = (year?: number, month?: number, m?: string) =>
   request<ShiftOverride[]>(`/shift-overrides${year ? `?year=${year}${month ? `&month=${month}` : ""}` : ""}`, undefined, m);

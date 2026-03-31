@@ -206,12 +206,20 @@ export default function ShiftCompositionConfig({
   columnHeaders,
   shiftTypes,
   modeOverride,
+  externalData,
+  externalSave,
 }: {
   columnHeaders: string[];
   shiftTypes: ShiftType[];
   modeOverride?: string;
+  externalData?: ShiftCompositionData | null;
+  externalSave?: (configs: ShiftConfig[]) => Promise<void>;
 }) {
-  const { data, loading, error: loadError, save } = useShiftComposition(modeOverride);
+  const hook = useShiftComposition(externalData !== undefined ? undefined : modeOverride);
+  const data    = externalData  !== undefined ? externalData  : hook.data;
+  const loading = externalData  !== undefined ? false         : hook.loading;
+  const loadError = externalData !== undefined ? null          : hook.error;
+  const save    = externalSave  !== undefined ? externalSave  : hook.save;
   const [configs, setConfigs] = useState<ShiftConfig[]>([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);

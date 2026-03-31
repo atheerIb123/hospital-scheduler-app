@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import * as XLSX from "xlsx";
 import * as api from "@/lib/api";
 import { useSchedule } from "@/hooks/useSchedule";
@@ -7,26 +7,252 @@ import { useShiftTypes } from "@/hooks/useShiftTypes";
 import { useEmployees } from "@/hooks/useEmployees";
 import { useDayTypes } from "@/hooks/useDayTypes";
 import { useDaySettings } from "@/hooks/useDaySettings";
-import { Alert, Button, Input, SearchDropdown, DateRangePicker, MultiSelect, TabButton, TabsContainer } from "@/components/ui";
+import { Alert, Button, Input, SearchDropdown, DateRangePicker, MultiSelect, TabButton, TabsContainer, Select } from "@/components/ui";
 import type { DateRangeValue } from "@/components/ui";
-import { Loader2, Download, Save, AlertTriangle, Calendar, X, List, Users } from "lucide-react";
+import { Loader2, Download, Save, AlertTriangle, Calendar, X, List, Users, ChevronLeft, ChevronRight } from "lucide-react";
 import ScheduleTable from "@/components/ScheduleTable";
 import SummaryTable from "@/components/SummaryTable";
 import CalendarConfigurator from "@/components/CalendarConfigurator";
 import { useConstraints } from "@/hooks/useConstraints";
 import { useMode } from "@/components/ModeProvider";
 import type { Assignment } from "@/lib/types";
+import { useWeeklySchedule } from "@/hooks/useWeeklySchedule";
+import WeeklyShiftGrid from "@/components/WeeklyShiftGrid";
+import EmployeeWeeklyPlan from "@/components/EmployeeWeeklyPlan";
 
 const MONTH_NAMES = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
 
+/** Returns the ISO date string of the Sunday starting the week that contains `d`. */
+function toWeekSunday(d: Date): string {
+  const sun = new Date(d);
+  sun.setDate(d.getDate() - d.getDay());
+  return sun.toISOString().split("T")[0];
+}
+
+/**
+ * Build a rolling window of week-start Sundays:
+ * pastWeeks weeks before the current week + current week + futureWeeks weeks ahead.
+ */
+function buildRollingWeeks(pastWeeks = 2, futureWeeks = 7): string[] {
+  const todaySunday = new Date(toWeekSunday(new Date()) + "T12:00:00");
+  const weeks: string[] = [];
+  for (let i = -pastWeeks; i <= futureWeeks; i++) {
+    const d = new Date(todaySunday);
+    d.setDate(d.getDate() + i * 7);
+    weeks.push(d.toISOString().split("T")[0]);
+  }
+  return weeks;
+}
+
+function weekLabel(iso: string) {
+  const start = new Date(iso + "T12:00:00");
+  const end = new Date(iso + "T12:00:00");
+  end.setDate(end.getDate() + 6);
+  const fmt = (d: Date) =>
+    `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+// ─── Nursing Schedule View ────────────────────────────────────────────────────
+
+function NursingSchedulePage() {
+  const { employees } = useEmployees();
+  const rollingWeeks = useMemo(() => buildRollingWeeks(2, 7), []);
+  const currentWeekIso = toWeekSunday(new Date());
+
+  // Department selector — derived from employees
+  const departments = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of employees) {
+      if (e.home_department) set.add(e.home_department);
+    }
+    return Array.from(set).sort();
+  }, [employees]);
+
+  const [selectedDept, setSelectedDept] = useState<string>("");
+  const [selectedWeek, setSelectedWeek] = useState<string>(currentWeekIso);
+  const [weeklyTab, setWeeklyTab] = useState<"grid" | "plan">("grid");
+
+  // Sync department default when employees load
+  useEffect(() => {
+    if (!selectedDept && departments.length > 0) {
+      setSelectedDept(departments[0]);
+    }
+  }, [departments, selectedDept]);
+
+  const { schedule, loading, generating, error, generate } = useWeeklySchedule(
+    selectedWeek,
+    selectedDept || undefined,
+  );
+
+  // week nav arrows
+  const weekIdx = rollingWeeks.indexOf(selectedWeek);
+  const canPrev = weekIdx > 0;
+  const canNext = weekIdx < rollingWeeks.length - 1;
+
+  const weekDays = useMemo(() => {
+    if (schedule?.weekly_grid?.[0]) return Object.keys(schedule.weekly_grid[0].by_day).sort();
+    if (schedule?.employee_plan?.[0]) return Object.keys(schedule.employee_plan[0].days).sort();
+    return [];
+  }, [schedule]);
+
+  return (
+    <div className="flex flex-col gap-5 fade-in" dir="rtl">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold text-slate-800">סידור עבודה שבועי — סיעוד</h1>
+        <p className="text-slate-500 mt-1 text-sm">
+          יצירת סידור שבועי לפי הרכב משמרות ואילוצי עובדים.
+        </p>
+      </div>
+
+      {/* Controls card */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+        {/* Row 1: department + generate */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {departments.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">מחלקה:</span>
+              <Select
+                value={selectedDept}
+                onChange={e => setSelectedDept(e.target.value)}
+                className="min-w-[160px]"
+              >
+                <option value="">כל המחלקות</option>
+                {departments.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </Select>
+            </div>
+          )}
+
+          <div className="flex-1" />
+
+          <Button
+            variant="primary"
+            onClick={() => generate()}
+            disabled={generating || !selectedWeek}
+            icon={generating ? <Loader2 className="animate-spin h-4 w-4" /> : undefined}
+          >
+            {generating ? "מחשב..." : "צור סידור שבועי"}
+          </Button>
+        </div>
+
+        {/* Row 2: week selector */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">שבוע:</span>
+
+          <button
+            type="button"
+            onClick={() => canPrev && setSelectedWeek(rollingWeeks[weekIdx - 1])}
+            disabled={!canPrev}
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 disabled:opacity-30 transition-colors"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+
+          <div className="flex items-center gap-1.5 flex-wrap flex-1">
+            {rollingWeeks.map(iso => {
+              const isCurrent = iso === currentWeekIso;
+              const isSelected = iso === selectedWeek;
+              return (
+                <button
+                  key={iso}
+                  type="button"
+                  onClick={() => setSelectedWeek(iso)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                    isSelected
+                      ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                      : isCurrent
+                      ? "bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600"
+                  }`}
+                >
+                  {weekLabel(iso)}
+                  {isCurrent && !isSelected && (
+                    <span className="mr-1 text-[10px] font-normal opacity-70">עכשיו</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => canNext && setSelectedWeek(rollingWeeks[weekIdx + 1])}
+            disabled={!canNext}
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 disabled:opacity-30 transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <Alert type="error">
+          <p className="font-semibold">שגיאה ביצירת הסידור</p>
+          <p className="text-sm mt-0.5">{error}</p>
+        </Alert>
+      )}
+
+      {/* Loading */}
+      {loading && <div className="h-24 rounded-2xl shimmer" />}
+
+      {/* Results */}
+      {!loading && schedule?.status === "generated" && (
+        <div className="space-y-3">
+          <TabsContainer>
+            <TabButton active={weeklyTab === "grid"} onClick={() => setWeeklyTab("grid")} className="px-4 py-2">
+              <span className="inline-flex items-center gap-1.5"><List className="w-3.5 h-3.5" />לוח משמרות</span>
+            </TabButton>
+            <TabButton active={weeklyTab === "plan"} onClick={() => setWeeklyTab("plan")} className="px-4 py-2">
+              <span className="inline-flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />תכנון עובדים</span>
+            </TabButton>
+          </TabsContainer>
+
+          {weeklyTab === "grid" && schedule.weekly_grid && (
+            <WeeklyShiftGrid grid={schedule.weekly_grid} weekDays={weekDays} />
+          )}
+          {weeklyTab === "plan" && schedule.employee_plan && (
+            <EmployeeWeeklyPlan plan={schedule.employee_plan} weekDays={weekDays} />
+          )}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!loading && !schedule && !generating && !error && (
+        <div className="text-center py-16 bg-white rounded-2xl border border-slate-100 shadow-sm">
+          <div className="w-16 h-16 bg-slate-100 rounded-2xl mx-auto mb-4 flex items-center justify-center">
+            <Calendar className="w-8 h-8 text-slate-400" />
+          </div>
+          <p className="text-slate-600 font-semibold text-lg">אין סידור לשבוע זה עדיין</p>
+          <p className="text-slate-400 text-sm mt-2">
+            {selectedDept ? `מחלקה: ${selectedDept} · ` : ""}{weekLabel(selectedWeek)}
+          </p>
+          <p className="text-slate-400 text-sm mt-1">לחץ &#34;צור סידור שבועי&#34; כדי להתחיל.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Doctors / Default Schedule View ─────────────────────────────────────────
+
 export default function SchedulePage() {
+  const { mode } = useMode();
+  const isNursing = mode.startsWith("nursing");
+
+  if (isNursing) return <NursingSchedulePage />;
+
+  return <DoctorsSchedulePage />;
+}
+
+function DoctorsSchedulePage() {
   const now = new Date();
   const [dateRange, setDateRange] = useState<DateRangeValue | null>(null);
   const month = dateRange ? new Date(dateRange.start + "T00:00:00").getMonth() + 1 : now.getMonth() + 1;
   const year  = dateRange ? new Date(dateRange.start + "T00:00:00").getFullYear() : now.getFullYear();
-
-  const { mode } = useMode();
-  const isNursing = mode === "nursing";
 
   const { schedule, loading, generating, error, generate } = useSchedule(month, year);
   const { shiftTypes } = useShiftTypes();
@@ -36,7 +262,6 @@ export default function SchedulePage() {
   const { constraints } = useConstraints(month, year);
 
   const [scheduleView, setScheduleView] = useState<"schedule" | "summary">("schedule");
-
 
   const [localAssignments, setLocalAssignments] = useState<Assignment[]>([]);
   const [changedCells, setChangedCells] = useState<Set<string>>(new Set());
@@ -97,7 +322,6 @@ export default function SchedulePage() {
     if (!schedule || !shiftTypes) return;
     const wb = XLSX.utils.book_new();
 
-    // Sheet 1: Schedule
     const activeShifts = [...shiftTypes].sort((a, b) => (a.shift_id ?? 0) - (b.shift_id ?? 0));
     const daysInMonth = new Date(schedule.year, schedule.month, 0).getDate();
     const lookup: Record<number, Record<string, string>> = {};
@@ -116,7 +340,6 @@ export default function SchedulePage() {
     ws1["!cols"] = schedHeaders.map(() => ({ wch: 16 }));
     XLSX.utils.book_append_sheet(wb, ws1, "לוח משמרות");
 
-    // Sheet 2: Summary (computed from localAssignments)
     const empMap: Record<string, Record<string, number>> = {};
     for (const a of localAssignments) {
       if (!empMap[a.employee_name]) empMap[a.employee_name] = {};
@@ -137,18 +360,14 @@ export default function SchedulePage() {
 
   return (
     <div className="flex flex-col gap-5 fade-in" style={{ height: "calc(100vh - 4rem)" }}>
-      {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-slate-800">סידור עבודה</h1>
         <p className="text-slate-500 mt-1 text-sm">
           הסולבר יצור סידור חודשי הוגן תוך שמירה על אילוצי זכאות.
-          כל המשמרות מחולקות שווה בין העובדים לפי זכאות.
         </p>
       </div>
 
-      {/* Combined row: buttons on left, filters on right */}
       <div className="flex flex-wrap items-end justify-between gap-2">
-        {/* RIGHT in RTL: filters */}
         <div className="flex flex-wrap items-end gap-2">
           <DateRangePicker
             availableTypes={["month"]}
@@ -165,7 +384,6 @@ export default function SchedulePage() {
             className="w-32 bg-slate-50"
           />
         </div>
-        {/* LEFT in RTL: action buttons */}
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="primary"
@@ -202,7 +420,6 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {/* Error */}
       {error && (
         <Alert type="error">
           <p className="font-semibold">שגיאה ביצירת הסידור</p>
@@ -210,16 +427,13 @@ export default function SchedulePage() {
         </Alert>
       )}
 
-      {/* Unfilled shift warnings */}
       {schedule?.warnings && schedule.warnings.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="font-semibold text-amber-800">
-                {schedule.warnings.length === 1
-                  ? "משמרת אחת לא אוישה"
-                  : `${schedule.warnings.length} משמרות לא אוישו`}
+                {schedule.warnings.length === 1 ? "משמרת אחת לא אוישה" : `${schedule.warnings.length} משמרות לא אוישו`}
               </p>
               <p className="text-sm text-amber-700 mt-0.5">
                 הסולבר לא הצליח למצוא עובד זכאי לאותן משמרות. ניתן לאייש אותן ידנית בטבלה.
@@ -238,17 +452,14 @@ export default function SchedulePage() {
         </div>
       )}
 
-      {/* Loading */}
       {loading && (
         <div className="space-y-3">
           {[1, 2, 3].map(i => <div key={i} className="h-16 rounded-2xl shimmer" />)}
         </div>
       )}
 
-      {/* Results */}
       {!loading && schedule?.status === "generated" && shiftTypes.length > 0 && (
         <div className="flex-1 min-h-0 flex flex-col fade-in">
-          {/* View tabs */}
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <TabsContainer>
               <TabButton active={scheduleView === "schedule"} onClick={() => setScheduleView("schedule")}>
@@ -259,7 +470,6 @@ export default function SchedulePage() {
               </TabButton>
             </TabsContainer>
 
-            {/* Schedule-view filters (only in schedule tab) */}
             {scheduleView === "schedule" && (
               <div className="flex flex-wrap items-center gap-2">
                 <SearchDropdown
@@ -320,7 +530,7 @@ export default function SchedulePage() {
                 shiftTypes={shiftTypes}
                 assignments={localAssignments}
                 employees={employees}
-                constraints={isNursing ? constraints : undefined}
+                constraints={constraints}
               />
             )}
           </div>
