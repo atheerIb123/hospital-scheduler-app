@@ -179,16 +179,26 @@ export const generateSchedule = (month: number, year: number) =>
     body: JSON.stringify({ month, year }),
   });
 
-export const generateWeeklySchedule = (weekStart: string, department?: string) =>
+export const generateWeeklySchedule = (weekStart: string, department?: string, lockedAssignments?: Assignment[]) =>
   request<WeeklySchedule>("/schedules/generate-weekly", {
     method: "POST",
-    body: JSON.stringify({ week_start: weekStart, ...(department ? { department } : {}) }),
+    body: JSON.stringify({
+      week_start: weekStart,
+      ...(department ? { department } : {}),
+      ...(lockedAssignments?.length ? { locked_assignments: lockedAssignments } : {}),
+    }),
   });
 
 export const getLatestWeeklySchedule = (weekStart: string, department?: string) => {
   const params = new URLSearchParams({ week_start: weekStart });
   if (department) params.set("department", department);
   return request<WeeklySchedule | null>(`/schedules/latest-weekly?${params.toString()}`);
+};
+
+export const deleteWeeklySchedule = (weekStart: string, department?: string) => {
+  const params = new URLSearchParams({ week_start: weekStart });
+  if (department) params.set("department", department);
+  return request<{ deleted: boolean }>(`/schedules/latest-weekly?${params.toString()}`, { method: "DELETE" });
 };
 
 export const getScheduleByMonth = (month: number, year: number) =>
@@ -199,10 +209,35 @@ export const deleteSchedule = (id: string, department?: string) => {
   return request<{ ok: boolean }>(`/schedules/${id}${qs}`, { method: "DELETE" });
 };
 
-export const updateAssignments = (id: string, assignments: Assignment[]) =>
+export const updateAssignments = (id: string, assignments: Assignment[], department?: string) =>
   request<Schedule>(`/schedules/${id}/assignments`, {
     method: "PATCH",
-    body: JSON.stringify({ assignments }),
+    body: JSON.stringify({ assignments, department }),
+  });
+
+// ---------------------------------------------------------------------------
+// Locked Pre-Assignments (DB-backed)
+// ---------------------------------------------------------------------------
+
+export const getLockedPreAssignments = (weekStart: string) =>
+  request<Assignment[]>(`/locked-pre-assignments?week_start=${weekStart}`);
+
+export const addLockedPreAssignment = (data: Assignment & { week_start: string }) =>
+  request<{ ok: boolean }>("/locked-pre-assignments", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const removeLockedPreAssignment = (data: { week_start: string; employee_id: string; day: number; shift_name: string; department: string }) =>
+  request<{ ok: boolean }>("/locked-pre-assignments", {
+    method: "DELETE",
+    body: JSON.stringify(data),
+  });
+
+export const clearLockedPreAssignmentsDept = (weekStart: string, department: string) =>
+  request<{ ok: boolean }>("/locked-pre-assignments/dept", {
+    method: "DELETE",
+    body: JSON.stringify({ week_start: weekStart, department }),
   });
 
 // ---------------------------------------------------------------------------

@@ -1,30 +1,34 @@
 "use client";
-import { useState, useEffect } from "react";
-import type { WeeklySchedule } from "@/lib/types";
+import { useState, useEffect, useRef } from "react";
+import type { WeeklySchedule, Assignment } from "@/lib/types";
 import * as api from "@/lib/api";
 
 export function useWeeklySchedule(weekStart: string | null, department?: string) {
   const [schedule, setSchedule] = useState<WeeklySchedule | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Track the latest fetch so stale responses from earlier renders are ignored
+  const fetchSeqRef = useRef(0);
 
   useEffect(() => {
     if (!weekStart) { setSchedule(null); return; }
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     setError(null);
     api.getLatestWeeklySchedule(weekStart, department)
-      .then(s => setSchedule(s))
-      .catch(() => setSchedule(null))
-      .finally(() => setLoading(false));
+      .then(s => { if (fetchSeqRef.current === seq) setSchedule(s); })
+      .catch(() => { if (fetchSeqRef.current === seq) setSchedule(null); })
+      .finally(() => { if (fetchSeqRef.current === seq) setLoading(false); });
   }, [weekStart, department]);
 
-  const generate = async () => {
+  const generate = async (lockedAssignments?: Assignment[]) => {
     if (!weekStart) return null;
     setGenerating(true);
     setError(null);
     try {
-      const result = await api.generateWeeklySchedule(weekStart, department);
+      const result = await api.generateWeeklySchedule(weekStart, department, lockedAssignments);
       if (result.status === "failed") {
         setError(result.reason ?? "שגיאה ביצירת הסידור");
       } else {
@@ -32,6 +36,17 @@ export function useWeeklySchedule(weekStart: string | null, department?: string)
       }
       return result;
     } catch (e) {
+      // Backend may have saved the schedule before the error occurred.
+      // Try to fetch it so the user doesn't need to manually refresh.
+      try {
+        const saved = await api.getLatestWeeklySchedule(weekStart, department);
+        if (saved) {
+          setSchedule(saved);
+          return saved;
+        }
+      } catch {
+        // ignore — fall through to showing the original error
+      }
       setError((e as Error).message);
       return null;
     } finally {
@@ -39,15 +54,19 @@ export function useWeeklySchedule(weekStart: string | null, department?: string)
     }
   };
 
-  const clear = async () => {
-    if (!schedule?.id) return;
+  const deleteSchedule = async () => {
+    if (!weekStart) return;
+    setDeleting(true);
+    setError(null);
     try {
-      await api.deleteSchedule(schedule.id, department);
+      await api.deleteWeeklySchedule(weekStart, department);
       setSchedule(null);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setDeleting(false);
     }
   };
 
-  return { schedule, loading, generating, error, generate, clear };
+  return { schedule, loading, generating, deleting, error, generate, deleteSchedule };
 }

@@ -17,6 +17,7 @@ import { useConstraints } from "@/hooks/useConstraints";
 import { useMode } from "@/components/ModeProvider";
 import type { Assignment, WeeklyShiftRow } from "@/lib/types";
 import { useWeeklySchedule } from "@/hooks/useWeeklySchedule";
+import { useShiftComposition } from "@/hooks/useShiftComposition";
 import WeeklyShiftGrid from "@/components/WeeklyShiftGrid";
 import EmployeeWeeklyPlan from "@/components/EmployeeWeeklyPlan";
 
@@ -25,7 +26,8 @@ const MONTH_NAMES = ["ינואר", "פברואר", "מרץ", "אפריל", "מא
 /** Returns the ISO date string of the Sunday starting the week that contains `d`. */
 function toWeekSunday(d: Date): string {
   const sun = new Date(d);
-  sun.setDate(d.getDate() - d.getDay());
+  sun.setHours(12, 0, 0, 0); // normalize to noon so toISOString() stays on the same local date
+  sun.setDate(sun.getDate() - sun.getDay());
   return sun.toISOString().split("T")[0];
 }
 
@@ -101,11 +103,132 @@ function NursingSchedulePage() {
     }
   }, [departments, selectedDept]);
 
-  const { schedule, loading, generating, error, generate, clear } = useWeeklySchedule(
+  // ── Pre-assignment department (independent of the schedule's selectedDept) ──
+  const [preAssignDept, setPreAssignDept] = useState<string>("");
+
+  useEffect(() => {
+    if (selectedDept) setPreAssignDept(selectedDept);
+    else if (departments.length > 0) setPreAssignDept(departments[0]);
+  }, [selectedDept, departments]);
+
+  const deptMode = selectedDept ? `nursing_${selectedDept}` : undefined;
+  const preAssignDeptMode = preAssignDept ? `nursing_${preAssignDept}` : undefined;
+  const { shiftTypes: preShiftTypes } = useShiftTypes(preAssignDeptMode);
+  const { data: preComposition } = useShiftComposition(preAssignDeptMode);
+
+  const { schedule, loading, generating, deleting, error, generate, deleteSchedule } = useWeeklySchedule(
     selectedWeek,
     selectedDept || undefined,
   );
-  const [clearing, setClearing] = useState(false);
+
+  // ── Locked (pre) assignments per week (DB-backed) ──────────────────────────
+  const [lockedAssignments, setLockedAssignments] = useState<Assignment[]>([]);
+  const [lockedLoading, setLockedLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedWeek) { setLockedAssignments([]); return; }
+    setLockedLoading(true);
+    api.getLockedPreAssignments(selectedWeek)
+      .then(data => setLockedAssignments(data ?? []))
+      .catch(() => setLockedAssignments([]))
+      .finally(() => setLockedLoading(false));
+  }, [selectedWeek]);
+
+  // ── Pre-assignment grid (shown before schedule is generated) ───────────────
+  const preWeekDays = useMemo(() => {
+    const sun = new Date(selectedWeek + "T12:00:00");
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(sun);
+      d.setDate(d.getDate() + i);
+      return d.toISOString().split("T")[0];
+    });
+  }, [selectedWeek]);
+
+  const preCompositionMap = useMemo((): Record<string, import("@/lib/types").ShiftConfig> => {
+    const map: Record<string, import("@/lib/types").ShiftConfig> = {};
+    for (const cfg of preComposition?.shift_configs ?? []) {
+      if (cfg.shift_name) map[cfg.shift_name] = cfg;
+    }
+    return map;
+  }, [preComposition]);
+
+  const columnToAttrName = useMemo((): Record<string, string> => {
+    const map: Record<string, string> = {};
+    columnHeaders.forEach((h, i) => { if (h) map[`col_${i + 1}`] = h; });
+    return map;
+  }, [columnHeaders]);
+
+  const preGrid = useMemo((): WeeklyShiftRow[] => {
+    const deptLocked = lockedAssignments.filter(a => !a.department || a.department === preAssignDept);
+    const result: WeeklyShiftRow[] = [];
+    for (const st of preShiftTypes.filter(s => s.names?.length)) {
+      const shiftName = st.names[0];
+      const compCfg = preCompositionMap[shiftName];
+      const hours = compCfg?.hours ?? "";
+      if (compCfg?.role_slots?.length) {
+        // Expand into one sub-row per role slot
+        for (const slot of compCfg.role_slots) {
+          result.push({
+            shift_name: shiftName,
+            role_slot: slot.attribute_name,
+            slot_count: slot.count,
+            hours,
+            by_day: Object.fromEntries(
+              preWeekDays.map(iso => [
+                iso,
+                deptLocked
+                  .filter(a => {
+                    const d = new Date(iso + "T12:00:00").getDate();
+                    return a.day === d && a.shift_name === shiftName && a.role_slot === slot.attribute_name;
+                  })
+                  .map(a => ({ employee_id: a.employee_id, employee_name: a.employee_name })),
+              ]),
+            ),
+          });
+        }
+        // Add a "free" row for workers not tied to a specific role slot
+        const slotSum = compCfg.role_slots.reduce((s, sl) => s + sl.count, 0);
+        const freeCount = (compCfg.total_workers ?? 0) - slotSum;
+        if (freeCount > 0) {
+          result.push({
+            shift_name: shiftName,
+            role_slot: "__free__",
+            slot_count: freeCount,
+            hours,
+            by_day: Object.fromEntries(
+              preWeekDays.map(iso => [
+                iso,
+                deptLocked
+                  .filter(a => {
+                    const d = new Date(iso + "T12:00:00").getDate();
+                    return a.day === d && a.shift_name === shiftName && a.role_slot === "__free__";
+                  })
+                  .map(a => ({ employee_id: a.employee_id, employee_name: a.employee_name })),
+              ]),
+            ),
+          });
+        }
+      } else {
+        // No composition — single row for the whole shift
+        result.push({
+          shift_name: shiftName,
+          hours,
+          by_day: Object.fromEntries(
+            preWeekDays.map(iso => [
+              iso,
+              deptLocked
+                .filter(a => {
+                  const d = new Date(iso + "T12:00:00").getDate();
+                  return a.day === d && a.shift_name === shiftName && !a.role_slot;
+                })
+                .map(a => ({ employee_id: a.employee_id, employee_name: a.employee_name })),
+            ]),
+          ),
+        });
+      }
+    }
+    return result;
+  }, [preShiftTypes, preCompositionMap, preWeekDays, lockedAssignments, preAssignDept]);
 
   // ── Local assignment state (ported from doctors mode) ──────────────────────
   const [localAssignments, setLocalAssignments] = useState<Assignment[]>([]);
@@ -125,11 +248,17 @@ function NursingSchedulePage() {
   const canPrev = weekIdx > 0;
   const canNext = weekIdx < rollingWeeks.length - 1;
 
+  // Always derive 7 days from the selected week start — never from schedule data,
+  // so cross-month weeks always show all 7 days even for schedules generated before this fix.
   const weekDays = useMemo(() => {
-    if (schedule?.weekly_grid?.[0]) return Object.keys(schedule.weekly_grid[0].by_day).sort();
-    if (schedule?.employee_plan?.[0]) return Object.keys(schedule.employee_plan[0].days).sort();
-    return [];
-  }, [schedule]);
+    if (!selectedWeek) return [];
+    const sun = new Date(selectedWeek + "T12:00:00");
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(sun);
+      d.setDate(d.getDate() + i);
+      return d.toISOString().split("T")[0];
+    });
+  }, [selectedWeek]);
 
   // shift_name → shift_type_id lookup (for constructing new assignments)
   const shiftNameToId = useMemo(() => {
@@ -207,12 +336,17 @@ function NursingSchedulePage() {
     const leaderCol = columnHeaders.indexOf("אחראי משמרת");
     if (leaderCol === -1) return new Set<string>();
     const colKey = `col_${leaderCol + 1}`;
+    const leaderRoleName = columnHeaders[leaderCol]; // "אחראי משמרת"
     const ids = new Set<string>();
     for (const e of employees) {
       if (e.attributes?.includes(colKey)) ids.add(e.id);
     }
+    // Also include employees assigned to the leader role via pre-assignment
+    for (const a of schedule?.assignments ?? []) {
+      if (a.role_slot === leaderRoleName) ids.add(a.employee_id);
+    }
     return ids;
-  }, [employees, columnHeaders]);
+  }, [employees, columnHeaders, schedule]);
 
   const handleAddEmployee = useCallback((iso: string, shiftName: string, empId: string, empName: string) => {
     const dayOfMonth = new Date(iso + "T12:00:00").getDate();
@@ -276,7 +410,7 @@ function NursingSchedulePage() {
     if (!schedule) return;
     setSaving(true);
     try {
-      await api.updateAssignments(schedule.id, localAssignments);
+      await api.updateAssignments(schedule.id, localAssignments, selectedDept || undefined);
       setChangedCells(new Set());
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -284,6 +418,125 @@ function NursingSchedulePage() {
       setSaving(false);
     }
   };
+
+  // ── Handlers for the pre-assignment grid ───────────────────────────────────
+  const handleLockedAdd = useCallback(async (iso: string, shiftName: string, empId: string, empName: string, roleSlot?: string) => {
+    if (!selectedWeek) return;
+    const day = new Date(iso + "T12:00:00").getDate();
+    const shift_type_id = preShiftTypes.find(st => st.names?.includes(shiftName))?.id ?? "";
+    await api.addLockedPreAssignment({
+      week_start: selectedWeek, day, shift_type_id, shift_name: shiftName,
+      employee_id: empId, employee_name: empName, role_slot: roleSlot, department: preAssignDept,
+    });
+    const updated = await api.getLockedPreAssignments(selectedWeek);
+    setLockedAssignments(updated ?? []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWeek, preShiftTypes, preAssignDept]);
+
+  const handleLockedRemove = useCallback(async (iso: string, shiftName: string, empId: string) => {
+    if (!selectedWeek) return;
+    const day = new Date(iso + "T12:00:00").getDate();
+    const existing = lockedAssignments.find(a => a.day === day && a.shift_name === shiftName && a.employee_id === empId);
+    await api.removeLockedPreAssignment({
+      week_start: selectedWeek, employee_id: empId, day, shift_name: shiftName,
+      department: existing?.department ?? preAssignDept,
+    });
+    const updated = await api.getLockedPreAssignments(selectedWeek);
+    setLockedAssignments(updated ?? []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWeek, lockedAssignments, preAssignDept]);
+
+  const handleLockedMove = useCallback(async (
+    srcIso: string, srcShift: string, srcEmpId: string, srcEmpName: string,
+    tgtIso: string, tgtShift: string,
+  ) => {
+    if (!selectedWeek) return;
+    const srcDay = new Date(srcIso + "T12:00:00").getDate();
+    const tgtDay = new Date(tgtIso + "T12:00:00").getDate();
+    const tgtShiftTypeId = preShiftTypes.find(st => st.names?.includes(tgtShift))?.id ?? "";
+    const existing = lockedAssignments.find(a => a.day === srcDay && a.shift_name === srcShift && a.employee_id === srcEmpId);
+    const dept = existing?.department ?? preAssignDept;
+    await api.removeLockedPreAssignment({
+      week_start: selectedWeek, employee_id: srcEmpId, day: srcDay, shift_name: srcShift, department: dept,
+    });
+    await api.addLockedPreAssignment({
+      week_start: selectedWeek, day: tgtDay, shift_type_id: tgtShiftTypeId, shift_name: tgtShift,
+      employee_id: srcEmpId, employee_name: srcEmpName, role_slot: existing?.role_slot, department: dept,
+    });
+    const updated = await api.getLockedPreAssignments(selectedWeek);
+    setLockedAssignments(updated ?? []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWeek, lockedAssignments, preShiftTypes, preAssignDept]);
+
+  const lockedEmpShiftCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const a of lockedAssignments.filter(la => !la.department || la.department === preAssignDept)) {
+      if (a.employee_id) counts[a.employee_id] = (counts[a.employee_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [lockedAssignments, preAssignDept]);
+
+  // All employees as EmployeeWeekPlan stubs (for the pre-assignment grid employee picker)
+  const allEmployeesAsPlan = useMemo(() => employees.map(e => ({
+    employee_id: e.id,
+    employee_name: e.name,
+    home_department: e.home_department ?? "",
+    active: e.active !== false,
+    max_shifts_per_week: e.max_shifts_per_week ?? 6,
+    attributes: e.attributes,
+    days: {},
+  })), [employees]);
+
+  // Derive a live employee plan that reflects localAssignments edits.
+  const augmentedEmployeePlan = useMemo(() => {
+    if (!schedule?.employee_plan || weekDays.length === 0) return schedule?.employee_plan ?? null;
+
+    const dayToIso: Record<number, string> = {};
+    for (const iso of weekDays) dayToIso[new Date(iso + "T12:00:00").getDate()] = iso;
+
+    // emp_id → iso → shift_names[]
+    const aLookup: Record<string, Record<string, string[]>> = {};
+    for (const a of localAssignments) {
+      const iso = dayToIso[a.day];
+      if (!iso) continue;
+      if (!aLookup[a.employee_id]) aLookup[a.employee_id] = {};
+      (aLookup[a.employee_id][iso] ??= []).push(a.shift_name);
+    }
+
+    const planIds = new Set(schedule.employee_plan.map(ep => ep.employee_id));
+
+    const updated = schedule.employee_plan.map(ep => {
+      const newDays: typeof ep.days = {};
+      for (const iso of weekDays) {
+        const shifts = aLookup[ep.employee_id]?.[iso];
+        if (shifts?.length) {
+          newDays[iso] = shifts.map(s => ({ type: "shift" as const, shift_name: s }));
+        } else {
+          const orig = ep.days[iso] ?? [];
+          // If original showed a shift but it's no longer in localAssignments → off
+          newDays[iso] = orig.some(d => d.type === "shift") ? [{ type: "off" as const }] : orig;
+        }
+      }
+      return { ...ep, days: newDays };
+    });
+
+    // Add employees from other depts manually assigned to this schedule
+    for (const empId of Object.keys(aLookup)) {
+      if (planIds.has(empId)) continue;
+      const empInfo = allEmployeesAsPlan.find(e => e.employee_id === empId);
+      if (!empInfo) continue;
+      const days: typeof empInfo.days = {};
+      for (const iso of weekDays) {
+        const shifts = aLookup[empId]?.[iso];
+        days[iso] = shifts?.length
+          ? shifts.map(s => ({ type: "shift" as const, shift_name: s }))
+          : [{ type: "off" as const }];
+      }
+      updated.push({ ...empInfo, days });
+    }
+
+    return updated;
+  }, [schedule?.employee_plan, localAssignments, weekDays, allEmployeesAsPlan]);
 
   return (
     <div className="flex flex-col gap-5 fade-in" dir="rtl">
@@ -331,33 +584,30 @@ function NursingSchedulePage() {
             <span className="text-sm text-emerald-600 font-medium">נשמר בהצלחה</span>
           )}
 
-          <Button
-            variant="primary"
-            onClick={() => generate()}
-            disabled={generating || !selectedWeek}
-            icon={generating ? <Loader2 className="animate-spin h-4 w-4" /> : undefined}
-          >
-            {generating ? "מחשב..." : "צור סידור שבועי"}
-          </Button>
-
           {schedule && (
             <Button
               variant="danger"
-              onClick={async () => {
-                if (!confirm("למחוק את הסידור לשבוע הנבחר?")) return;
-                setClearing(true);
-                await clear();
-                setLocalAssignments([]);
-                setChangedCells(new Set());
-                setSaveSuccess(false);
-                setClearing(false);
-              }}
-              disabled={clearing}
-              icon={clearing ? <Loader2 className="animate-spin h-4 w-4" /> : <Trash2 className="w-4 h-4" />}
+              onClick={deleteSchedule}
+              disabled={deleting}
+              icon={deleting ? <Loader2 className="animate-spin h-4 w-4" /> : <Trash2 className="w-4 h-4" />}
             >
-              {clearing ? "מוחק..." : "מחק סידור"}
+              {deleting ? "מוחק…" : "מחק סידור"}
             </Button>
           )}
+
+          {(() => {
+            const deptLocked = lockedAssignments.filter(a => !a.department || a.department === selectedDept);
+            return (
+              <Button
+                variant="primary"
+                onClick={() => generate(undefined)}
+                disabled={generating || !selectedWeek || lockedLoading}
+                icon={generating ? <Loader2 className="animate-spin h-4 w-4" /> : undefined}
+              >
+                {generating ? "מחשב..." : deptLocked.length ? `צור סידור (${deptLocked.length} שיבוצים נעולים)` : "צור סידור שבועי"}
+              </Button>
+            );
+          })()}
         </div>
 
         {/* Row 2: week selector */}
@@ -493,6 +743,7 @@ function NursingSchedulePage() {
               weekDays={weekDays}
               editable
               employees={schedule.employee_plan}
+              replacePickerEmployees={allEmployeesAsPlan}
               changedCells={changedCells}
               maxShiftsWarningIds={maxShiftsWarningIds}
               empShiftCounts={empShiftCounts}
@@ -500,25 +751,77 @@ function NursingSchedulePage() {
               onRemoveEmployee={handleRemoveEmployee}
               onMoveEmployee={handleMoveEmployee}
               shiftLeaderIds={shiftLeaderIds}
+              shiftComposition={preCompositionMap}
+              columnToAttrName={columnToAttrName}
             />
           )}
-          {weeklyTab === "plan" && schedule.employee_plan && (
-            <EmployeeWeeklyPlan plan={schedule.employee_plan} weekDays={weekDays} />
+          {weeklyTab === "plan" && augmentedEmployeePlan && (
+            <EmployeeWeeklyPlan plan={augmentedEmployeePlan} weekDays={weekDays} columnToAttrName={columnToAttrName} />
           )}
         </div>
       )}
 
-      {/* Empty state */}
-      {!loading && !schedule && !generating && !error && (
-        <div className="text-center py-16 bg-white rounded-2xl border border-slate-100 shadow-sm">
-          <div className="w-16 h-16 bg-slate-100 rounded-2xl mx-auto mb-4 flex items-center justify-center">
-            <Calendar className="w-8 h-8 text-slate-400" />
+      {/* Pre-assignment state: shown when no schedule exists yet */}
+      {!loading && !schedule && !generating && (
+        <div className="space-y-3">
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center gap-3 flex-wrap">
+            <Calendar className="w-5 h-5 text-blue-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-blue-800 text-sm">שיבוץ מקדים</p>
+              <p className="text-blue-600 text-xs mt-0.5">
+                שבץ עובדים ידנית לפני יצירת הסידור — שיבוצים אלו יינעלו בסידור הסופי.
+              </p>
+            </div>
+            {departments.length > 1 && (
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-semibold text-blue-700 whitespace-nowrap">מחלקה:</span>
+                <select
+                  value={preAssignDept}
+                  onChange={e => setPreAssignDept(e.target.value)}
+                  className="px-2.5 py-1.5 text-sm rounded-lg border border-blue-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  dir="rtl"
+                >
+                  {departments.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {lockedAssignments.filter(a => !a.department || a.department === preAssignDept).length > 0 && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!selectedWeek) return;
+                  await api.clearLockedPreAssignmentsDept(selectedWeek, preAssignDept);
+                  const updated = await api.getLockedPreAssignments(selectedWeek);
+                  setLockedAssignments(updated ?? []);
+                }}
+                className="text-xs text-blue-500 hover:text-blue-700 underline shrink-0"
+              >
+                נקה מחלקה זו
+              </button>
+            )}
           </div>
-          <p className="text-slate-600 font-semibold text-lg">אין סידור לשבוע זה עדיין</p>
-          <p className="text-slate-400 text-sm mt-2">
-            {selectedDept ? `מחלקה: ${selectedDept} · ` : ""}{weekLabel(selectedWeek)}
-          </p>
-          <p className="text-slate-400 text-sm mt-1">לחץ &#34;צור סידור שבועי&#34; כדי להתחיל.</p>
+
+          {preGrid.length > 0 ? (
+            <WeeklyShiftGrid
+              grid={preGrid}
+              weekDays={preWeekDays}
+              editable
+              employees={allEmployeesAsPlan}
+              empShiftCounts={lockedEmpShiftCounts}
+              onAddEmployee={handleLockedAdd}
+              onRemoveEmployee={handleLockedRemove}
+              onMoveEmployee={handleLockedMove}
+              shiftLeaderIds={shiftLeaderIds}
+              shiftComposition={preCompositionMap}
+              columnToAttrName={columnToAttrName}
+            />
+          ) : (
+            <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 shadow-sm">
+              <p className="text-slate-400 text-sm">אין סוגי משמרות מוגדרים למחלקה זו עדיין.</p>
+            </div>
+          )}
         </div>
       )}
     </div>
