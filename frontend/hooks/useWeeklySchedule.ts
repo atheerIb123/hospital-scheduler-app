@@ -36,6 +36,17 @@ export function useWeeklySchedule(weekStart: string | null, department?: string)
       }
       return result;
     } catch (e) {
+      // Backend may have saved the schedule before the error occurred.
+      // Try to fetch it so the user doesn't need to manually refresh.
+      try {
+        const saved = await api.getLatestWeeklySchedule(weekStart, department);
+        if (saved) {
+          setSchedule(saved);
+          return saved;
+        }
+      } catch {
+        // ignore — fall through to showing the original error
+      }
       setError((e as Error).message);
       return null;
     } finally {

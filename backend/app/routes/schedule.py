@@ -537,13 +537,14 @@ def generate_weekly():
             "employee_plan": employee_plan,
         }
 
-        inserted = dept_db.schedules.insert_one(doc)
-        saved = dept_db.schedules.find_one({"_id": inserted.inserted_id})
-        saved["id"] = str(saved.pop("_id"))
-        saved["generated_at"] = saved["generated_at"].isoformat()
-        saved["warnings"] = result.get("warnings", [])
+        dept_db.schedules.insert_one(doc)
+        # Use doc directly (insert_one adds _id in-place) to avoid BSON
+        # serialization issues that occur when re-fetching from MongoDB.
+        doc["id"] = str(doc.pop("_id"))
+        doc["generated_at"] = doc["generated_at"].isoformat()
+        doc["warnings"] = result.get("warnings", [])
 
-        return jsonify(saved), 200
+        return jsonify(doc), 200
 
     except Exception:
         traceback.print_exc()
