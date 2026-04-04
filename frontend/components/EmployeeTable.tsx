@@ -352,6 +352,7 @@ export default function EmployeeTable() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importMode, setImportMode] = useState<"general" | "department">("general");
   const [importDept, setImportDept] = useState<string>("");
+  const [importReplace, setImportReplace] = useState(true);
   const [showImportExample, setShowImportExample] = useState(false);
 
   // department management state
@@ -380,7 +381,7 @@ export default function EmployeeTable() {
   const isAccepted = (f: File) =>
     ACCEPTED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext));
 
-  const handleFile = async (file: File | null, department?: string) => {
+  const handleFile = async (file: File | null, department?: string, replace?: boolean) => {
     if (!file) return;
     if (!isAccepted(file)) {
       setImportError(`סוג קובץ לא נתמך. יש להשתמש ב: ${ACCEPTED_EXTENSIONS.join(", ")}`);
@@ -389,9 +390,9 @@ export default function EmployeeTable() {
     setImporting(true); setImportError(null); setImportSuccess(null);
     setImportModalOpen(false);
     try {
-      const result = await importCsv(file, department);
+      const result = await importCsv(file, department, replace);
       let msg = department
-        ? `יובאו ${result.imported} עובדים למחלקת ${department} בהצלחה`
+        ? `יובאו ${result.imported} עובדים למחלקת ${department} בהצלחה${replace ? " (הוחלפו עובדים קיימים)" : ""}`
         : `יובאו ${result.imported} עובדים בהצלחה`;
       if (result.invalid_departments?.length) {
         msg += ` · מחלקות לא מוכרות (הוסרו): ${result.invalid_departments.join(", ")}`;
@@ -640,11 +641,32 @@ export default function EmployeeTable() {
               </div>
             )}
 
+            {/* Replace / Add toggle — shared by both modes */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setImportReplace(true)}
+                className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${importReplace ? "bg-red-50 text-red-700 border-red-300" : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"}`}
+              >
+                החלף קיימים
+              </button>
+              <button
+                type="button"
+                onClick={() => setImportReplace(false)}
+                className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${!importReplace ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"}`}
+              >
+                הוסף לקיימים
+              </button>
+            </div>
+
             {importMode === "general" ? (
               <div className="space-y-3">
-                <p className="text-xs text-slate-500">ייבוא כל העובדים — הקובץ <span className="font-semibold text-slate-700">חייב לכלול עמודת "מחלקה"</span> עם שם המחלקה לכל עובד. יחליף את <span className="font-semibold text-red-600">כל</span> העובדים הקיימים.</p>
+                <p className="text-xs text-slate-500">
+                  הקובץ <span className="font-semibold text-slate-700">חייב לכלול עמודת "מחלקה"</span> עם שם המחלקה לכל עובד.
+                  {importReplace && <span className="text-red-600 font-semibold"> כל העובדים הקיימים יימחקו לפני הייבוא.</span>}
+                </p>
                 <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
-                  onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
+                  onChange={(e) => handleFile(e.target.files?.[0] ?? null, undefined, importReplace)} />
                 <Button type="button" disabled={importing} onClick={() => fileInputRef.current?.click()} className="w-full justify-center">
                   <FileUp className="w-4 h-4" />
                   {importing ? "מייבא…" : "בחר קובץ"}
@@ -652,7 +674,10 @@ export default function EmployeeTable() {
               </div>
             ) : (
               <div className="space-y-3">
-                <p className="text-xs text-slate-500">ייבוא עובדים למחלקה ספציפית — <span className="font-semibold text-slate-700">אין צורך בעמודת "מחלקה"</span> בקובץ. יחליף רק את עובדי המחלקה הנבחרת.</p>
+                <p className="text-xs text-slate-500">
+                  <span className="font-semibold text-slate-700">אין צורך בעמודת "מחלקה"</span> — כל העובדים ישויכו למחלקה שנבחרה.
+                  {importReplace && <span className="text-red-600 font-semibold"> עובדי המחלקה הקיימים יימחקו לפני הייבוא.</span>}
+                </p>
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1.5">מחלקה</label>
                   <select
@@ -665,7 +690,7 @@ export default function EmployeeTable() {
                   </select>
                 </div>
                 <input ref={deptFileInputRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
-                  onChange={(e) => handleFile(e.target.files?.[0] ?? null, importDept || undefined)} />
+                  onChange={(e) => handleFile(e.target.files?.[0] ?? null, importDept || undefined, importReplace)} />
                 <Button type="button" disabled={importing || !importDept} variant="success" onClick={() => deptFileInputRef.current?.click()} className="w-full justify-center">
                   <FileUp className="w-4 h-4" />
                   {importing ? "מייבא…" : "בחר קובץ"}

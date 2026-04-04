@@ -295,8 +295,12 @@ function NursingSchedulePage() {
   }, [empShiftCounts, schedule?.employee_plan]);
 
   // Warnings from the solver (max_shifts_exceeded + unfilled)
+  const oncallMissingWarning = useMemo(
+    () => (schedule?.warnings ?? []).find(w => w.type === "oncall_missing"),
+    [schedule?.warnings],
+  );
   const unfilledWarnings = useMemo(
-    () => (schedule?.warnings ?? []).filter(w => w.type !== "max_shifts_exceeded"),
+    () => (schedule?.warnings ?? []).filter(w => w.type !== "max_shifts_exceeded" && w.type !== "oncall_missing"),
     [schedule?.warnings],
   );
   const solverMaxWarnings = useMemo(
@@ -666,6 +670,14 @@ function NursingSchedulePage() {
           <p className="font-semibold">שגיאה ביצירת הסידור</p>
           <p className="text-sm mt-0.5">{error}</p>
         </Alert>
+      )}
+
+      {/* Oncall missing warning */}
+      {oncallMissingWarning && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-800">{(oncallMissingWarning as { message?: string }).message ?? "לא הוכנסו כוננויות לשבוע זה"}</p>
+        </div>
       )}
 
       {/* Unfilled-shift warnings */}

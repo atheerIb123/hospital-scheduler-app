@@ -45,6 +45,13 @@ function StatusCell({ statuses }: { statuses: DayStatus[] }) {
             </span>
           );
         }
+        if (s.type === "oncall") {
+          return (
+            <span key={i} className="text-xs font-medium border rounded px-1.5 py-0.5 leading-tight bg-purple-50 text-purple-700 border-purple-200">
+              {s.shift_name}
+            </span>
+          );
+        }
         if (s.type === "constraint") {
           return (
             <span key={i} className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5 leading-tight">

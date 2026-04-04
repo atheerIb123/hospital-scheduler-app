@@ -45,6 +45,8 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: React.ReactNode;
   /** Which side to place the icon relative to children. Defaults to "before". */
   iconSide?: IconSide;
+  /** Loading state — disables the button, not forwarded to DOM */
+  loading?: boolean;
 }
 
 export function Button({
@@ -54,6 +56,8 @@ export function Button({
   children,
   icon,
   iconSide = "before",
+  loading,
+  disabled,
   ...props
 }: ButtonProps) {
   const padding = SIZELESS_VARIANTS.has(variant) ? "" : SIZE_PADDING[size];
@@ -70,7 +74,7 @@ export function Button({
     );
 
   return (
-    <button className={`${padding} ${VARIANT_CLASSES[variant]} ${className}`.trim()} {...props}>
+    <button className={`${padding} ${VARIANT_CLASSES[variant]} ${className}`.trim()} disabled={disabled || loading} {...props}>
       {inner}
     </button>
   );

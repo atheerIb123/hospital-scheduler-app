@@ -53,6 +53,14 @@ def get_nursing_employees_db():
     return get_db()
 
 
+def _dept_db_name(base_name: str, department_name: str) -> str:
+    """Sanitize a department name for use as a MongoDB database name segment.
+    MongoDB does not allow spaces or dots in database names.
+    """
+    safe = department_name.replace(" ", "_").replace(".", "_")
+    return f"{base_name}_nursing_{safe}"
+
+
 def ensure_nursing_dept_db(department_name: str):
     """Ensure the nursing department DB has shift types and composition.
 
@@ -63,7 +71,7 @@ def ensure_nursing_dept_db(department_name: str):
     Returns the pymongo Database for ``{base}_nursing_{department_name}``.
     """
     base_name = current_app.config["MONGO_DB_NAME"]
-    dept_db = _client[f"{base_name}_nursing_{department_name}"]
+    dept_db = _client[_dept_db_name(base_name, department_name)]
 
     if dept_db.shift_types.count_documents({}) > 0:
         return dept_db
@@ -75,7 +83,7 @@ def ensure_nursing_dept_db(department_name: str):
     for dep in build_department_list():
         if dep == department_name:
             continue
-        trial = _client[f"{base_name}_nursing_{dep}"]
+        trial = _client[_dept_db_name(base_name, dep)]
         if trial.shift_types.count_documents({}) > 0:
             template_db = trial
             break

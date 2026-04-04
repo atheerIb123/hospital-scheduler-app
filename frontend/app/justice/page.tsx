@@ -1,13 +1,14 @@
 "use client";
-import { useEffect, useRef, useState, useMemo } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, getManualPoints, addManualPoint, removeManualPoint, type JusticeEntry, type Advocate, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer, type ManualPoint, type ManualPointTable } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, getManualPoints, addManualPoint, removeManualPoint, getOncallJustice, type JusticeEntry, type Advocate, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer, type ManualPoint, type ManualPointTable, type OncallJusticeEntry } from "@/lib/api";
 import type { Employee } from "@/lib/types";
 import { Button, DeleteIconButton, Alert, Input, Select, TabButton, TabsContainer, SearchInput, SearchDropdown, Toggle, DateRangePicker } from "@/components/ui";
 import type { DateRangeValue } from "@/components/ui";
-import { X, Plus, Check, Handshake, Ban, ChevronDown, Trash2, Scale, Building2, Trophy, BarChart2, Pencil } from "lucide-react";
+import { X, Plus, Check, Handshake, Ban, ChevronDown, Trash2, Scale, Building2, Trophy, BarChart2, Pencil, PhoneCall } from "lucide-react";
 import type { ReactNode } from "react";
+import { useMode } from "@/components/ModeProvider";
 
-type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype" | "manual";
+type Tab = "justice" | "volunteer" | "combined" | "advocates" | "shirking" | "daytype" | "manual" | "oncall";
 type View = "table" | "chart";
 type DayTypeFilter = "combined" | "shabbat" | "holidays";
 
@@ -1700,12 +1701,22 @@ function ManualPointsSection({ points, manualTotalsByTable, employees, onAdd, on
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function JusticePage() {
+  const { mode } = useMode();
+  const isNursing = mode.startsWith("nursing");
+
   const [data, setData] = useState<JusticeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("justice");
   const [view, setView] = useState<View>("table");
   const [employees, setEmployees] = useState<Employee[]>([]);
+
+  const [oncallData, setOncallData] = useState<OncallJusticeEntry[]>([]);
+  const [oncallLoading, setOncallLoading] = useState(false);
+  const [oncallError, setOncallError] = useState<string | null>(null);
+  const [oncallDeptFilter, setOncallDeptFilter] = useState("");
+  const [oncallSlotFilter, setOncallSlotFilter] = useState("");
+  const [oncallView, setOncallView] = useState<"table" | "chart">("table");
 
   // Extra data for combined tab
   const [advocates, setAdvocates] = useState<Advocate[]>([]);
@@ -1722,7 +1733,42 @@ export default function JusticePage() {
 
   const startISO = dateRange?.start ?? "";
   const endISO = dateRange?.end ?? "";
+
+  const loadOncallJustice = useCallback(() => {
+    setOncallLoading(true);
+    setOncallError(null);
+    getOncallJustice(startISO || undefined, endISO || undefined)
+      .then(setOncallData)
+      .catch(e => setOncallError((e as Error).message))
+      .finally(() => setOncallLoading(false));
+  }, [startISO, endISO]);
+
+  useEffect(() => {
+    if (tab === "oncall") loadOncallJustice();
+  }, [tab, loadOncallJustice]);
   const rangeLabel = dateRange?.label ?? "";
+
+  // Merge all employees into oncall data so employees with 0 oncall shifts are visible
+  const oncallMerged = useMemo<OncallJusticeEntry[]>(() => {
+    const byId = new Map<string, OncallJusticeEntry>();
+    for (const e of oncallData) {
+      const key = e.employee_id || `__name__${e.employee_name}`;
+      byId.set(key, e);
+    }
+    const result = [...oncallData];
+    for (const emp of employees) {
+      if (!byId.has(emp.id) && !byId.has(`__name__${emp.name}`)) {
+        result.push({
+          employee_id: emp.id,
+          employee_name: emp.name,
+          from_department: emp.home_department ?? "",
+          slot_counts: { "ערב_1": 0, "ערב_2": 0, "לילה": 0 },
+          total: 0,
+        });
+      }
+    }
+    return result.sort((a, b) => b.total - a.total);
+  }, [oncallData, employees]);
 
   useEffect(() => {
     if (!startISO || !endISO) return;
@@ -1856,6 +1902,7 @@ export default function JusticePage() {
     { id: "shirking",  label: "הברזות",            icon: <Ban className="w-3.5 h-3.5" /> },
     { id: "advocates", label: "סנגורים",           icon: <Trophy className="w-3.5 h-3.5" /> },
     { id: "daytype",   label: "שבתות וחגים",       icon: <Building2 className="w-3.5 h-3.5" /> },
+    ...(isNursing ? [{ id: "oncall" as Tab, label: "כוננות", icon: <PhoneCall className="w-3.5 h-3.5" /> }] : []),
     { id: "combined",  label: "טבלה משולבת",       icon: <BarChart2 className="w-3.5 h-3.5" /> },
     { id: "manual",    label: "ניקוד ידני",        icon: <Pencil className="w-3.5 h-3.5" /> },
   ];
@@ -1906,7 +1953,15 @@ export default function JusticePage() {
         {/* LEFT side (end in RTL): view binary toggle + day scores toggle + daytype filter */}
         <div className="flex items-center gap-2">
           {/* View binary toggle — hidden on advocates/shirking/daytype/combined tabs */}
-          {!(tab === "advocates" || tab === "shirking" || tab === "daytype" || tab === "combined") && (
+          {tab === "oncall" && (
+            <Toggle
+              labelOff="טבלה"
+              labelOn="גרף"
+              checked={oncallView === "chart"}
+              onChange={v => setOncallView(v ? "chart" : "table")}
+            />
+          )}
+          {!(tab === "advocates" || tab === "shirking" || tab === "daytype" || tab === "combined" || tab === "oncall") && (
             <Toggle
               labelOff="טבלה"
               labelOn="גרף"
@@ -1940,18 +1995,137 @@ export default function JusticePage() {
       </div>
 
       {/* Error */}
-      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && error && (
+      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && tab !== "oncall" && error && (
         <Alert type="error">{error}</Alert>
       )}
 
       {/* Loading */}
-      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && loading && (
+      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && tab !== "oncall" && loading && (
         <div className="space-y-3">
           {[1, 2, 3].map(i => <div key={i} className="h-14 rounded-2xl shimmer" />)}
         </div>
       )}
 
-      {/* Advocates tab — independent of justice loading */}
+      {/* Oncall justice tab */}
+      {tab === "oncall" && (() => {
+        const filteredOncall = oncallMerged.filter(e => {
+          if (search && !e.employee_name.toLowerCase().includes(search.toLowerCase())) return false;
+          if (oncallDeptFilter && e.from_department !== oncallDeptFilter) return false;
+          if (oncallSlotFilter && (e.slot_counts[oncallSlotFilter] || 0) === 0) return false;
+          return true;
+        });
+        const oncallMax = Math.max(...filteredOncall.map(e => oncallSlotFilter ? (e.slot_counts[oncallSlotFilter] || 0) : e.total), 1);
+        const allDepts = [...new Set(oncallMerged.map(e => e.from_department).filter(Boolean))].sort();
+
+        return (
+          <div className="flex flex-col gap-3">
+            {/* Sub-filters row (dept + slot) */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500 font-medium">מחלקה</span>
+                <select
+                  value={oncallDeptFilter}
+                  onChange={e => setOncallDeptFilter(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                >
+                  <option value="">הכל</option>
+                  {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500 font-medium">סוג כוננות</span>
+                <select
+                  value={oncallSlotFilter}
+                  onChange={e => setOncallSlotFilter(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                >
+                  <option value="">הכל</option>
+                  <option value="ערב_1">ערב I</option>
+                  <option value="ערב_2">ערב II</option>
+                  <option value="לילה">לילה</option>
+                </select>
+              </div>
+            </div>
+
+            {oncallError && (
+              <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{oncallError}</div>
+            )}
+
+            {oncallLoading ? (
+              <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer"/>)}</div>
+            ) : oncallView === "chart" ? (
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100">
+                  <h3 className="font-bold text-slate-800">גרף כוננויות</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {oncallSlotFilter ? { "ערב_1": "ערב I", "ערב_2": "ערב II", "לילה": "לילה" }[oncallSlotFilter] : "סה״כ כל סוגי הכוננות"}
+                  </p>
+                </div>
+                <div className="p-6">
+                  <div className="flex items-end gap-2 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
+                    {filteredOncall.map((e, i) => {
+                      const val = oncallSlotFilter ? (e.slot_counts[oncallSlotFilter] || 0) : e.total;
+                      const barH = oncallMax > 0 ? Math.max(val > 0 ? 4 : 0, Math.round((val / oncallMax) * 150)) : 0;
+                      return (
+                        <div key={e.employee_id || e.employee_name} className="flex flex-col items-center gap-1 min-w-[44px]">
+                          <span className="text-xs font-bold text-slate-600">{val || ""}</span>
+                          <div className="w-8 rounded-t-lg transition-all duration-500"
+                            style={{ height: `${barH}px`, background: val === 0 ? "#e2e8f0" : i < 3 ? "#f59e0b" : "#60a5fa" }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2 mt-2 overflow-x-auto">
+                    {filteredOncall.map(e => (
+                      <div key={e.employee_id || e.employee_name} className="min-w-[44px] text-center text-[10px] text-slate-500 truncate">{e.employee_name}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3 text-right font-semibold text-slate-600">#</th>
+                        <th className="px-4 py-3 text-right font-semibold text-slate-600">עובד</th>
+                        <th className="px-4 py-3 text-right font-semibold text-slate-600">מחלקה</th>
+                        {!oncallSlotFilter && <th className="px-4 py-3 text-center font-semibold text-slate-600">ערב I</th>}
+                        {!oncallSlotFilter && <th className="px-4 py-3 text-center font-semibold text-slate-600">ערב II</th>}
+                        {!oncallSlotFilter && <th className="px-4 py-3 text-center font-semibold text-slate-600">לילה</th>}
+                        {oncallSlotFilter && <th className="px-4 py-3 text-center font-semibold text-slate-600">כוננויות</th>}
+                        <th className="px-4 py-3 text-center font-semibold text-slate-600">סה״כ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredOncall.map((e, idx) => {
+                        const displayTotal = oncallSlotFilter ? (e.slot_counts[oncallSlotFilter] || 0) : e.total;
+                        return (
+                          <tr key={e.employee_id || e.employee_name} className={`border-b border-slate-100 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"} ${displayTotal === 0 ? "opacity-50" : ""}`}>
+                            <td className="px-4 py-2.5 text-slate-400 text-xs">{idx + 1}</td>
+                            <td className="px-4 py-2.5 font-medium text-slate-800">{e.employee_name}</td>
+                            <td className="px-4 py-2.5 text-slate-500 text-xs">{e.from_department}</td>
+                            {!oncallSlotFilter && <td className="px-4 py-2.5 text-center tabular-nums">{e.slot_counts["ערב_1"] || 0}</td>}
+                            {!oncallSlotFilter && <td className="px-4 py-2.5 text-center tabular-nums">{e.slot_counts["ערב_2"] || 0}</td>}
+                            {!oncallSlotFilter && <td className="px-4 py-2.5 text-center tabular-nums">{e.slot_counts["לילה"] || 0}</td>}
+                            {oncallSlotFilter && <td className="px-4 py-2.5 text-center tabular-nums">{e.slot_counts[oncallSlotFilter] || 0}</td>}
+                            <td className="px-4 py-2.5 text-center font-semibold text-slate-800 tabular-nums">{displayTotal}</td>
+                          </tr>
+                        );
+                      })}
+                      {filteredOncall.length === 0 && (
+                        <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">לא נמצאו תוצאות</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {tab === "advocates" && <AdvocatesSection employees={employees} search={search} manualTotals={manualTotalsByTable["advocates"] ?? {}} />}
 
       {/* Shirking tab — independent of justice loading */}
@@ -2013,7 +2187,7 @@ export default function JusticePage() {
       )}
 
       {/* Content for justice/volunteer/combined */}
-      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && !loading && !error && (
+      {tab !== "advocates" && tab !== "shirking" && tab !== "daytype" && tab !== "manual" && tab !== "oncall" && !loading && !error && (
         <div className="space-y-6">
           {(() => {
             const getDayScoreForEmployee = (name: string) => {

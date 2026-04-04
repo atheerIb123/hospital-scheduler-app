@@ -189,6 +189,7 @@ export type DayStatus =
   | { type: "shift"; shift_name: string }
   | { type: "constraint"; reason: string }
   | { type: "cross_dept"; shift_name: string; department: string }
+  | { type: "oncall"; shift_name: string }
   | { type: "off" };
 
 export interface EmployeeWeekPlan {
@@ -214,4 +215,31 @@ export interface WeeklySchedule {
   warnings?: ScheduleWarning[];
   summary?: EmployeeSummary[];
   reason?: string;
+}
+
+// ── On-call (כוננות סיעוד) ──────────────────────────────────────────────────
+
+export type OncallSlot = "ערב_1" | "ערב_2" | "לילה";
+
+export interface OncallAssignment {
+  employee_id: string;
+  employee_name: string;
+  from_department: string;
+}
+
+export interface OncallDaySlot {
+  department: string;         // responsible department (from rotation or override)
+  assignment: OncallAssignment | null;
+  is_override: boolean;       // true if department was manually overridden this month
+}
+
+export interface OncallDay {
+  date: string;               // ISO "YYYY-MM-DD"
+  slots: Record<OncallSlot, OncallDaySlot>;
+}
+
+export interface OncallConfig {
+  slots: Record<OncallSlot, string[]>;  // ordered department lists per slot
+  start_date: string | null;            // anchor date for the rotation
+  required_attributes?: string[];       // col_N keys required to be eligible for on-call
 }
