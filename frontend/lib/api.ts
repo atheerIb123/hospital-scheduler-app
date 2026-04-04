@@ -1,4 +1,4 @@
-import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload, DayType, DaySetting, ShiftCompositionData, ShiftConfig, SpecialShiftMonthConfig, ShiftOverride, WeeklySchedule } from "./types";
+import type { Employee, ShiftType, Schedule, Assignment, ImportResult, ShiftTypeImportResult, CreateShiftTypePayload, Constraint, ConstraintImportResult, CreateConstraintPayload, DayType, DaySetting, ShiftCompositionData, ShiftConfig, SpecialShiftMonthConfig, ShiftOverride, WeeklySchedule, OncallConfig, OncallDay, OncallSlot } from "./types";
 
 const BASE = "/api";
 
@@ -91,14 +91,16 @@ export const deleteEmployee = (id: string) =>
 export const clearEmployees = () =>
   request<{ ok: boolean }>("/employees", { method: "DELETE" });
 
-export const importEmployeesCsv = async (file: File, department?: string): Promise<ImportResult> => {
+export const importEmployeesCsv = async (file: File, department?: string, replace?: boolean): Promise<ImportResult> => {
   const form = new FormData();
   form.append("file", file);
   const mode = typeof window !== "undefined" ? localStorage.getItem("app_mode") : "";
   const headers: Record<string, string> = mode ? { "X-App-Mode": encodeURIComponent(mode) } : {};
-  const url = department
-    ? `${BASE}/employees/import?department=${encodeURIComponent(department)}`
-    : `${BASE}/employees/import`;
+  const params = new URLSearchParams();
+  if (department) params.set("department", department);
+  if (replace) params.set("replace", "true");
+  const query = params.toString();
+  const url = `${BASE}/employees/import${query ? `?${query}` : ""}`;
   const res = await fetch(url, { method: "POST", body: form, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -625,3 +627,61 @@ export const saveShiftOverride = (override: ShiftOverride, m?: string) =>
 
 export const deleteShiftOverride = (date: string, shiftName: string, m?: string) =>
   request<{ ok: boolean }>(`/shift-overrides/${date}/${encodeURIComponent(shiftName)}`, { method: "DELETE" }, m);
+
+// ---------------------------------------------------------------------------
+// On-call (כוננות סיעוד)
+// ---------------------------------------------------------------------------
+
+export const getOncallConfig = () =>
+  request<OncallConfig>("/oncall/config");
+
+export const saveOncallConfig = (config: OncallConfig) =>
+  request<{ ok: boolean }>("/oncall/config", { method: "POST", body: JSON.stringify(config) });
+
+export const getOncallMonthly = (year: number, month: number) =>
+  request<OncallDay[]>(`/oncall/monthly?year=${year}&month=${month}`);
+
+export const setOncallOverride = (date: string, slot: OncallSlot, department: string) =>
+  request<{ ok: boolean }>("/oncall/override", { method: "POST", body: JSON.stringify({ date, slot, department }) });
+
+export const deleteOncallOverride = (date: string, slot: OncallSlot) =>
+  request<{ ok: boolean }>("/oncall/override", { method: "DELETE", body: JSON.stringify({ date, slot }) });
+
+export const setOncallAssignment = (date: string, slot: OncallSlot, employee_id: string, employee_name: string, from_department: string) =>
+  request<{ ok: boolean }>("/oncall/assignment", { method: "POST", body: JSON.stringify({ date, slot, employee_id, employee_name, from_department }) });
+
+export const deleteOncallAssignment = (date: string, slot: OncallSlot) =>
+  request<{ ok: boolean }>("/oncall/assignment", { method: "DELETE", body: JSON.stringify({ date, slot }) });
+
+export const getOncallWeekBlocks = (weekStart: string) =>
+  request<Array<{ date: string; slot: OncallSlot; employee_id: string; employee_name: string; from_department: string }>>(`/oncall/week-blocks?week_start=${weekStart}`);
+
+export interface OncallJusticeEntry {
+  employee_id: string;
+  employee_name: string;
+  from_department: string;
+  slot_counts: Record<string, number>;
+  total: number;
+}
+
+export const getOncallJustice = (startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams();
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  const qs = params.toString();
+  return request<OncallJusticeEntry[]>(`/oncall/justice${qs ? `?${qs}` : ""}`);
+};
+
+export const autoGenerateOncall = (year: number, month: number, overwrite = false) =>
+  request<{ ok: boolean; generated: number }>("/oncall/auto-generate", {
+    method: "POST",
+    body: JSON.stringify({ year, month, overwrite }),
+  });
+
+export const importOncall = (data: {
+  year: number; month: number;
+  overrides: { date: string; slot: string; department: string }[];
+  assignments: { date: string; slot: string; employee_id: string; employee_name: string; from_department: string }[];
+}) => request<{ ok: boolean; overrides: number; assignments: number }>("/oncall/import", {
+  method: "POST", body: JSON.stringify(data),
+});

@@ -5,13 +5,14 @@ import { Activity } from "lucide-react";
 import { Select } from "./ui";
 import { useMode } from "@/components/ModeProvider";
 
-const links = [
-  { href: "/employees", label: "עובדים" },
-  { href: "/shift-types", label: "סוגי משמרות" },
-  { href: "/constraints", label: "הסתייגויות" },
-  { href: "/schedule", label: "סידור עבודה" },
-  { href: "/justice", label: "טבלאות ניקוד" },
-  { href: "/stats", label: "סטטיסטיקות" },
+const allLinks = [
+  { href: "/employees",   label: "עובדים",          nursingOnly: false },
+  { href: "/shift-types", label: "סוגי משמרות",     nursingOnly: false },
+  { href: "/constraints", label: "הסתייגויות",      nursingOnly: false },
+  { href: "/schedule",    label: "סידור עבודה",     nursingOnly: false },
+  { href: "/oncall",      label: "כוננות סיעוד",    nursingOnly: true  },
+  { href: "/justice",     label: "טבלאות ניקוד",    nursingOnly: false },
+  { href: "/stats",       label: "סטטיסטיקות",      nursingOnly: false },
 ];
 
 const modeNames: Record<string, string> = {
@@ -25,6 +26,8 @@ export default function Nav() {
   const { mode, setMode } = useMode();
 
   const [base] = (mode || "doctors").split("_");
+  const isNursing = base === "nursing";
+  const links = allLinks.filter(l => !l.nursingOnly || isNursing);
 
   return (
     <nav

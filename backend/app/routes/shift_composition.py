@@ -8,9 +8,11 @@ _NURSING_SHIFT_TYPES = [
     {"names": ["משמרת בוקר",   "בוקר"],              "required_attributes": [], "schedule_on": ["all"], "desirability": 3, "is_desired": False, "is_special": False},
     {"names": ["משמרת ערב",    "ערב"],               "required_attributes": [], "schedule_on": ["all"], "desirability": 2, "is_desired": False, "is_special": False},
     {"names": ["משמרת לילה",   "לילה"],              "required_attributes": [], "schedule_on": ["all"], "desirability": 1, "is_desired": False, "is_special": False},
-    {"names": ["רזרבה/כוננות", "רזרבה", "כוננות"],   "required_attributes": [], "schedule_on": ["all"], "desirability": 4, "is_desired": True,  "is_special": False},
     {"names": ["משמרת מיוחדת", "מיוחדת"],            "required_attributes": [], "schedule_on": ["all"], "desirability": 5, "is_desired": True,  "is_special": True},
 ]
+
+# Shift type names that should never appear in any nursing department
+_REMOVED_SHIFT_NAMES = {"רזרבה", "כוננות", "רזרבה/כוננות"}
 
 # Default composition config (shift_name must match a shift type name)
 _NURSING_DEFAULT_COMPOSITION = [
@@ -45,16 +47,6 @@ _NURSING_DEFAULT_COMPOSITION = [
         "role_slots": [
             {"attribute_name": "אחראי משמרת", "count": 1, "prefer_sub_attribute": "על בסיסי"},
             {"attribute_name": "אח/אחות",     "count": 1},
-        ],
-        "min_male": 0,
-        "min_female": 0,
-    },
-    {
-        "shift_name": "רזרבה/כוננות",
-        "hours": "",
-        "total_workers": 1,
-        "role_slots": [
-            {"attribute_name": "אחראי משמרת", "count": 1, "prefer_sub_attribute": "על בסיסי"},
         ],
         "min_male": 0,
         "min_female": 0,

@@ -200,7 +200,7 @@ def generate():
         ), 500
 
 
-def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_days, constraints, shift_composition, cross_dept_assignments=None):
+def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_days, constraints, shift_composition, cross_dept_assignments=None, oncall_assignments=None):
     """Build weekly_grid and employee_plan from flat assignments."""
     # Map day number → ISO date string
     day_to_iso = {d.day: d.isoformat() for d in week_days}
@@ -248,6 +248,17 @@ def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_
         if iso:
             a_lookup.setdefault(a["employee_id"], {}).setdefault(iso, []).append(a["shift_name"])
 
+    # on-call lookup: employee_id → day_iso → slot_label
+    oncall_lookup: dict = {}
+    if oncall_assignments:
+        slot_labels = {"ערב_1": "כוננות ערב I", "ערב_2": "כוננות ערב II", "לילה": "כוננות לילה"}
+        for oc in oncall_assignments:
+            eid_oc = oc.get("employee_id", "")
+            iso_oc = oc.get("date", "")
+            slot_oc = oc.get("slot", "")
+            if eid_oc and iso_oc:
+                oncall_lookup.setdefault(eid_oc, {})[iso_oc] = slot_labels.get(slot_oc, "כוננות")
+
     # cross-dept lookup: employee_id → day_number → {shift_name, department}
     cd_lookup: dict = {}
     if cross_dept_assignments:
@@ -270,10 +281,13 @@ def _build_nursing_weekly_outputs(assignments, all_employees, shift_types, week_
             assigned = a_lookup.get(eid, {}).get(iso, [])
             constraint = c_lookup.get(name, {}).get(iso)
             cross = cd_lookup.get(eid, {}).get(d.day)
+            oncall = oncall_lookup.get(eid, {}).get(iso)
             if assigned:
                 days_out[iso] = [{"type": "shift", "shift_name": s} for s in assigned]
             elif cross:
                 days_out[iso] = [{"type": "cross_dept", "shift_name": cross["shift_name"], "department": cross["department"]}]
+            elif oncall:
+                days_out[iso] = [{"type": "oncall", "shift_name": oncall}]
             elif constraint and constraint["full"]:
                 days_out[iso] = [{"type": "constraint", "reason": constraint["reason"]}]
             else:
@@ -474,6 +488,27 @@ def generate_weekly():
                     if a["day"] in specific_day_nums
                 ]
 
+        # ── Block on-call (כוננות) employees from regular shifts ─────────────
+        # Fetch on-call assignments for this week from the global DB and block
+        # those employees on their on-call days.
+        global_oncall = list(
+            global_db.oncall_assignments.find(
+                {"date": {"$in": [d.isoformat() for d in week_days]}},
+                {"_id": 0},
+            )
+        )
+        oncall_blocked_days: dict = {}
+        for oc in global_oncall:
+            eid = oc.get("employee_id", "")
+            iso = oc.get("date", "")
+            if not eid or not iso:
+                continue
+            try:
+                day_num = date_type.fromisoformat(iso).day
+            except ValueError:
+                continue
+            oncall_blocked_days.setdefault(eid, []).append(day_num)
+
         # ── Compute extra_blocked_days from cross-dept locked assignments ─────
         # If a home-dept employee is locked to ANOTHER dept's shift, block them
         # from being scheduled in their home dept on those days.
@@ -488,6 +523,10 @@ def generate_weekly():
                     if eid and day is not None and eid in dept_emp_ids:
                         extra_blocked_days.setdefault(eid, []).append(day)
                         cross_dept_assignments_for_plan.append(la)
+
+        # Merge on-call blocks into extra_blocked_days
+        for eid, days_list in oncall_blocked_days.items():
+            extra_blocked_days.setdefault(eid, []).extend(days_list)
 
         result = generate_schedule(
             all_employees,
@@ -512,6 +551,17 @@ def generate_weekly():
         if result["status"] != "generated":
             return jsonify({"status": "failed", "reason": result.get("reason", "שגיאה לא ידועה")}), 422
 
+        # Warn if no on-call assignments exist for this week
+        if not global_oncall:
+            oncall_warning = {
+                "type": "oncall_missing",
+                "shift_name": "כוננות",
+                "day": 0,
+                "shift_type_id": "oncall_warning",
+                "message": "לא הוכנסו כוננויות לשבוע זה — יש לוודא שיבוץ כוננות לפני הגנרציה",
+            }
+            result.setdefault("warnings", []).append(oncall_warning)
+
         # Build nursing-specific outputs
         weekly_grid, employee_plan = _build_nursing_weekly_outputs(
             assignments=result["assignments"],
@@ -521,6 +571,7 @@ def generate_weekly():
             constraints=constraints,
             shift_composition=shift_composition_arg or {},
             cross_dept_assignments=cross_dept_assignments_for_plan or None,
+            oncall_assignments=global_oncall or None,
         )
 
         doc = {

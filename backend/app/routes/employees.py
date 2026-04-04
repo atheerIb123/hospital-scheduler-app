@@ -425,6 +425,14 @@ def import_employees():
     # Optional: import into a specific department (overrides any dept column in CSV)
     target_department = request.args.get("department", "").strip() or None
 
+    # If replace=true, clear employees before importing
+    replace_dept = request.args.get("replace", "").lower() in ("1", "true", "yes")
+    if replace_dept:
+        if target_department:
+            db.employees.delete_many({"home_department": target_department})
+        else:
+            db.employees.delete_many({})
+
     from .departments import build_department_list, auto_add_department
     known_departments = set(build_department_list())
     invalid_depts: set = set()
@@ -538,11 +546,16 @@ def import_employees():
                 db.shift_types.insert_many(parsed_shifts)
                 auto_seeded = True
 
-    # Nursing: auto-provision a per-department DB for every unique department
+    # Nursing: auto-provision a per-department DB for every unique department.
+    # Wrapped in try/except so a provisioning failure never blocks the import response.
+    dept_provision_errors: list[str] = []
     if is_nursing:
         all_depts = {e.get("home_department") for e in parsed if e.get("home_department")}
         for dept in all_depts:
-            ensure_nursing_dept_db(dept)
+            try:
+                ensure_nursing_dept_db(dept)
+            except Exception as exc:
+                dept_provision_errors.append(f"{dept}: {exc}")
 
     return jsonify(
         {
@@ -552,6 +565,7 @@ def import_employees():
             "shift_types_auto_seeded": auto_seeded,
             "new_departments": [],
             "invalid_departments": sorted(invalid_depts),
+            **({"provision_warnings": dept_provision_errors} if dept_provision_errors else {}),
         }
     ), 201
 
