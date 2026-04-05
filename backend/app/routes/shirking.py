@@ -13,10 +13,31 @@ def _serialize(doc):
 
 @shirking_bp.get("/shirking")
 def list_shirking():
+    import datetime as dt_mod
     db = get_db()
     month = request.args.get("month", type=int)
     year = request.args.get("year", type=int)
+    start_str = request.args.get("start_date")
+    end_str = request.args.get("end_date")
     query = {}
+    if start_str and end_str:
+        try:
+            start = dt_mod.date.fromisoformat(start_str)
+            end = dt_mod.date.fromisoformat(end_str)
+            # Build list of (year, month, day) ranges covered
+            # Use a simple date-comparison approach: filter in Python
+            docs = list(db.shirking.find({}, sort=[("year", -1), ("month", -1), ("day", 1)]))
+            result = []
+            for s in docs:
+                try:
+                    d = dt_mod.date(s["year"], s["month"], s["day"])
+                    if start <= d <= end:
+                        result.append(_serialize(s))
+                except Exception:
+                    pass
+            return jsonify(result)
+        except Exception:
+            pass
     if month and year:
         query["month"] = month
         query["year"] = year

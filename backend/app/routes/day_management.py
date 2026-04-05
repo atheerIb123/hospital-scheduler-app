@@ -1,9 +1,38 @@
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
-from ..db import get_db, get_global_db
+from ..db import get_db, get_global_db, get_client, _dept_db_name
+from urllib.parse import unquote
 import datetime
 
 day_mgmt_bp = Blueprint("day_management", __name__)
+
+
+def _is_nursing_mode():
+    raw = request.headers.get("X-App-Mode", "").strip()
+    mode = unquote(raw).replace(" ", "_").replace("-", "_") if raw else ""
+    return mode.startswith("nursing")
+
+
+def _get_all_nursing_dept_dbs():
+    from .departments import build_department_list
+    from flask import current_app
+    base_name = current_app.config["MONGO_DB_NAME"]
+    client = get_client()
+    return [client[_dept_db_name(base_name, dept)] for dept in build_department_list()]
+
+
+def _collect_schedules_for_mode():
+    """Return dict of (key → schedule) with the latest schedule per dept/month/year."""
+    sched_db = get_db()
+    latest_map: dict = {}
+    if _is_nursing_mode():
+        for dept_db in _get_all_nursing_dept_dbs():
+            for s in dept_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+                latest_map[(id(dept_db), s.get("year"), s.get("month"))] = s
+    else:
+        for s in sched_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+            latest_map[(None, s.get("year"), s.get("month"))] = s
+    return latest_map
 
 
 def _serialize(doc):
@@ -166,7 +195,6 @@ def day_type_justice():
     start_str = request.args.get("start_date")
     end_str = request.args.get("end_date")
     db = get_global_db()
-    sched_db = get_db()
 
     weekday_scores = _get_weekday_scores(db)
 
@@ -193,10 +221,8 @@ def day_type_justice():
             if s.get("score") is not None:
                 date_score_map[s["date"]] = s["score"]
 
-    # Keep only the latest generated schedule per (year, month) — same as /justice
-    latest_map = {}
-    for s in sched_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
-        latest_map[(s.get("year"), s.get("month"))] = s
+    # Keep only the latest generated schedule per dept/month/year
+    latest_map = _collect_schedules_for_mode()
     schedules = list(latest_map.values())
     emp_data = {}  # {name: {shabbat_count, by_type: {type_id: count}}}
 
@@ -296,7 +322,6 @@ def day_type_justice_breakdown():
     start_str = request.args.get("start_date")
     end_str = request.args.get("end_date")
     db = get_global_db()
-    sched_db = get_db()
 
     weekday_scores = _get_weekday_scores(db)
 
@@ -321,9 +346,7 @@ def day_type_justice_breakdown():
             if s.get("score") is not None:
                 date_score_map[s["date"]] = s["score"]
 
-    latest_map: dict = {}
-    for s in sched_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
-        latest_map[(s.get("year"), s.get("month"))] = s
+    latest_map = _collect_schedules_for_mode()
 
     HE_DAYS = {
         0: "שני",

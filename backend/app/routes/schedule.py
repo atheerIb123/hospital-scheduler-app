@@ -12,6 +12,22 @@ from urllib.parse import unquote
 schedule_bp = Blueprint("schedule", __name__)
 
 
+def _is_nursing_mode():
+    raw = request.headers.get("X-App-Mode", "").strip()
+    mode = unquote(raw).replace(" ", "_").replace("-", "_") if raw else ""
+    return mode.startswith("nursing")
+
+
+def _get_all_nursing_dept_dbs():
+    """Return a list of per-department pymongo Databases for all nursing departments."""
+    from .departments import build_department_list
+    from ..db import _dept_db_name
+    from flask import current_app
+    base_name = current_app.config["MONGO_DB_NAME"]
+    client = get_client()
+    return [client[_dept_db_name(base_name, dept)] for dept in build_department_list()]
+
+
 def _serialize(doc):
     doc["id"] = str(doc.pop("_id"))
     return doc
@@ -782,20 +798,33 @@ def get_justice():
             pass
 
     # Build desirability map: shift_name → justice points
+    # For nursing: scan all dept DBs so all shift names are covered
     des_map: dict = {}
-    for st in db.shift_types.find():
-        des = st.get("desirability", 3)
-        pts = JUSTICE_PTS.get(int(des), 4)
-        for name in st.get("names", []):
-            des_map[name] = pts
+    scan_dbs = _get_all_nursing_dept_dbs() if _is_nursing_mode() else [db]
+    for scan_db in scan_dbs:
+        for st in scan_db.shift_types.find():
+            des = st.get("desirability", 3)
+            pts = JUSTICE_PTS.get(int(des), 4)
+            for name in st.get("names", []):
+                if name not in des_map:
+                    des_map[name] = pts
 
-    # For each (month, year) pair keep only the most recently generated schedule
+    # For each (dept, month, year) keep only the most recently generated schedule.
+    # For nursing: scan all dept-specific DBs (schedules live there, not in shared DB).
     latest_schedules: dict = {}
-    for schedule in db.schedules.find(
-        {"status": "generated"}, sort=[("generated_at", 1)]
-    ):
-        key = (schedule.get("year"), schedule.get("month"))
-        latest_schedules[key] = schedule
+    if _is_nursing_mode():
+        for dept_db in scan_dbs:
+            for schedule in dept_db.schedules.find(
+                {"status": "generated"}, sort=[("generated_at", 1)]
+            ):
+                key = (id(dept_db), schedule.get("year"), schedule.get("month"))
+                latest_schedules[key] = schedule
+    else:
+        for schedule in db.schedules.find(
+            {"status": "generated"}, sort=[("generated_at", 1)]
+        ):
+            key = (None, schedule.get("year"), schedule.get("month"))
+            latest_schedules[key] = schedule
 
     # Weekday scores for non-Shabbat days → added to regular justice
     weekday_scores = _get_weekday_scores(global_db)
@@ -885,16 +914,24 @@ def get_justice_breakdown():
 
     des_map: dict = {}
     des_level_map: dict = {}
-    for st in db.shift_types.find():
-        des = int(st.get("desirability", 3))
-        pts = JUSTICE_PTS.get(des, 4)
-        for name in st.get("names", []):
-            des_map[name] = pts
-            des_level_map[name] = des
+    scan_dbs = _get_all_nursing_dept_dbs() if _is_nursing_mode() else [db]
+    for scan_db in scan_dbs:
+        for st in scan_db.shift_types.find():
+            des = int(st.get("desirability", 3))
+            pts = JUSTICE_PTS.get(des, 4)
+            for name in st.get("names", []):
+                if name not in des_map:
+                    des_map[name] = pts
+                    des_level_map[name] = des
 
     latest_schedules: dict = {}
-    for s in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
-        latest_schedules[(s.get("year"), s.get("month"))] = s
+    if _is_nursing_mode():
+        for dept_db in scan_dbs:
+            for s in dept_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+                latest_schedules[(id(dept_db), s.get("year"), s.get("month"))] = s
+    else:
+        for s in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+            latest_schedules[(None, s.get("year"), s.get("month"))] = s
 
     weekday_scores = _get_weekday_scores(global_db)
     HE_DAYS = {
@@ -971,12 +1008,15 @@ def get_volunteer_breakdown():
 
     des_map: dict = {}
     des_level_map: dict = {}
-    for st in db.shift_types.find():
-        des = int(st.get("desirability", 3))
-        pts = JUSTICE_PTS.get(des, 4)
-        for name in st.get("names", []):
-            des_map[name] = pts
-            des_level_map[name] = des
+    scan_dbs = _get_all_nursing_dept_dbs() if _is_nursing_mode() else [db]
+    for scan_db in scan_dbs:
+        for st in scan_db.shift_types.find():
+            des = int(st.get("desirability", 3))
+            pts = JUSTICE_PTS.get(des, 4)
+            for name in st.get("names", []):
+                if name not in des_map:
+                    des_map[name] = pts
+                    des_level_map[name] = des
 
     HE_DAYS = {
         0: "שני",

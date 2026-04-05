@@ -235,6 +235,7 @@ function NursingSchedulePage() {
   const [changedCells, setChangedCells] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [shirkingToast, setShirkingToast] = useState<{ name: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     if (schedule?.assignments) {
@@ -408,6 +409,48 @@ function NursingSchedulePage() {
       return next;
     });
     setSaveSuccess(false);
+  }, [shiftNameToId]);
+
+  const handleReplace = useCallback((
+    iso: string,
+    shiftName: string,
+    removedEmp: { id: string; name: string },
+    addedEmp: { id: string; name: string },
+    flags: { volunteer: boolean; shirking: boolean },
+  ) => {
+    const d = new Date(iso + "T12:00:00");
+    const dayOfMonth = d.getDate();
+    const m = d.getMonth() + 1;
+    const y = d.getFullYear();
+    if (flags.shirking) {
+      api.addShirking({
+        employee_id: removedEmp.id,
+        employee_name: removedEmp.name,
+        shift_name: shiftName,
+        day: dayOfMonth,
+        month: m,
+        year: y,
+        replacement_name: addedEmp.name,
+      }).then(() => {
+        setShirkingToast({ name: removedEmp.name, ok: true });
+        setTimeout(() => setShirkingToast(null), 4000);
+      }).catch(e => {
+        console.error("addShirking failed:", e);
+        setShirkingToast({ name: removedEmp.name, ok: false });
+        setTimeout(() => setShirkingToast(null), 6000);
+      });
+    }
+    if (flags.volunteer) {
+      api.addVolunteer({
+        employee_id: addedEmp.id,
+        employee_name: addedEmp.name,
+        shift_type_id: shiftNameToId[shiftName] ?? "",
+        shift_name: shiftName,
+        day: dayOfMonth,
+        month: m,
+        year: y,
+      }).catch(e => console.error("addVolunteer failed:", e));
+    }
   }, [shiftNameToId]);
 
   const handleSave = async () => {
@@ -664,6 +707,15 @@ function NursingSchedulePage() {
         </div>
       </div>
 
+      {/* Shirking save feedback */}
+      {shirkingToast && (
+        <Alert type={shirkingToast.ok ? "success" : "error"}>
+          {shirkingToast.ok
+            ? `הברזה של ${shirkingToast.name} נשמרה בהצלחה`
+            : `שגיאה בשמירת הברזה של ${shirkingToast.name} — בדוק את לוח הבקרה`}
+        </Alert>
+      )}
+
       {/* Error */}
       {error && (
         <Alert type="error">
@@ -762,6 +814,7 @@ function NursingSchedulePage() {
               onAddEmployee={handleAddEmployee}
               onRemoveEmployee={handleRemoveEmployee}
               onMoveEmployee={handleMoveEmployee}
+              onReplace={handleReplace}
               shiftLeaderIds={shiftLeaderIds}
               shiftComposition={preCompositionMap}
               columnToAttrName={columnToAttrName}

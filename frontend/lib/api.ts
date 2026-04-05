@@ -340,9 +340,17 @@ export interface ShirkingRecord {
   replacement_name: string;
 }
 
-export const getShirking = (month?: number, year?: number) => {
-  const qs = month && year ? `?month=${month}&year=${year}` : "";
-  return request<ShirkingRecord[]>(`/shirking${qs}`);
+export const getShirking = (month?: number, year?: number, startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams();
+  if (startDate && endDate) {
+    params.set("start_date", startDate);
+    params.set("end_date", endDate);
+  } else if (month && year) {
+    params.set("month", String(month));
+    params.set("year", String(year));
+  }
+  const qs = params.toString();
+  return request<ShirkingRecord[]>(`/shirking${qs ? `?${qs}` : ""}`);
 };
 
 export const addShirking = (data: Omit<ShirkingRecord, "id">) =>
@@ -561,7 +569,7 @@ export const setWeekdayScores = (scores: Record<string, number>) =>
 // Manual points
 // ---------------------------------------------------------------------------
 
-export type ManualPointTable = "justice" | "volunteer" | "shirking" | "daytype" | "advocates" | "general";
+export type ManualPointTable = "justice" | "volunteer" | "shirking" | "daytype" | "advocates" | "oncall" | "general";
 
 export interface ManualPoint {
   id: string;
@@ -671,6 +679,34 @@ export const getOncallJustice = (startDate?: string, endDate?: string) => {
   const qs = params.toString();
   return request<OncallJusticeEntry[]>(`/oncall/justice${qs ? `?${qs}` : ""}`);
 };
+
+export interface OncallBreakdownRow {
+  date: string;
+  day_of_week: string;
+  slot: string;
+  slot_label: string;
+  employee_id: string;
+  employee_name: string;
+  from_department: string;
+}
+
+export interface OncallBreakdown {
+  employee_id: string;
+  rows: OncallBreakdownRow[];
+  total: number;
+}
+
+export const getOncallJusticeBreakdown = (employeeId: string, startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams();
+  params.set("employee_id", employeeId);
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return request<OncallBreakdown>(`/oncall/justice/breakdown?${params.toString()}`);
+};
+
+export const getOncallAllAssignments = (startDate?: string, endDate?: string) =>
+  request<OncallBreakdown>(`/oncall/justice/breakdown${(() => { const p = new URLSearchParams(); if (startDate) p.set("start_date", startDate); if (endDate) p.set("end_date", endDate); const q = p.toString(); return q ? `?${q}` : ""; })()}`)
+    .then(r => r.rows);
 
 export const autoGenerateOncall = (year: number, month: number, overwrite = false) =>
   request<{ ok: boolean; generated: number }>("/oncall/auto-generate", {

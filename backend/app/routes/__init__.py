@@ -13,6 +13,7 @@ from .special_shifts import special_shifts_bp
 from .shift_overrides import shift_overrides_bp
 from .locked_pre_assignments import locked_pre_bp
 from .oncall import oncall_bp
+from .manual_points import manual_points_bp
 
 
 def register_routes(app):
@@ -31,3 +32,4 @@ def register_routes(app):
     app.register_blueprint(shift_overrides_bp, url_prefix="/api")
     app.register_blueprint(locked_pre_bp, url_prefix="/api")
     app.register_blueprint(oncall_bp, url_prefix="/api")
+    app.register_blueprint(manual_points_bp, url_prefix="/api")

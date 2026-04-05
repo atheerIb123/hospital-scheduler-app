@@ -250,6 +250,57 @@ def get_justice():
     return jsonify(result)
 
 
+@oncall_bp.get("/oncall/justice/breakdown")
+def get_justice_breakdown():
+    """Return individual oncall assignments for a specific employee."""
+    global_db = get_global_db()
+
+    employee_id = request.args.get("employee_id", "")
+    start_date_str = request.args.get("start_date")
+    end_date_str = request.args.get("end_date")
+
+    query: dict = {}
+    if employee_id:
+        query["employee_id"] = employee_id
+    if start_date_str or end_date_str:
+        date_filter: dict = {}
+        if start_date_str:
+            date_filter["$gte"] = start_date_str
+        if end_date_str:
+            date_filter["$lte"] = end_date_str
+        query["date"] = date_filter
+
+    assignments = list(global_db.oncall_assignments.find(query, {"_id": 0}).sort("date", 1))
+
+    SLOT_LABELS = {"ערב_1": "ערב I", "ערב_2": "ערב II", "לילה": "לילה"}
+    HE_DAYS = {0: "שני", 1: "שלישי", 2: "רביעי", 3: "חמישי", 4: "שישי", 5: "שבת", 6: "ראשון"}
+
+    rows = []
+    import datetime as dt_mod
+    for a in assignments:
+        date_str = a.get("date", "")
+        try:
+            wd = dt_mod.date.fromisoformat(date_str).weekday()
+            day_name = HE_DAYS.get(wd, "")
+        except Exception:
+            day_name = ""
+        rows.append({
+            "date": date_str,
+            "day_of_week": day_name,
+            "slot": a.get("slot", ""),
+            "slot_label": SLOT_LABELS.get(a.get("slot", ""), a.get("slot", "")),
+            "employee_id": a.get("employee_id", ""),
+            "employee_name": a.get("employee_name", ""),
+            "from_department": a.get("from_department", ""),
+        })
+
+    return jsonify({
+        "employee_id": employee_id,
+        "rows": rows,
+        "total": len(rows),
+    })
+
+
 @oncall_bp.post("/oncall/auto-generate")
 def auto_generate():
     """Auto-assign oncall slots for a month, balancing by least oncall this year."""

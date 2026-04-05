@@ -1,8 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, getManualPoints, addManualPoint, removeManualPoint, getOncallJustice, type JusticeEntry, type Advocate, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer, type ManualPoint, type ManualPointTable, type OncallJusticeEntry } from "@/lib/api";
+import { getJustice, getAdvocates, addAdvocate, removeAdvocate, getEmployees, getShirking, removeShirking, getDayTypeJustice, getJusticeBreakdown, getVolunteerBreakdown, getDayTypeBreakdown, getVolunteers, getManualPoints, addManualPoint, removeManualPoint, getOncallJustice, getOncallJusticeBreakdown, getOncallAllAssignments, type JusticeEntry, type Advocate, type ShirkingRecord, type DayTypeJusticeData, type JusticeBreakdown, type VolunteerBreakdown, type DayTypeBreakdown, type Volunteer, type ManualPoint, type ManualPointTable, type OncallJusticeEntry, type OncallBreakdown, type OncallBreakdownRow } from "@/lib/api";
 import type { Employee } from "@/lib/types";
-import { Button, DeleteIconButton, Alert, Input, Select, TabButton, TabsContainer, SearchInput, SearchDropdown, Toggle, DateRangePicker } from "@/components/ui";
+import { Button, DeleteIconButton, Alert, Input, Select, TabButton, TabsContainer, SearchInput, SearchDropdown, Toggle, DateRangePicker, FilterPill } from "@/components/ui";
 import type { DateRangeValue } from "@/components/ui";
 import { X, Plus, Check, Handshake, Ban, ChevronDown, Trash2, Scale, Building2, Trophy, BarChart2, Pencil, PhoneCall } from "lucide-react";
 import type { ReactNode } from "react";
@@ -727,6 +727,132 @@ function VolunteerSection({ data, view, search, onEmployeeClick, manualTotals = 
   );
 }
 
+// ── Oncall Breakdown Modal ────────────────────────────────────────────────────
+
+const SLOT_COLORS: Record<string, string> = {
+  "ערב_1": "bg-amber-100 text-amber-700 border-amber-200",
+  "ערב_2": "bg-orange-100 text-orange-700 border-orange-200",
+  "לילה":  "bg-indigo-100 text-indigo-700 border-indigo-200",
+};
+
+function OncallBreakdownModal({ employeeId, employeeName, manualPoints, startDate, endDate, onClose }: {
+  employeeId: string;
+  employeeName: string;
+  manualPoints: ManualPoint[];
+  startDate?: string;
+  endDate?: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<OncallBreakdown | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getOncallJusticeBreakdown(employeeId, startDate, endDate)
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [employeeId, startDate, endDate]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const relevantManual = manualPoints.filter(p => p.employee_id === employeeId);
+  const manualSum = relevantManual.reduce((sum, p) => sum + p.points, 0);
+  const displayTotal = (data?.total ?? 0) + manualSum;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+        dir="rtl"
+      >
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="font-bold text-slate-800 text-lg">{employeeName}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">פירוט כוננויות</p>
+          </div>
+          {!loading && (
+            <div className="flex items-center gap-3 mr-auto ml-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-orange-500">{data?.total ?? 0}</div>
+                <div className="text-[10px] text-slate-400">כוננויות</div>
+              </div>
+              {manualSum !== 0 && (
+                <div className="text-center">
+                  <div className={`text-lg font-bold ${manualSum > 0 ? "text-blue-600" : "text-rose-600"}`}>
+                    {manualSum > 0 ? `+${manualSum}` : manualSum}
+                  </div>
+                  <div className="text-[10px] text-slate-400">ניקוד ידני</div>
+                </div>
+              )}
+              {manualSum !== 0 && (
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-slate-800">{displayTotal}</div>
+                  <div className="text-[10px] text-slate-400">סה״כ</div>
+                </div>
+              )}
+            </div>
+          )}
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors mr-2">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1">
+          {loading ? (
+            <div className="p-8 text-center text-slate-400 text-sm">טוען...</div>
+          ) : (
+            <>
+              {(!data || data.rows.length === 0) && relevantManual.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-sm">אין נתוני כוננות בטווח הנבחר</div>
+              ) : (
+                <table className="min-w-full text-sm">
+                  <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+                    <tr>
+                      <th className="px-4 py-3 text-right font-semibold text-slate-600">תאריך</th>
+                      <th className="px-4 py-3 text-right font-semibold text-slate-600">יום</th>
+                      <th className="px-4 py-3 text-right font-semibold text-slate-600">סוג כוננות</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data?.rows.map((row, i) => (
+                      <tr key={i} className={`border-b border-slate-50 hover:bg-orange-50/30 ${i % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                        <td className="px-4 py-2.5 text-slate-600 tabular-nums">{row.date}</td>
+                        <td className="px-4 py-2.5 text-slate-700 font-medium">{row.day_of_week}</td>
+                        <td className="px-4 py-2.5">
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold border ${SLOT_COLORS[row.slot] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                            {row.slot_label}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {relevantManual.map((mp, i) => (
+                      <tr key={`manual-${i}`} className="border-b border-slate-50 bg-blue-50/40 hover:bg-blue-50">
+                        <td className="px-4 py-2.5 text-slate-600 tabular-nums">{(mp.date || mp.created_at).slice(0, 10)}</td>
+                        <td className="px-4 py-2.5 text-slate-500 text-xs">ניקוד ידני</td>
+                        <td className="px-4 py-2.5">
+                          <span className="text-xs font-semibold text-blue-600">
+                            {mp.points > 0 ? `+${mp.points}` : mp.points} {mp.reason ? `— ${mp.reason}` : ""}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── All-in-one Combined table ─────────────────────────────────────────────────
 
 type AllCombinedEntry = {
@@ -736,8 +862,9 @@ type AllCombinedEntry = {
     justice: number;
     volunteer: number;
     daytype: number;
-    shirking: number;
     advocates: number;
+    shirking: number;
+    oncall: number;
   };
   total: number;
   manual: number;
@@ -747,6 +874,7 @@ const SCORE_COLS: { key: keyof AllCombinedEntry['scores']; label: string; color:
   { key: "justice",   label: "צדק",        color: "bg-blue-400" },
   { key: "volunteer", label: "התנדבות",    color: "bg-green-400" },
   { key: "daytype",   label: "שבת/חג",     color: "bg-purple-400" },
+  { key: "oncall",    label: "כוננות",     color: "bg-orange-400" },
   { key: "advocates", label: "סנגורים",     color: "bg-fuchsia-400" },
   { key: "shirking",  label: "הברזות",     color: "bg-rose-400" },
 ];
@@ -817,7 +945,7 @@ function AllCombinedTable({ data, search }: {
 }
 
 // ── Advocates section ─────────────────────────────────────────────────────────
-function AdvocatesSection({ employees, search, manualTotals = {} }: { employees: Employee[]; search: string; manualTotals?: Record<string, number>; }) {
+function AdvocatesSection({ employees, search, manualTotals = {}, deptEmployeeIds }: { employees: Employee[]; search: string; manualTotals?: Record<string, number>; deptEmployeeIds?: Set<string>; }) {
   const [advocates, setAdvocates] = useState<Advocate[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -829,6 +957,7 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
   const [saveError, setSaveError] = useState<string | null>(null);
   const [empSearch, setEmpSearch] = useState("");
   const [empOpen, setEmpOpen] = useState(false);
+  const [empDeptFilter, setEmpDeptFilter] = useState("");
   const [descSearch, setDescSearch] = useState("");
 
   useEffect(() => {
@@ -873,6 +1002,12 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
     }
   }
 
+  const deptOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of employees) { if (e.home_department) set.add(e.home_department); }
+    return Array.from(set).sort();
+  }, [employees]);
+
   // Filter by description first
   const dq = descSearch.trim().toLowerCase();
   const descFiltered = dq ? advocates.filter(a => a.description.toLowerCase().includes(dq)) : advocates;
@@ -886,7 +1021,7 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
   }
   const q = search.trim().toLowerCase();
   const sorted = Object.entries(totals)
-    .filter(([, info]) => !q || info.name.toLowerCase().includes(q))
+    .filter(([id, info]) => (!deptEmployeeIds || deptEmployeeIds.has(id) || id.startsWith("__name__")) && (!q || info.name.toLowerCase().includes(q)))
     .sort((a, b) => b[1].points - a[1].points);
   const maxPts = sorted[0]?.[1].points ?? 1;
 
@@ -928,40 +1063,61 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
           <h3 className="font-bold text-slate-800">סנגור חדש</h3>
           {saveError && <Alert type="error">{saveError}</Alert>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
+            <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-slate-500 mb-1">עובד</label>
-              <div className="relative">
-                <Input
-                  type="text"
-                  value={empSearch}
-                  onChange={e => { setEmpSearch(e.target.value); setEmpOpen(true); setForm(f => ({ ...f, employee_id: "" })); }}
-                  onFocus={() => setEmpOpen(true)}
-                  placeholder="הקלד שם עובד..."
-                  autoComplete="off"
-                  className={form.employee_id ? "border-blue-300 bg-blue-50/40" : ""}
-                />
-                {form.employee_id && (
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500"><Check className="w-3.5 h-3.5" /></span>
+              <div className="flex gap-2">
+                {deptOptions.length > 0 && (
+                  <Select
+                    value={empDeptFilter}
+                    onChange={e => { setEmpDeptFilter(e.target.value); setForm(f => ({ ...f, employee_id: "" })); setEmpSearch(""); }}
+                    optionPrefix="כל המחלקות"
+                    className="w-36 shrink-0"
+                  >
+                    {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                  </Select>
                 )}
-                {empOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setEmpOpen(false)} />
-                    <div className="absolute z-50 top-full mt-1 right-0 left-0 bg-white rounded-xl shadow-xl border border-slate-200 max-h-52 overflow-y-auto" dir="rtl">
-                      {employees
-                        .filter(em => !empSearch.trim() || em.name.toLowerCase().includes(empSearch.toLowerCase()))
-                        .map(em => (
-                          <button key={em.id} type="button"
-                            onClick={() => { setForm(f => ({ ...f, employee_id: em.id })); setEmpSearch(em.name); setEmpOpen(false); }}
-                            className={`w-full text-right px-3 py-2 text-sm hover:bg-blue-50 transition-colors ${form.employee_id === em.id ? "bg-blue-50 text-blue-700 font-semibold" : "text-slate-700"}`}>
-                            {em.name}
-                          </button>
-                        ))}
-                      {employees.filter(em => !empSearch.trim() || em.name.toLowerCase().includes(empSearch.toLowerCase())).length === 0 && (
-                        <p className="text-center text-slate-400 text-sm py-3">לא נמצאו עובדים</p>
-                      )}
-                    </div>
-                  </>
-                )}
+                <div className="relative flex-1">
+                  <Input
+                    type="text"
+                    value={empSearch}
+                    onChange={e => { setEmpSearch(e.target.value); setEmpOpen(true); setForm(f => ({ ...f, employee_id: "" })); }}
+                    onFocus={() => setEmpOpen(true)}
+                    placeholder="הקלד שם עובד..."
+                    autoComplete="off"
+                    className={form.employee_id ? "border-blue-300 bg-blue-50/40" : ""}
+                  />
+                  {form.employee_id && (
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500"><Check className="w-3.5 h-3.5" /></span>
+                  )}
+                  {empOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setEmpOpen(false)} />
+                      <div className="absolute z-50 top-full mt-1 right-0 left-0 bg-white rounded-xl shadow-xl border border-slate-200 max-h-52 overflow-y-auto" dir="rtl">
+                        {employees
+                          .filter(em =>
+                            (!empDeptFilter || em.home_department === empDeptFilter) &&
+                            (!empSearch.trim() || em.name.toLowerCase().includes(empSearch.toLowerCase()))
+                          )
+                          .map(em => (
+                            <button key={em.id} type="button"
+                              onClick={() => { setForm(f => ({ ...f, employee_id: em.id })); setEmpSearch(em.name); setEmpOpen(false); }}
+                              className={`w-full text-right px-3 py-2 text-sm hover:bg-blue-50 transition-colors ${form.employee_id === em.id ? "bg-blue-50 text-blue-700 font-semibold" : "text-slate-700"}`}>
+                              <span>{em.name}</span>
+                              {em.home_department && !empDeptFilter && (
+                                <span className="text-xs text-slate-400 mr-2">{em.home_department}</span>
+                              )}
+                            </button>
+                          ))}
+                        {employees.filter(em =>
+                          (!empDeptFilter || em.home_department === empDeptFilter) &&
+                          (!empSearch.trim() || em.name.toLowerCase().includes(empSearch.toLowerCase()))
+                        ).length === 0 && (
+                          <p className="text-center text-slate-400 text-sm py-3">לא נמצאו עובדים</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
               <input type="text" required readOnly value={form.employee_id} className="sr-only" tabIndex={-1} />
             </div>
@@ -1157,13 +1313,16 @@ function ShirkingBreakdownModal({
 }
 
 // ── Shirking section ──────────────────────────────────────────────────────────
-function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManualPoint, employees = [], manualPoints = [] }: {
+function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManualPoint, employees = [], manualPoints = [], deptEmployeeIds, startDate, endDate }: {
   search: string;
   volunteerData?: JusticeEntry[];
   manualTotals?: Record<string, number>;
   onAddManualPoint?: (id: string, name: string, pts: number, reason: string, table: ManualPointTable) => Promise<void>;
   employees?: Employee[];
   manualPoints?: ManualPoint[];
+  deptEmployeeIds?: Set<string>;
+  startDate?: string;
+  endDate?: string;
 }) {
   const [records, setRecords] = useState<ShirkingRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1172,14 +1331,21 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
   const [shiftSearch, setShiftSearch] = useState("");
   const [breakdownEmp, setBreakdownEmp] = useState<{id: string, name: string} | null>(null);
 
-  useEffect(() => {
+  const fetchRecords = useCallback(() => {
     setLoading(true);
     setError(null);
-    getShirking()
+    getShirking(undefined, undefined, startDate, endDate)
       .then(setRecords)
       .catch(e => setError((e as Error).message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [startDate, endDate]);
+
+  useEffect(() => {
+    fetchRecords();
+    const onVisible = () => { if (document.visibilityState === "visible") fetchRecords(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [fetchRecords]);
 
   async function handleDelete(id: string) {
     await removeShirking(id).catch(() => {});
@@ -1192,11 +1358,12 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
   // Filter by shift name first
   const shiftFiltered = sq ? records.filter(r => r.shift_name.toLowerCase().includes(sq)) : records;
 
-  // Aggregate per employee
+  // Aggregate per employee — use employee_id as key, fall back to name if id is missing
   const totals: Record<string, { name: string; count: number }> = {};
   for (const r of shiftFiltered) {
-    totals[r.employee_id] ??= { name: r.employee_name, count: 0 };
-    totals[r.employee_id].count++;
+    const key = r.employee_id || `__name__${r.employee_name}`;
+    totals[key] ??= { name: r.employee_name, count: 0 };
+    totals[key].count++;
   }
 
   // If no specific shift filter, ensure employees with manual points are included
@@ -1212,7 +1379,7 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
   }
 
   const sorted = Object.entries(totals)
-    .filter(([, info]) => !q || info.name.toLowerCase().includes(q))
+    .filter(([id, info]) => (!deptEmployeeIds || deptEmployeeIds.has(id) || id.startsWith("__name__")) && (!q || info.name.toLowerCase().includes(q)))
     .sort((a, b) => (b[1].count + (manualTotals[b[0]] ?? 0)) - (a[1].count + (manualTotals[a[0]] ?? 0)));
   
   const maxCount = Math.max(...sorted.map(([id, info]) => info.count + (manualTotals[id] ?? 0)), 1);
@@ -1251,7 +1418,7 @@ function ShirkingSection({ search, volunteerData, manualTotals = {}, onAddManual
       {breakdownEmp && (
         <ShirkingBreakdownModal
           employeeName={breakdownEmp.name}
-          records={filteredRecords.filter(r => r.employee_id === breakdownEmp.id)}
+          records={filteredRecords.filter(r => (r.employee_id || `__name__${r.employee_name}`) === breakdownEmp.id)}
           manualPoints={manualPoints.filter(p => p.employee_id === breakdownEmp.id)}
           onClose={() => setBreakdownEmp(null)}
           onRemoveRecord={handleDelete}
@@ -1462,6 +1629,7 @@ const TABLE_LABELS: Partial<Record<ManualPointTable, string>> = {
   // advocates: "סנגורים",
   shirking:  "הברזות",
   daytype:   "שבתות וחגים",
+  oncall:    "כוננות",
   // general:   "כללי",
 };
 
@@ -1710,13 +1878,18 @@ export default function JusticePage() {
   const [tab, setTab] = useState<Tab>("justice");
   const [view, setView] = useState<View>("table");
   const [employees, setEmployees] = useState<Employee[]>([]);
+  useEffect(() => { console.log("[state] employees changed:", employees.length); }, [employees]);
 
   const [oncallData, setOncallData] = useState<OncallJusticeEntry[]>([]);
   const [oncallLoading, setOncallLoading] = useState(false);
   const [oncallError, setOncallError] = useState<string | null>(null);
   const [oncallDeptFilter, setOncallDeptFilter] = useState("");
   const [oncallSlotFilter, setOncallSlotFilter] = useState("");
-  const [oncallView, setOncallView] = useState<"table" | "chart">("table");
+  const [oncallView, setOncallView] = useState<"table" | "chart" | "detail">("table");
+  const [oncallSplit, setOncallSplit] = useState(true);
+  const [oncallBreakdownEmp, setOncallBreakdownEmp] = useState<{ id: string; name: string } | null>(null);
+  const [oncallAllAssignments, setOncallAllAssignments] = useState<OncallBreakdownRow[]>([]);
+  const [oncallDetailLoading, setOncallDetailLoading] = useState(false);
 
   // Extra data for combined tab
   const [advocates, setAdvocates] = useState<Advocate[]>([]);
@@ -1725,10 +1898,19 @@ export default function JusticePage() {
   const [dateRange, setDateRange] = useState<DateRangeValue | null>(null);
 
   useEffect(() => {
-    getEmployees().then(setEmployees).catch(() => {});
-    // Fetch non-date-ranged data once
+    getEmployees().then(r => { console.log("[init] employees:", r.length); setEmployees(r); }).catch(e => console.error("[init] getEmployees failed:", e));
     getAdvocates().then(setAdvocates).catch(() => {});
     getShirking().then(setShirkingRecords).catch(() => {});
+    getOncallJustice().then(r => { console.log("[init] oncallJustice:", r.length, r); setOncallData(r); }).catch(e => console.error("[init] getOncallJustice failed:", e));
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        getShirking().then(setShirkingRecords).catch(() => {});
+        getAdvocates().then(setAdvocates).catch(() => {});
+        getOncallJustice().then(setOncallData).catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
   const startISO = dateRange?.start ?? "";
@@ -1738,40 +1920,36 @@ export default function JusticePage() {
     setOncallLoading(true);
     setOncallError(null);
     getOncallJustice(startISO || undefined, endISO || undefined)
-      .then(setOncallData)
-      .catch(e => setOncallError((e as Error).message))
+      .then(r => { console.log("[loadOncall] result:", r.length, "start:", startISO, "end:", endISO); setOncallData(r); })
+      .catch(e => { console.error("[loadOncall] failed:", e); setOncallError((e as Error).message); })
       .finally(() => setOncallLoading(false));
   }, [startISO, endISO]);
 
   useEffect(() => {
-    if (tab === "oncall") loadOncallJustice();
-  }, [tab, loadOncallJustice]);
-  const rangeLabel = dateRange?.label ?? "";
+    // Always load oncall data — it feeds the combined table even when not on the oncall tab
+    loadOncallJustice();
+  }, [loadOncallJustice]);
 
-  // Merge all employees into oncall data so employees with 0 oncall shifts are visible
-  const oncallMerged = useMemo<OncallJusticeEntry[]>(() => {
-    const byId = new Map<string, OncallJusticeEntry>();
-    for (const e of oncallData) {
-      const key = e.employee_id || `__name__${e.employee_name}`;
-      byId.set(key, e);
-    }
-    const result = [...oncallData];
-    for (const emp of employees) {
-      if (!byId.has(emp.id) && !byId.has(`__name__${emp.name}`)) {
-        result.push({
-          employee_id: emp.id,
-          employee_name: emp.name,
-          from_department: emp.home_department ?? "",
-          slot_counts: { "ערב_1": 0, "ערב_2": 0, "לילה": 0 },
-          total: 0,
-        });
-      }
-    }
-    return result.sort((a, b) => b.total - a.total);
-  }, [oncallData, employees]);
+  // Debug: log whenever oncallData actually changes
+  useEffect(() => {
+    console.log("[oncallData changed]", oncallData.length, oncallData);
+  }, [oncallData]);
 
   useEffect(() => {
-    if (!startISO || !endISO) return;
+    if (tab !== "oncall" || oncallView !== "detail") return;
+    setOncallDetailLoading(true);
+    getOncallAllAssignments(startISO || undefined, endISO || undefined)
+      .then(setOncallAllAssignments)
+      .catch(() => setOncallAllAssignments([]))
+      .finally(() => setOncallDetailLoading(false));
+  }, [tab, oncallView, startISO, endISO]);
+  const rangeLabel = dateRange?.label ?? "";
+
+  useEffect(() => {
+    if (!startISO || !endISO) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     getJustice(startISO, endISO)
@@ -1781,6 +1959,7 @@ export default function JusticePage() {
   }, [startISO, endISO]);
 
   const [search, setSearch] = useState("");
+  const [deptFilter, setDeptFilter] = useState("");
   const [daytypeData, setDaytypeData] = useState<DayTypeJusticeData | null>(null);
   const [daytypeLoading, setDaytypeLoading] = useState(false);
   const [daytypeError, setDaytypeError] = useState<string | null>(null);
@@ -1831,11 +2010,40 @@ export default function JusticePage() {
     allManualTotals[mp.employee_id] = (allManualTotals[mp.employee_id] ?? 0) + mp.points;
   }
 
+  // Merge all employees into oncall data so employees with 0 oncall shifts are visible
+  const oncallMerged = useMemo<(OncallJusticeEntry & { manual: number; display_total: number })[]>(() => {
+    const oncallManual = manualTotalsByTable["oncall"] ?? {};
+    const byId = new Map<string, OncallJusticeEntry>();
+    for (const e of oncallData) {
+      const key = e.employee_id || `__name__${e.employee_name}`;
+      byId.set(key, e);
+    }
+    const result: OncallJusticeEntry[] = [...oncallData];
+    for (const emp of employees) {
+      if (!byId.has(emp.id) && !byId.has(`__name__${emp.name}`)) {
+        result.push({
+          employee_id: emp.id,
+          employee_name: emp.name,
+          from_department: emp.home_department ?? "",
+          slot_counts: { "ערב_1": 0, "ערב_2": 0, "לילה": 0 },
+          total: 0,
+        });
+      }
+    }
+    return result
+      .map(e => {
+        const manual = e.employee_id ? (oncallManual[e.employee_id] ?? 0) : 0;
+        return { ...e, manual, display_total: e.total + manual };
+      })
+      .sort((a, b) => b.display_total - a.display_total);
+  }, [oncallData, employees, manualTotalsByTable]);
+
   const allCombinedData = useMemo(() => {
     // shirking totals (count)
     const shirkingMap: Record<string, number> = {};
     for (const r of shirkingRecords) {
-      shirkingMap[r.employee_id] = (shirkingMap[r.employee_id] ?? 0) + 1;
+      const key = r.employee_id || `__name__${r.employee_name}`;
+      shirkingMap[key] = (shirkingMap[key] ?? 0) + 1;
     }
 
     // advocates totals (points)
@@ -1844,6 +2052,20 @@ export default function JusticePage() {
       advocateMap[a.employee_id] = (advocateMap[a.employee_id] ?? 0) + a.points;
     }
 
+    // oncall totals (count of shifts) — match by id first, fall back to name
+    const oncallMap: Record<string, number> = {};
+    console.log("[combined] oncallData:", oncallData.map(e => ({ id: e.employee_id, name: e.employee_name, total: e.total })));
+    for (const e of oncallData) {
+      if (e.employee_id) {
+        oncallMap[e.employee_id] = (oncallMap[e.employee_id] ?? 0) + e.total;
+      } else if (e.employee_name) {
+        const matched = employees.find(em => em.name === e.employee_name);
+        if (matched) oncallMap[matched.id] = (oncallMap[matched.id] ?? 0) + e.total;
+      }
+    }
+    console.log("[combined] oncallMap:", oncallMap);
+    console.log("[combined] employees sample:", employees.slice(0, 5).map(e => ({ id: e.id, name: e.name })));
+
     return employees.map(emp => {
       const justiceEntry = data.find(d => d.employee_id === emp.id);
       const daytypeEntry = daytypeData?.employees.find(d => d.name === emp.name);
@@ -1851,16 +2073,18 @@ export default function JusticePage() {
       const justiceScore = justiceEntry?.justice_score ?? 0;
       const volunteerScore = justiceEntry?.volunteer_score ?? 0;
       const daytypeScore = daytypeEntry?.total_score ?? 0;
-      const shirkingCount = shirkingMap[emp.id] ?? 0;
+      const shirkingCount = shirkingMap[emp.id] ?? shirkingMap[`__name__${emp.name}`] ?? 0;
       const advocateScore = advocateMap[emp.id] ?? 0;
+      const oncallCount = oncallMap[emp.id] ?? 0;
 
       const finalJustice = justiceScore + (manualTotalsByTable.justice?.[emp.id] ?? 0);
       const finalVolunteer = volunteerScore + (manualTotalsByTable.volunteer?.[emp.id] ?? 0);
       const finalDaytype = daytypeScore + (manualTotalsByTable.daytype?.[emp.id] ?? 0);
       const finalShirking = shirkingCount + (manualTotalsByTable.shirking?.[emp.id] ?? 0);
       const finalAdvocate = advocateScore + (manualTotalsByTable.advocates?.[emp.id] ?? 0);
+      const finalOncall = oncallCount + (manualTotalsByTable.oncall?.[emp.id] ?? 0);
 
-      const totalScore = finalJustice + finalVolunteer + finalDaytype + finalAdvocate - finalShirking;
+      const totalScore = finalJustice + finalVolunteer + finalDaytype + finalAdvocate + finalOncall - finalShirking;
 
       return {
         empId: emp.id,
@@ -1869,14 +2093,46 @@ export default function JusticePage() {
           justice: finalJustice,
           volunteer: finalVolunteer,
           daytype: finalDaytype,
-          shirking: -finalShirking,
+          oncall: finalOncall,
           advocates: finalAdvocate,
+          shirking: -finalShirking,
         },
         total: totalScore,
         manual: allManualTotals[emp.id] ?? 0,
       };
     }).sort((a, b) => b.total - a.total);
-  }, [employees, data, daytypeData, shirkingRecords, advocates, manualTotalsByTable, allManualTotals]);
+  }, [employees, data, daytypeData, shirkingRecords, advocates, oncallData, manualTotalsByTable, allManualTotals]);
+
+  const departments = useMemo(() =>
+    [...new Set(employees.map(e => e.home_department ?? "").filter(Boolean))].sort(),
+    [employees]
+  );
+
+  const filteredEmployees = useMemo(() =>
+    deptFilter ? employees.filter(e => e.home_department === deptFilter) : employees,
+    [employees, deptFilter]
+  );
+
+  const filteredEmployeeIds = useMemo(() =>
+    new Set(filteredEmployees.map(e => e.id)),
+    [filteredEmployees]
+  );
+
+  const filteredData = useMemo(() =>
+    deptFilter ? data.filter(e => filteredEmployeeIds.has(e.employee_id)) : data,
+    [data, deptFilter, filteredEmployeeIds]
+  );
+
+  const filteredAllCombined = useMemo(() =>
+    deptFilter ? allCombinedData.filter(e => filteredEmployeeIds.has(e.empId)) : allCombinedData,
+    [allCombinedData, deptFilter, filteredEmployeeIds]
+  );
+
+  const filteredDaytypeData = useMemo(() => {
+    if (!deptFilter || !daytypeData) return daytypeData;
+    const deptNames = new Set(filteredEmployees.map(e => e.name));
+    return { ...daytypeData, employees: daytypeData.employees.filter(e => deptNames.has(e.name)) };
+  }, [daytypeData, deptFilter, filteredEmployees]);
 
   const handleAddManualPoint = async (empId: string, empName: string, pts: number, reason: string, table: ManualPointTable = "general", date?: string) => {
     // Pass optional date to API
@@ -1939,10 +2195,20 @@ export default function JusticePage() {
         ))}
       </TabsContainer>
 
+      {/* Department filter pills — shown when multiple departments exist, hidden on oncall tab */}
+      {departments.length > 1 && tab !== "oncall" && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <FilterPill active={!deptFilter} onClick={() => setDeptFilter("")}>כל המחלקות</FilterPill>
+          {departments.map(dept => (
+            <FilterPill key={dept} active={deptFilter === dept} onClick={() => setDeptFilter(dept)}>{dept}</FilterPill>
+          ))}
+        </div>
+      )}
+
       {/* Filters row — all controls on one line, left/right split */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        {/* RIGHT side (start in RTL): time range — hidden on advocates/shirking tabs */}
-        {!(tab === "advocates" || tab === "shirking") ? (
+        {/* RIGHT side (start in RTL): time range — hidden on advocates tab */}
+        {!(tab === "advocates") ? (
           <DateRangePicker
             availableTypes={["week", "month", "year", "all", "custom"]}
             defaultType="month"
@@ -1954,12 +2220,28 @@ export default function JusticePage() {
         <div className="flex items-center gap-2">
           {/* View binary toggle — hidden on advocates/shirking/daytype/combined tabs */}
           {tab === "oncall" && (
-            <Toggle
-              labelOff="טבלה"
-              labelOn="גרף"
-              checked={oncallView === "chart"}
-              onChange={v => setOncallView(v ? "chart" : "table")}
-            />
+            <div className="flex items-center gap-2">
+              {oncallView === "table" && (
+                <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
+                  <button onClick={() => setOncallSplit(true)}
+                    className={`px-3 py-1.5 transition-colors ${oncallSplit ? "bg-orange-500 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                    ערב / לילה
+                  </button>
+                  <button onClick={() => setOncallSplit(false)}
+                    className={`px-3 py-1.5 transition-colors border-r border-slate-200 ${!oncallSplit ? "bg-orange-500 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                    משולב
+                  </button>
+                </div>
+              )}
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
+                {(["table", "detail", "chart"] as const).map((v, i) => (
+                  <button key={v} onClick={() => setOncallView(v)}
+                    className={`px-3 py-1.5 transition-colors ${oncallView === v ? "bg-blue-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"} ${i > 0 ? "border-r border-slate-200" : ""}`}>
+                    {v === "table" ? "סיכום" : v === "detail" ? "פר משמרת" : "גרף"}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
           {!(tab === "advocates" || tab === "shirking" || tab === "daytype" || tab === "combined" || tab === "oncall") && (
             <Toggle
@@ -2014,7 +2296,7 @@ export default function JusticePage() {
           if (oncallSlotFilter && (e.slot_counts[oncallSlotFilter] || 0) === 0) return false;
           return true;
         });
-        const oncallMax = Math.max(...filteredOncall.map(e => oncallSlotFilter ? (e.slot_counts[oncallSlotFilter] || 0) : e.total), 1);
+        const oncallMax = Math.max(...filteredOncall.map(e => oncallSlotFilter ? (e.slot_counts[oncallSlotFilter] || 0) : e.display_total), 1);
         const allDepts = [...new Set(oncallMerged.map(e => e.from_department).filter(Boolean))].sort();
 
         return (
@@ -2051,8 +2333,50 @@ export default function JusticePage() {
               <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{oncallError}</div>
             )}
 
-            {oncallLoading ? (
+            {oncallLoading || (oncallView === "detail" && oncallDetailLoading) ? (
               <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-2xl shimmer"/>)}</div>
+            ) : oncallView === "detail" ? (
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100">
+                  <h3 className="font-bold text-slate-800">כל הכוננויות — פר משמרת</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">{oncallAllAssignments.length} כוננויות</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3 text-right font-semibold text-slate-600">תאריך</th>
+                        <th className="px-4 py-3 text-right font-semibold text-slate-600">יום</th>
+                        <th className="px-4 py-3 text-right font-semibold text-slate-600">סוג כוננות</th>
+                        <th className="px-4 py-3 text-right font-semibold text-slate-600">עובד</th>
+                        <th className="px-4 py-3 text-right font-semibold text-slate-600">מחלקה</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {oncallAllAssignments
+                        .filter(r => !oncallSlotFilter || r.slot === oncallSlotFilter)
+                        .filter(r => !oncallDeptFilter || r.from_department === oncallDeptFilter)
+                        .filter(r => !search || r.employee_name.toLowerCase().includes(search.toLowerCase()))
+                        .map((r, i) => (
+                          <tr key={i} className={`border-b border-slate-50 hover:bg-orange-50/30 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"}`}>
+                            <td className="px-4 py-2.5 text-slate-600 tabular-nums">{r.date}</td>
+                            <td className="px-4 py-2.5 text-slate-700 font-medium">{r.day_of_week}</td>
+                            <td className="px-4 py-2.5">
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold border ${SLOT_COLORS[r.slot] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                                {r.slot_label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 font-medium text-slate-800">{r.employee_name}</td>
+                            <td className="px-4 py-2.5 text-slate-500 text-xs">{r.from_department}</td>
+                          </tr>
+                        ))}
+                      {oncallAllAssignments.length === 0 && (
+                        <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">אין כוננויות בטווח הנבחר</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             ) : oncallView === "chart" ? (
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100">
@@ -2064,7 +2388,7 @@ export default function JusticePage() {
                 <div className="p-6">
                   <div className="flex items-end gap-2 h-48 border-b border-slate-200 pb-2 overflow-x-auto">
                     {filteredOncall.map((e, i) => {
-                      const val = oncallSlotFilter ? (e.slot_counts[oncallSlotFilter] || 0) : e.total;
+                      const val = oncallSlotFilter ? (e.slot_counts[oncallSlotFilter] || 0) : e.display_total;
                       const barH = oncallMax > 0 ? Math.max(val > 0 ? 4 : 0, Math.round((val / oncallMax) * 150)) : 0;
                       return (
                         <div key={e.employee_id || e.employee_name} className="flex flex-col items-center gap-1 min-w-[44px]">
@@ -2082,54 +2406,139 @@ export default function JusticePage() {
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
-                      <tr>
-                        <th className="px-4 py-3 text-right font-semibold text-slate-600">#</th>
-                        <th className="px-4 py-3 text-right font-semibold text-slate-600">עובד</th>
-                        <th className="px-4 py-3 text-right font-semibold text-slate-600">מחלקה</th>
-                        {!oncallSlotFilter && <th className="px-4 py-3 text-center font-semibold text-slate-600">ערב I</th>}
-                        {!oncallSlotFilter && <th className="px-4 py-3 text-center font-semibold text-slate-600">ערב II</th>}
-                        {!oncallSlotFilter && <th className="px-4 py-3 text-center font-semibold text-slate-600">לילה</th>}
-                        {oncallSlotFilter && <th className="px-4 py-3 text-center font-semibold text-slate-600">כוננויות</th>}
-                        <th className="px-4 py-3 text-center font-semibold text-slate-600">סה״כ</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredOncall.map((e, idx) => {
-                        const displayTotal = oncallSlotFilter ? (e.slot_counts[oncallSlotFilter] || 0) : e.total;
-                        return (
-                          <tr key={e.employee_id || e.employee_name} className={`border-b border-slate-100 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"} ${displayTotal === 0 ? "opacity-50" : ""}`}>
-                            <td className="px-4 py-2.5 text-slate-400 text-xs">{idx + 1}</td>
-                            <td className="px-4 py-2.5 font-medium text-slate-800">{e.employee_name}</td>
-                            <td className="px-4 py-2.5 text-slate-500 text-xs">{e.from_department}</td>
-                            {!oncallSlotFilter && <td className="px-4 py-2.5 text-center tabular-nums">{e.slot_counts["ערב_1"] || 0}</td>}
-                            {!oncallSlotFilter && <td className="px-4 py-2.5 text-center tabular-nums">{e.slot_counts["ערב_2"] || 0}</td>}
-                            {!oncallSlotFilter && <td className="px-4 py-2.5 text-center tabular-nums">{e.slot_counts["לילה"] || 0}</td>}
-                            {oncallSlotFilter && <td className="px-4 py-2.5 text-center tabular-nums">{e.slot_counts[oncallSlotFilter] || 0}</td>}
-                            <td className="px-4 py-2.5 text-center font-semibold text-slate-800 tabular-nums">{displayTotal}</td>
+            ) : (() => {
+              const eveningCount = (e: typeof filteredOncall[0]) => (e.slot_counts["ערב_1"] || 0) + (e.slot_counts["ערב_2"] || 0);
+              const nightCount  = (e: typeof filteredOncall[0]) => e.slot_counts["לילה"] || 0;
+
+              const OncallSubTable = ({ rows, title, color }: { rows: { emp: typeof filteredOncall[0]; count: number }[]; title: string; color: string }) => (
+                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex-1 min-w-0">
+                  <div className={`px-5 py-3 border-b border-slate-100 ${color}`}>
+                    <h4 className="font-bold text-sm">{title}</h4>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-3 py-2.5 text-right font-semibold text-slate-600 text-xs">#</th>
+                          <th className="px-3 py-2.5 text-right font-semibold text-slate-600 text-xs">עובד</th>
+                          <th className="px-3 py-2.5 text-right font-semibold text-slate-600 text-xs">מחלקה</th>
+                          <th className="px-3 py-2.5 text-center font-semibold text-slate-600 text-xs">כוננויות</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(({ emp: e, count }, idx) => (
+                          <tr key={e.employee_id || e.employee_name} className={`border-b border-slate-50 hover:bg-orange-50/30 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/40"} ${count === 0 ? "opacity-40" : ""}`}>
+                            <td className="px-3 py-2 text-slate-400 text-xs">{idx + 1}</td>
+                            <td className="px-3 py-2">
+                              <button
+                                className="font-medium text-slate-800 hover:text-orange-600 hover:underline transition-colors text-right text-sm"
+                                onClick={() => e.employee_id && setOncallBreakdownEmp({ id: e.employee_id, name: e.employee_name })}
+                              >{e.employee_name}</button>
+                            </td>
+                            <td className="px-3 py-2 text-slate-500 text-xs">{e.from_department}</td>
+                            <td className="px-3 py-2 text-center font-semibold tabular-nums text-slate-800">{count}</td>
                           </tr>
-                        );
-                      })}
-                      {filteredOncall.length === 0 && (
-                        <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">לא נמצאו תוצאות</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+                        ))}
+                        {rows.length === 0 && (
+                          <tr><td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-400">אין נתונים</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+
+              if (!oncallSplit) {
+                // Combined view: total = evening + night + manual
+                const combinedRows = filteredOncall
+                  .map(e => ({ emp: e, count: e.display_total }))
+                  .sort((a, b) => b.count - a.count);
+                return (
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                    <div className="px-5 py-3 border-b border-slate-100 text-slate-700">
+                      <h4 className="font-bold text-sm">סה״כ כוננויות — משולב</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                          <tr>
+                            <th className="px-4 py-2.5 text-right font-semibold text-slate-600 text-xs">#</th>
+                            <th className="px-4 py-2.5 text-right font-semibold text-slate-600 text-xs">עובד</th>
+                            <th className="px-4 py-2.5 text-right font-semibold text-slate-600 text-xs">מחלקה</th>
+                            <th className="px-4 py-2.5 text-center font-semibold text-amber-600 text-xs">ערב</th>
+                            <th className="px-4 py-2.5 text-center font-semibold text-indigo-600 text-xs">לילה</th>
+                            <th className="px-4 py-2.5 text-center font-semibold text-blue-600 text-xs">ניקוד ידני</th>
+                            <th className="px-4 py-2.5 text-center font-semibold text-slate-700 text-xs">סה״כ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {combinedRows.map(({ emp: e, count }, idx) => (
+                            <tr key={e.employee_id || e.employee_name} className={`border-b border-slate-50 hover:bg-orange-50/30 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/40"} ${count === 0 ? "opacity-40" : ""}`}>
+                              <td className="px-4 py-2 text-slate-400 text-xs">{idx + 1}</td>
+                              <td className="px-4 py-2">
+                                <button
+                                  className="font-medium text-slate-800 hover:text-orange-600 hover:underline transition-colors text-right text-sm"
+                                  onClick={() => e.employee_id && setOncallBreakdownEmp({ id: e.employee_id, name: e.employee_name })}
+                                >{e.employee_name}</button>
+                              </td>
+                              <td className="px-4 py-2 text-slate-500 text-xs">{e.from_department}</td>
+                              <td className="px-4 py-2 text-center tabular-nums text-amber-700">{eveningCount(e) || "—"}</td>
+                              <td className="px-4 py-2 text-center tabular-nums text-indigo-700">{nightCount(e) || "—"}</td>
+                              <td className="px-4 py-2 text-center tabular-nums text-blue-600 font-medium">
+                                {e.manual !== 0 ? (e.manual > 0 ? `+${e.manual}` : e.manual) : "—"}
+                              </td>
+                              <td className="px-4 py-2 text-center font-semibold tabular-nums text-slate-800">{count}</td>
+                            </tr>
+                          ))}
+                          {combinedRows.length === 0 && (
+                            <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">לא נמצאו תוצאות</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              }
+
+              const eveningRows = filteredOncall
+                .filter(e => !oncallSlotFilter || oncallSlotFilter !== "לילה")
+                .map(e => ({ emp: e, count: eveningCount(e) }))
+                .sort((a, b) => b.count - a.count);
+              const nightRows = filteredOncall
+                .filter(e => !oncallSlotFilter || oncallSlotFilter === "לילה")
+                .map(e => ({ emp: e, count: nightCount(e) }))
+                .sort((a, b) => b.count - a.count);
+
+              return (
+                <div className="flex gap-4 items-start">
+                  {(!oncallSlotFilter || oncallSlotFilter !== "לילה") && (
+                    <OncallSubTable rows={eveningRows} title="ערב (ערב I + ערב II)" color="text-amber-700" />
+                  )}
+                  {(!oncallSlotFilter || oncallSlotFilter === "לילה") && (
+                    <OncallSubTable rows={nightRows} title="לילה" color="text-indigo-700" />
+                  )}
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
 
-      {tab === "advocates" && <AdvocatesSection employees={employees} search={search} manualTotals={manualTotalsByTable["advocates"] ?? {}} />}
+      {oncallBreakdownEmp && (
+        <OncallBreakdownModal
+          employeeId={oncallBreakdownEmp.id}
+          employeeName={oncallBreakdownEmp.name}
+          manualPoints={effectiveManualPoints.filter(p => p.table === "oncall")}
+          startDate={startISO || undefined}
+          endDate={endISO || undefined}
+          onClose={() => setOncallBreakdownEmp(null)}
+        />
+      )}
+
+      {tab === "advocates" && <AdvocatesSection employees={filteredEmployees} search={search} manualTotals={manualTotalsByTable["advocates"] ?? {}} deptEmployeeIds={filteredEmployeeIds} />}
 
       {/* Shirking tab — independent of justice loading */}
-      {tab === "shirking" && <ShirkingSection search={search} volunteerData={data} manualTotals={manualTotalsByTable["shirking"] ?? {}} employees={employees} onAddManualPoint={handleAddManualPoint} manualPoints={effectiveManualPoints.filter(p => p.table === "shirking")} />}
+      {tab === "shirking" && <ShirkingSection search={search} volunteerData={filteredData} manualTotals={manualTotalsByTable["shirking"] ?? {}} employees={filteredEmployees} onAddManualPoint={handleAddManualPoint} manualPoints={effectiveManualPoints.filter(p => p.table === "shirking")} deptEmployeeIds={filteredEmployeeIds} startDate={startISO || undefined} endDate={endISO || undefined} />}
 
       {/* Daytype tab */}
       {tab === "daytype" && (
@@ -2138,7 +2547,7 @@ export default function JusticePage() {
         ) : daytypeError ? (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{daytypeError}</div>
         ) : daytypeData ? (
-          <DayTypeJusticeSection data={daytypeData} search={search} onEmployeeClick={(id, name) => setDaytypeBreakdownEmployee({ id, name })} manualTotals={manualTotalsByTable["daytype"] ?? {}} allEmployees={employees} filter={dayTypeFilter} onFilterChange={setDayTypeFilter} />
+          <DayTypeJusticeSection data={filteredDaytypeData ?? daytypeData} search={search} onEmployeeClick={(id, name) => setDaytypeBreakdownEmployee({ id, name })} manualTotals={manualTotalsByTable["daytype"] ?? {}} allEmployees={filteredEmployees} filter={dayTypeFilter} onFilterChange={setDayTypeFilter} />
         ) : null
       )}
 
@@ -2147,7 +2556,7 @@ export default function JusticePage() {
         <ManualPointsSection
           points={effectiveManualPoints}
           manualTotalsByTable={manualTotalsByTable}
-          employees={employees}
+          employees={filteredEmployees}
           onAdd={handleAddManualPoint}
           onRemove={handleRemoveManualPoint}
         />
@@ -2198,7 +2607,7 @@ export default function JusticePage() {
               <>
                 {tab === "justice" && (
                   <JusticeSection
-                    data={data}
+                    data={filteredData}
                     view={view}
                     search={search}
                     getDayScore={showDayScores ? getDayScoreForEmployee : undefined}
@@ -2208,7 +2617,7 @@ export default function JusticePage() {
                 )}
                 {tab === "volunteer" && (
                   <VolunteerSection
-                    data={data}
+                    data={filteredData}
                     view={view}
                     search={search}
                     onEmployeeClick={view === "table" ? (id, name) => setVolunteerBreakdownEmployee({ id, name }) : undefined}
@@ -2216,7 +2625,7 @@ export default function JusticePage() {
                   />
                 )}
                 {tab === "combined" && (
-                  <AllCombinedTable data={allCombinedData} search={search} />
+                  <AllCombinedTable data={filteredAllCombined} search={search} />
                 )}
               </>
             );

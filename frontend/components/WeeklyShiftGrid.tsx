@@ -35,6 +35,7 @@ interface Props {
   onAddEmployee?: (iso: string, shiftName: string, empId: string, empName: string, roleSlot?: string) => void;
   onRemoveEmployee?: (iso: string, shiftName: string, empId: string) => void;
   onMoveEmployee?: (srcIso: string, srcShift: string, srcEmpId: string, srcEmpName: string, tgtIso: string, tgtShift: string) => void;
+  onReplace?: (iso: string, shiftName: string, removedEmp: { id: string; name: string }, addedEmp: { id: string; name: string }, flags: { volunteer: boolean; shirking: boolean }) => void;
   shiftLeaderIds?: Set<string>;
   shiftComposition?: Record<string, ShiftConfig>;
   columnToAttrName?: Record<string, string>;
@@ -52,6 +53,7 @@ export default function WeeklyShiftGrid({
   onAddEmployee,
   onRemoveEmployee,
   onMoveEmployee,
+  onReplace,
   shiftLeaderIds,
   shiftComposition,
   columnToAttrName,
@@ -64,6 +66,8 @@ export default function WeeklyShiftGrid({
   const [panelSearch, setPanelSearch] = useState("");
   const [panelDept, setPanelDept] = useState("");
   const [replaceEmp, setReplaceEmp] = useState<{ id: string; name: string } | null>(null);
+  const [flagVolunteer, setFlagVolunteer] = useState(false);
+  const [flagShirking, setFlagShirking] = useState(false);
   const [gridSearch, setGridSearch] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["sd-ok"]));
   const [replaceDeptFilter, setReplaceDeptFilter] = useState("");
@@ -95,6 +99,8 @@ export default function WeeklyShiftGrid({
     setPanelDept("");
     setPanelRole(overridePanelRole ?? roleSlot ?? "");
     setReplaceEmp(replace ?? null);
+    setFlagVolunteer(false);
+    setFlagShirking(false);
     setExpandedGroups(new Set(["sd-ok"]));
     setReplaceDeptFilter("");
   }
@@ -155,8 +161,11 @@ export default function WeeklyShiftGrid({
 
     const handleSelectEmployee = (empId: string, empName: string) => {
       if (replaceEmp) {
+        onReplace?.(iso, shiftName, replaceEmp, { id: empId, name: empName }, { volunteer: flagVolunteer, shirking: flagShirking });
         onRemoveEmployee?.(iso, shiftName, replaceEmp.id);
         setReplaceEmp(null);
+        setFlagVolunteer(false);
+        setFlagShirking(false);
       }
       onAddEmployee?.(iso, shiftName, empId, empName, panelRole || undefined);
     };
@@ -169,16 +178,38 @@ export default function WeeklyShiftGrid({
         </div>
 
         {replaceEmp && (
-          <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between gap-2">
-            <span className="text-xs text-amber-700 font-medium">מחליף: {replaceEmp.name}</span>
-            <button
-              type="button"
-              onClick={() => setReplaceEmp(null)}
-              className="text-amber-400 hover:text-amber-600 transition-colors"
-              title="בטל החלפה"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+          <div className="mb-3 flex flex-col gap-2">
+            <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between gap-2">
+              <span className="text-xs text-amber-700 font-medium">מחליף: {replaceEmp.name}</span>
+              <button
+                type="button"
+                onClick={() => { setReplaceEmp(null); setFlagVolunteer(false); setFlagShirking(false); }}
+                className="text-amber-400 hover:text-amber-600 transition-colors"
+                title="בטל החלפה"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex flex-col gap-1.5 px-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={flagShirking}
+                  onChange={e => setFlagShirking(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 accent-rose-500"
+                />
+                <span className="text-xs text-rose-700 font-medium">סמן הברזה של {replaceEmp.name}</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={flagVolunteer}
+                  onChange={e => setFlagVolunteer(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 accent-emerald-500"
+                />
+                <span className="text-xs text-emerald-700 font-medium">סמן התנדבות של העובד החדש</span>
+              </label>
+            </div>
           </div>
         )}
 
