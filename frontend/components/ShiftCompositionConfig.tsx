@@ -6,6 +6,16 @@ import { useShiftComposition } from "@/hooks/useShiftComposition";
 
 const HEBREW_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 
+function specialShiftNameSet(shiftTypes: ShiftType[]): Set<string> {
+  const s = new Set<string>();
+  for (const st of shiftTypes) {
+    if (st.is_special) {
+      for (const n of st.names) s.add(n);
+    }
+  }
+  return s;
+}
+
 // ── Small numeric stepper ────────────────────────────────────────────────────
 export function Stepper({ value, onChange, min = 0, max = 20 }: { value: number; onChange: (n: number) => void; min?: number; max?: number }) {
   return (
@@ -226,19 +236,20 @@ export default function ShiftCompositionConfig({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [expandedShift, setExpandedShift] = useState<string | null>(null);
 
-  // DB is the source of truth — load exactly what was saved, nothing more
+  // DB is the source of truth (API strips is_special shifts from הרכב)
   useEffect(() => {
     if (!data) return;
     setConfigs(data.shift_configs);
     setDirty(false);
   }, [data]);
 
-  // When a shift type is deleted from shift types, remove its config row too
+  // Remove rows for deleted shift types or shifts marked מיוחדת (same session)
   useEffect(() => {
     if (!data) return;
     const allNames = new Set(shiftTypes.flatMap(st => st.names));
+    const specialNames = specialShiftNameSet(shiftTypes);
     setConfigs(prev => {
-      const next = prev.filter(c => allNames.has(c.shift_name));
+      const next = prev.filter(c => allNames.has(c.shift_name) && !specialNames.has(c.shift_name));
       if (next.length !== prev.length) { setDirty(true); }
       return next;
     });
@@ -264,7 +275,8 @@ export default function ShiftCompositionConfig({
     setSaving(true);
     setSaveError(null);
     try {
-      await save(configs);
+      const specialNames = specialShiftNameSet(shiftTypes);
+      await save(configs.filter(c => !specialNames.has(c.shift_name)));
       setDirty(false);
     } catch (e) {
       setSaveError((e as Error).message ?? "שגיאה בשמירה");
@@ -273,9 +285,11 @@ export default function ShiftCompositionConfig({
     }
   };
 
-  // Shift types not yet in the composition (available to add)
+  // Shift types not yet in the composition — never special shifts
   const configuredNames = new Set(configs.map(c => c.shift_name));
-  const addableShifts = shiftTypes.filter(st => !st.names.some(n => configuredNames.has(n)));
+  const addableShifts = shiftTypes.filter(
+    st => !st.is_special && !st.names.some(n => configuredNames.has(n)),
+  );
 
   if (loading) return <div className="h-32 rounded-2xl shimmer" />;
   if (loadError) return (
@@ -288,7 +302,10 @@ export default function ShiftCompositionConfig({
       <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-semibold text-slate-800">הרכב משמרות</h2>
-          <p className="text-xs text-slate-500 mt-0.5">הגדרת מספר עובדים ותפקידים נדרשים בכל משמרת</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            הגדרת מספר עובדים ותפקידים נדרשים בכל משמרת.
+            <span className="block mt-1 text-slate-400">משמרות מיוחדות: מכסות בלשונית &quot;מכסות חודשיות&quot; או שיבוץ ידני בלבד — לא מופיעות כאן.</span>
+          </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {saveError && <span className="text-xs text-red-500 font-medium">{saveError}</span>}

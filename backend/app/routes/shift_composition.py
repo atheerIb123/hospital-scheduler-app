@@ -14,6 +14,22 @@ _NURSING_SHIFT_TYPES = [
 # Shift type names that should never appear in any nursing department
 _REMOVED_SHIFT_NAMES = {"רזרבה", "כוננות", "רזרבה/כוננות"}
 
+
+def _special_shift_names(db):
+    names = set()
+    for st in db.shift_types.find({}, {"names": 1, "is_special": 1}):
+        if st.get("is_special"):
+            for n in st.get("names") or []:
+                names.add(n)
+    return names
+
+
+def _composition_without_special(db, shift_configs):
+    """משמרת מיוחדת is not part of הרכב — quotas / manual only."""
+    special = _special_shift_names(db)
+    return [c for c in shift_configs if c.get("shift_name") not in special]
+
+
 # Default composition config (shift_name must match a shift type name)
 _NURSING_DEFAULT_COMPOSITION = [
     {
@@ -51,19 +67,7 @@ _NURSING_DEFAULT_COMPOSITION = [
         "min_male": 0,
         "min_female": 0,
     },
-    {
-        "shift_name": "משמרת מיוחדת",
-        "is_special": True,
-        "hours": "",
-        "total_workers": 4,
-        "role_slots": [
-            {"attribute_name": "אחראי משמרת", "count": 1, "prefer_sub_attribute": "על בסיסי"},
-            {"attribute_name": "אח/אחות",     "count": 1},
-            {"attribute_name": "כוח עזר",     "count": 1},
-        ],
-        "min_male": 0,
-        "min_female": 0,
-    },
+    # משמרת מיוחדת omitted: assign via מכסות חודשיות or manual overrides only.
 ]
 
 
@@ -73,14 +77,16 @@ def get_shift_composition():
     config = db.shift_composition.find_one({}, {"_id": 0})
     if not config:
         return jsonify({"shift_configs": []})
-    return jsonify(config)
+    cfgs = _composition_without_special(db, config.get("shift_configs", []))
+    return jsonify({"shift_configs": cfgs})
 
 
 @shift_composition_bp.put("/shift-composition")
 def save_shift_composition():
     db = get_db()
     data = request.get_json()
-    shift_configs = data.get("shift_configs", [])
+    raw = data.get("shift_configs", [])
+    shift_configs = _composition_without_special(db, raw)
     db.shift_composition.replace_one({}, {"shift_configs": shift_configs}, upsert=True)
     return jsonify({"ok": True, "shift_configs": shift_configs})
 
