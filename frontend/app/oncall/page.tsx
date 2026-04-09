@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, Settings, RotateCcw, X, Check, UserPlus, Refres
 import type { OncallConfig, OncallDay, OncallSlot, OncallAssignment } from "@/lib/types";
 import type { Employee } from "@/lib/types";
 import * as api from "@/lib/api";
+import { downloadNursingOncallXlsx } from "@/lib/exportNursingOncallExcel";
 import { Button, Alert, Badge, Select } from "@/components/ui";
 import { BADGE_COLORS } from "@/lib/colors";
 
@@ -468,160 +469,6 @@ function OverrideModal({
   );
 }
 
-// ── Export helpers ────────────────────────────────────────────────────────────
-
-type CellStyle = {
-  font?: { bold?: boolean; sz?: number };
-  fill?: { patternType: string; fgColor: { rgb: string } };
-  alignment?: { horizontal?: string; vertical?: string; wrapText?: boolean; readingOrder?: number };
-  border?: { top?: { style: string; color: { rgb: string } }; bottom?: { style: string; color: { rgb: string } }; left?: { style: string; color: { rgb: string } }; right?: { style: string; color: { rgb: string } } };
-};
-
-const MEDIUM_BORDER = {
-  top:    { style: "medium", color: { rgb: "000000" } },
-  bottom: { style: "medium", color: { rgb: "000000" } },
-  left:   { style: "medium", color: { rgb: "000000" } },
-  right:  { style: "medium", color: { rgb: "000000" } },
-};
-const GRAY_FILL  = { patternType: "solid", fgColor: { rgb: "BFBFBF" } } as const;
-const WHITE_FILL = { patternType: "solid", fgColor: { rgb: "FFFFFF" } } as const;
-const ALIGN_CENTER_WRAP = { horizontal: "center", vertical: "center", wrapText: true, readingOrder: 2 };
-const ALIGN_RIGHT_RTL   = { horizontal: "right",  vertical: "center", readingOrder: 2 };
-
-function setCell(ws: XLSX.WorkSheet, r: number, c: number, style: CellStyle) {
-  const ref = XLSX.utils.encode_cell({ r, c });
-  if (!ws[ref]) ws[ref] = { t: "s", v: "" };
-  ws[ref].s = style;
-}
-
-function styleRange(ws: XLSX.WorkSheet, r1: number, c1: number, r2: number, c2: number, style: CellStyle) {
-  for (let r = r1; r <= r2; r++)
-    for (let c = c1; c <= c2; c++)
-      setCell(ws, r, c, style);
-}
-
-function exportOncallXlsx(days: OncallDay[], month: number, year: number) {
-  const MONTH_NAMES_LOCAL = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
-  const HE_DAYS_XL = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
-  const monthName = MONTH_NAMES_LOCAL[month - 1];
-
-  const firstHalf  = days.slice(0, 16);
-  const secondHalf = days.slice(16);
-  const maxCols    = Math.max(firstHalf.length, secondHalf.length);
-
-  // Layout per half (7 rows):
-  //   row 0 : date header   — "תאריך" (merged c0+c1)  |  "day\ndate" cells
-  //   row 1 : ערב I  מחלקה  — slot label (merged r1+r2, c0) | "מחלקה" | depts
-  //   row 2 : ערב I  הפעלה  — (merged)                      | "הפעלה" | emps
-  //   row 3 : ערב II מחלקה
-  //   row 4 : ערב II הפעלה
-  //   row 5 : לילה   מחלקה
-  //   row 6 : לילה   הפעלה
-  // Second half immediately follows (no blank row)
-
-  const TOTAL_COLS = 2 + maxCols; // c0=slot-label  c1=sub-label  c2..=dates
-  const ROWS_PER_CHUNK = 7;
-  const CHUNK2_BASE = secondHalf.length > 0 ? ROWS_PER_CHUNK : -1;
-
-  const empty = (): (string | number)[] => new Array(TOTAL_COLS).fill("");
-
-  const aoa: (string | number)[][] = [];
-
-  function pushChunk(chunk: OncallDay[]) {
-    // Date header row
-    const dateRow = empty();
-    dateRow[0] = "תאריך";
-    chunk.forEach((day, i) => {
-      const d = new Date(day.date + "T12:00:00");
-      dateRow[2 + i] = `${HE_DAYS_XL[d.getDay()]}\n${d.getDate()}`;
-    });
-    aoa.push(dateRow);
-
-    for (const slot of SLOTS) {
-      const deptRow = empty();
-      deptRow[0] = SLOT_LABELS[slot];
-      deptRow[1] = "מחלקה";
-      chunk.forEach((day, i) => { deptRow[2 + i] = day.slots[slot].department || ""; });
-      aoa.push(deptRow);
-
-      const empRow = empty();
-      empRow[1] = "הפעלה";
-      chunk.forEach((day, i) => { empRow[2 + i] = day.slots[slot].assignment?.employee_name || ""; });
-      aoa.push(empRow);
-    }
-  }
-
-  pushChunk(firstHalf);
-  if (secondHalf.length > 0) pushChunk(secondHalf);
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // ── Sheet settings ─────────────────────────────────────────────────────────
-  ws["!views"] = [{ rightToLeft: true }];
-  ws["!cols"]  = [{ wch: 16 }, { wch: 8 }, ...Array(maxCols).fill({ wch: 6 })];
-
-  const rowHeights: { hpt: number }[] = [
-    { hpt: 32 }, // date header (tall for day+date wrap)
-    ...Array(6).fill({ hpt: 20 }),
-  ];
-  if (secondHalf.length > 0) {
-    rowHeights.push({ hpt: 32 });
-    rowHeights.push(...Array(6).fill({ hpt: 20 }));
-  }
-  ws["!rows"] = rowHeights;
-
-  // ── Merges ─────────────────────────────────────────────────────────────────
-  const merges: XLSX.Range[] = [];
-
-  function addChunkMerges(base: number) {
-    // "תאריך" spans c0+c1
-    merges.push({ s: { r: base, c: 0 }, e: { r: base, c: 1 } });
-    // slot label merges (c0 spans 2 rows per slot)
-    for (let si = 0; si < 3; si++) {
-      const r = base + 1 + si * 2;
-      merges.push({ s: { r, c: 0 }, e: { r: r + 1, c: 0 } });
-    }
-  }
-
-  addChunkMerges(0);
-  if (secondHalf.length > 0) addChunkMerges(CHUNK2_BASE);
-  ws["!merges"] = merges;
-
-  // ── Styles ─────────────────────────────────────────────────────────────────
-  const grayStyle: CellStyle  = { font: { bold: true, sz: 10 }, fill: GRAY_FILL,  alignment: ALIGN_CENTER_WRAP, border: MEDIUM_BORDER };
-  const whiteStyle: CellStyle = { font: { sz: 10 },             fill: WHITE_FILL, alignment: ALIGN_CENTER_WRAP, border: MEDIUM_BORDER };
-  const subStyle: CellStyle   = { font: { bold: true, sz: 10 }, fill: GRAY_FILL,  alignment: ALIGN_RIGHT_RTL,   border: MEDIUM_BORDER };
-  const slotLabelStyle: CellStyle = { font: { bold: true, sz: 10 }, fill: GRAY_FILL, alignment: { horizontal: "right", vertical: "center", readingOrder: 2 }, border: MEDIUM_BORDER };
-
-  function styleChunk(base: number, chunkLen: number) {
-    const endCol = 1 + chunkLen; // last column index with content
-
-    // Date header row — full gray with wrap (for day\ndate)
-    styleRange(ws, base, 0, base, endCol, grayStyle);
-
-    for (let si = 0; si < 3; si++) {
-      const deptRow = base + 1 + si * 2;
-      const empRow  = deptRow + 1;
-      // c0 slot label — gray (applies to merged cell)
-      setCell(ws, deptRow, 0, slotLabelStyle);
-      setCell(ws, empRow,  0, { fill: GRAY_FILL, border: MEDIUM_BORDER, alignment: ALIGN_CENTER_WRAP });
-      // c1 sub-labels
-      setCell(ws, deptRow, 1, subStyle);
-      setCell(ws, empRow,  1, subStyle);
-      // data columns
-      styleRange(ws, deptRow, 2, deptRow, endCol, grayStyle);  // dept — gray
-      styleRange(ws, empRow,  2, empRow,  endCol, whiteStyle); // emp  — white
-    }
-  }
-
-  styleChunk(0, firstHalf.length);
-  if (secondHalf.length > 0) styleChunk(CHUNK2_BASE, secondHalf.length);
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, `${monthName} ${year}`);
-  XLSX.writeFile(wb, `כוננויות_${monthName}_${year}.xlsx`, { cellStyles: true });
-}
-
 function parseOncallFile(
   file: File,
   year: number,
@@ -1014,7 +861,7 @@ export default function OncallPage() {
                 variant="secondary"
                 size="sm"
                 icon={<Download size={13} />}
-                onClick={() => exportOncallXlsx(days, month, year)}
+                onClick={() => void downloadNursingOncallXlsx(days, month, year)}
                 disabled={!days.length}
               >
                 ייצוא
@@ -1204,7 +1051,7 @@ export default function OncallPage() {
               </ul>
             </div>
             <div className="px-5 py-3 border-t border-slate-100 flex justify-between items-center">
-              <Button variant="secondary" size="sm" icon={<Download size={13} />} onClick={() => { exportOncallXlsx(days, month, year); setShowImportGuide(false); }} disabled={!days.length}>
+              <Button variant="secondary" size="sm" icon={<Download size={13} />} onClick={() => { void downloadNursingOncallXlsx(days, month, year); setShowImportGuide(false); }} disabled={!days.length}>
                 ייצא לדוגמה
               </Button>
               <Button variant="primary" size="sm" onClick={() => setShowImportGuide(false)}>הבנתי</Button>
