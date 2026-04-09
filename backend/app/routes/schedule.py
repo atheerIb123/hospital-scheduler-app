@@ -4,6 +4,14 @@ from datetime import datetime, timezone, date as date_type, timedelta
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
 from ..db import get_db, get_global_db, get_nursing_employees_db, get_client, ensure_nursing_dept_db
+from ..nursing_aggregation import (
+    assignment_date_in_week,
+    build_des_level_maps_per_dept,
+    build_des_maps_per_dept,
+    is_nursing_request,
+    latest_weekly_schedule_docs,
+    nursing_department_filter_from_request,
+)
 from ..scheduler.solver import generate_schedule
 from .day_management import _get_weekday_scores
 from ..constants import JUSTICE_PTS
@@ -762,7 +770,6 @@ def update_assignments(schedule_id):
 
 @schedule_bp.get("/justice")
 def get_justice():
-    db = get_db()
     global_db = get_global_db()
 
     # Optional date range filter
@@ -781,68 +788,117 @@ def get_justice():
         except ValueError:
             pass
 
-    # Build desirability map: shift_name → justice points
-    des_map: dict = {}
-    for st in db.shift_types.find():
-        des = st.get("desirability", 3)
-        pts = JUSTICE_PTS.get(int(des), 4)
-        for name in st.get("names", []):
-            des_map[name] = pts
-
-    # For each (month, year) pair keep only the most recently generated schedule
-    latest_schedules: dict = {}
-    for schedule in db.schedules.find(
-        {"status": "generated"}, sort=[("generated_at", 1)]
-    ):
-        key = (schedule.get("year"), schedule.get("month"))
-        latest_schedules[key] = schedule
-
-    # Weekday scores for non-Shabbat days → added to regular justice
     weekday_scores = _get_weekday_scores(global_db)
 
-    # Aggregate justice scores from one schedule per month
-    justice: dict = {}
-    for schedule in latest_schedules.values():
-        sched_year = schedule.get("year")
-        sched_month = schedule.get("month")
-        for a in schedule.get("assignments", []):
-            try:
-                a_date = date_type(sched_year, sched_month, int(a["day"]))
-            except (ValueError, TypeError, KeyError):
-                continue
-            if start_date and a_date < start_date:
-                continue
-            if end_date and a_date > end_date:
-                continue
-            emp = a["employee_name"]
-            pts = des_map.get(a["shift_name"], 4)
-            justice.setdefault(emp, {"score": 0, "shifts": 0})
-            justice[emp]["score"] += pts
-            # Add weekday score for Sun–Thu (not Friday=4 or Saturday=5)
-            wd = a_date.weekday()
-            if wd not in (4, 5):
-                justice[emp]["score"] += weekday_scores.get(str(wd), 0)
-            justice[emp]["shifts"] += 1
+    if is_nursing_request():
+        dept_filter = nursing_department_filter_from_request()
+        des_maps = build_des_maps_per_dept(dept_filter)
 
-    # Aggregate volunteer scores
-    volunteer: dict = {}
-    for vol in db.volunteers.find():
-        if start_date or end_date:
-            try:
-                v_date = date_type(int(vol["year"]), int(vol["month"]), int(vol["day"]))
-            except (ValueError, TypeError, KeyError):
-                continue
-            if start_date and v_date < start_date:
-                continue
-            if end_date and v_date > end_date:
-                continue
-        emp = vol["employee_name"]
-        pts = des_map.get(vol["shift_name"], 4)
-        volunteer.setdefault(emp, {"score": 0, "count": 0})
-        volunteer[emp]["score"] += pts
-        volunteer[emp]["count"] += 1
+        justice: dict = {}
+        for dep, sched in latest_weekly_schedule_docs(dept_filter):
+            des_map = des_maps.get(dep, {})
+            for a in sched.get("assignments", []):
+                try:
+                    a_date = assignment_date_in_week(sched, int(a["day"]))
+                except (ValueError, TypeError, KeyError):
+                    continue
+                if not a_date:
+                    continue
+                if start_date and a_date < start_date:
+                    continue
+                if end_date and a_date > end_date:
+                    continue
+                emp = a["employee_name"]
+                pts = des_map.get(a["shift_name"], 4)
+                justice.setdefault(emp, {"score": 0, "shifts": 0})
+                justice[emp]["score"] += pts
+                wd = a_date.weekday()
+                if wd not in (4, 5):
+                    justice[emp]["score"] += weekday_scores.get(str(wd), 0)
+                justice[emp]["shifts"] += 1
 
-    employees = list(db.employees.find())
+        def _volunteer_shift_pts(shift_name: str) -> int:
+            for dm in des_maps.values():
+                if shift_name in dm:
+                    return dm[shift_name]
+            return 4
+
+        volunteer: dict = {}
+        for vol in get_nursing_employees_db().volunteers.find():
+            if start_date or end_date:
+                try:
+                    v_date = date_type(int(vol["year"]), int(vol["month"]), int(vol["day"]))
+                except (ValueError, TypeError, KeyError):
+                    continue
+                if start_date and v_date < start_date:
+                    continue
+                if end_date and v_date > end_date:
+                    continue
+            emp = vol["employee_name"]
+            pts = _volunteer_shift_pts(vol.get("shift_name", ""))
+            volunteer.setdefault(emp, {"score": 0, "count": 0})
+            volunteer[emp]["score"] += pts
+            volunteer[emp]["count"] += 1
+
+        employees = list(get_nursing_employees_db().employees.find())
+    else:
+        db = get_db()
+
+        des_map: dict = {}
+        for st in db.shift_types.find():
+            des = st.get("desirability", 3)
+            pts = JUSTICE_PTS.get(int(des), 4)
+            for name in st.get("names", []):
+                des_map[name] = pts
+
+        latest_schedules: dict = {}
+        for schedule in db.schedules.find(
+            {"status": "generated"}, sort=[("generated_at", 1)]
+        ):
+            key = (schedule.get("year"), schedule.get("month"))
+            latest_schedules[key] = schedule
+
+        justice = {}
+        for schedule in latest_schedules.values():
+            sched_year = schedule.get("year")
+            sched_month = schedule.get("month")
+            for a in schedule.get("assignments", []):
+                try:
+                    a_date = date_type(sched_year, sched_month, int(a["day"]))
+                except (ValueError, TypeError, KeyError):
+                    continue
+                if start_date and a_date < start_date:
+                    continue
+                if end_date and a_date > end_date:
+                    continue
+                emp = a["employee_name"]
+                pts = des_map.get(a["shift_name"], 4)
+                justice.setdefault(emp, {"score": 0, "shifts": 0})
+                justice[emp]["score"] += pts
+                wd = a_date.weekday()
+                if wd not in (4, 5):
+                    justice[emp]["score"] += weekday_scores.get(str(wd), 0)
+                justice[emp]["shifts"] += 1
+
+        volunteer = {}
+        for vol in db.volunteers.find():
+            if start_date or end_date:
+                try:
+                    v_date = date_type(int(vol["year"]), int(vol["month"]), int(vol["day"]))
+                except (ValueError, TypeError, KeyError):
+                    continue
+                if start_date and v_date < start_date:
+                    continue
+                if end_date and v_date > end_date:
+                    continue
+            emp = vol["employee_name"]
+            pts = des_map.get(vol["shift_name"], 4)
+            volunteer.setdefault(emp, {"score": 0, "count": 0})
+            volunteer[emp]["score"] += pts
+            volunteer[emp]["count"] += 1
+
+        employees = list(db.employees.find())
+
     result = []
     for emp in employees:
         name = emp["name"]
@@ -864,7 +920,6 @@ def get_justice():
 
 @schedule_bp.get("/justice/breakdown")
 def get_justice_breakdown():
-    db = get_db()
     global_db = get_global_db()
     employee_name = request.args.get("employee", "")
     start_str = request.args.get("start_date")
@@ -883,19 +938,6 @@ def get_justice_breakdown():
         except ValueError:
             pass
 
-    des_map: dict = {}
-    des_level_map: dict = {}
-    for st in db.shift_types.find():
-        des = int(st.get("desirability", 3))
-        pts = JUSTICE_PTS.get(des, 4)
-        for name in st.get("names", []):
-            des_map[name] = pts
-            des_level_map[name] = des
-
-    latest_schedules: dict = {}
-    for s in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
-        latest_schedules[(s.get("year"), s.get("month"))] = s
-
     weekday_scores = _get_weekday_scores(global_db)
     HE_DAYS = {
         0: "שני",
@@ -908,36 +950,88 @@ def get_justice_breakdown():
     }
 
     rows = []
-    for sched in latest_schedules.values():
-        year = sched.get("year")
-        month = sched.get("month")
-        for a in sched.get("assignments", []):
-            if a.get("employee_name") != employee_name:
-                continue
-            try:
-                a_date = date_type(year, month, int(a["day"]))
-            except Exception:
-                continue
-            if start_date and a_date < start_date:
-                continue
-            if end_date and a_date > end_date:
-                continue
-            shift = a.get("shift_name", "")
-            des_pts = des_map.get(shift, 4)
-            des_lvl = des_level_map.get(shift, 3)
-            wd = a_date.weekday()
-            wd_score = weekday_scores.get(str(wd), 0) if wd not in (4, 5) else 0
-            rows.append(
-                {
-                    "date": a_date.isoformat(),
-                    "day_of_week": HE_DAYS.get(wd, ""),
-                    "shift_name": shift,
-                    "desirability": des_lvl,
-                    "desirability_points": des_pts,
-                    "weekday_score": wd_score,
-                    "total": des_pts + wd_score,
-                }
-            )
+
+    if is_nursing_request():
+        dept_filter = nursing_department_filter_from_request()
+        des_maps = build_des_maps_per_dept(dept_filter)
+        des_level_maps = build_des_level_maps_per_dept(dept_filter)
+        for dep, sched in latest_weekly_schedule_docs(dept_filter):
+            des_map = des_maps.get(dep, {})
+            des_level_map = des_level_maps.get(dep, {})
+            for a in sched.get("assignments", []):
+                if a.get("employee_name") != employee_name:
+                    continue
+                try:
+                    a_date = assignment_date_in_week(sched, int(a["day"]))
+                except Exception:
+                    continue
+                if not a_date:
+                    continue
+                if start_date and a_date < start_date:
+                    continue
+                if end_date and a_date > end_date:
+                    continue
+                shift = a.get("shift_name", "")
+                des_pts = des_map.get(shift, 4)
+                des_lvl = des_level_map.get(shift, 3)
+                wd = a_date.weekday()
+                wd_score = weekday_scores.get(str(wd), 0) if wd not in (4, 5) else 0
+                rows.append(
+                    {
+                        "date": a_date.isoformat(),
+                        "day_of_week": HE_DAYS.get(wd, ""),
+                        "shift_name": shift,
+                        "desirability": des_lvl,
+                        "desirability_points": des_pts,
+                        "weekday_score": wd_score,
+                        "total": des_pts + wd_score,
+                    }
+                )
+    else:
+        db = get_db()
+        des_map: dict = {}
+        des_level_map: dict = {}
+        for st in db.shift_types.find():
+            des = int(st.get("desirability", 3))
+            pts = JUSTICE_PTS.get(des, 4)
+            for name in st.get("names", []):
+                des_map[name] = pts
+                des_level_map[name] = des
+
+        latest_schedules: dict = {}
+        for s in db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+            latest_schedules[(s.get("year"), s.get("month"))] = s
+
+        for sched in latest_schedules.values():
+            year = sched.get("year")
+            month = sched.get("month")
+            for a in sched.get("assignments", []):
+                if a.get("employee_name") != employee_name:
+                    continue
+                try:
+                    a_date = date_type(year, month, int(a["day"]))
+                except Exception:
+                    continue
+                if start_date and a_date < start_date:
+                    continue
+                if end_date and a_date > end_date:
+                    continue
+                shift = a.get("shift_name", "")
+                des_pts = des_map.get(shift, 4)
+                des_lvl = des_level_map.get(shift, 3)
+                wd = a_date.weekday()
+                wd_score = weekday_scores.get(str(wd), 0) if wd not in (4, 5) else 0
+                rows.append(
+                    {
+                        "date": a_date.isoformat(),
+                        "day_of_week": HE_DAYS.get(wd, ""),
+                        "shift_name": shift,
+                        "desirability": des_lvl,
+                        "desirability_points": des_pts,
+                        "weekday_score": wd_score,
+                        "total": des_pts + wd_score,
+                    }
+                )
 
     rows.sort(key=lambda r: r["date"])
     return jsonify(
@@ -951,7 +1045,6 @@ def get_justice_breakdown():
 
 @schedule_bp.get("/justice/volunteer-breakdown")
 def get_volunteer_breakdown():
-    db = get_db()
     employee_name = request.args.get("employee", "")
     start_str = request.args.get("start_date")
     end_str = request.args.get("end_date")
@@ -969,15 +1062,6 @@ def get_volunteer_breakdown():
         except ValueError:
             pass
 
-    des_map: dict = {}
-    des_level_map: dict = {}
-    for st in db.shift_types.find():
-        des = int(st.get("desirability", 3))
-        pts = JUSTICE_PTS.get(des, 4)
-        for name in st.get("names", []):
-            des_map[name] = pts
-            des_level_map[name] = des
-
     HE_DAYS = {
         0: "שני",
         1: "שלישי",
@@ -989,18 +1073,17 @@ def get_volunteer_breakdown():
     }
 
     rows = []
-    for vol in db.volunteers.find({"employee_name": employee_name}):
+
+    def _append_vol_row(vol, des_pts: int, des_lvl: int):
         try:
             v_date = date_type(int(vol["year"]), int(vol["month"]), int(vol["day"]))
         except Exception:
-            continue
+            return
         if start_date and v_date < start_date:
-            continue
+            return
         if end_date and v_date > end_date:
-            continue
+            return
         shift = vol.get("shift_name", "")
-        des_pts = des_map.get(shift, 4)
-        des_lvl = des_level_map.get(shift, 3)
         wd = v_date.weekday()
         rows.append(
             {
@@ -1012,6 +1095,36 @@ def get_volunteer_breakdown():
                 "total": des_pts,
             }
         )
+
+    if is_nursing_request():
+        dept_filter = nursing_department_filter_from_request()
+        des_maps = build_des_maps_per_dept(dept_filter)
+        des_level_maps = build_des_level_maps_per_dept(dept_filter)
+
+        def _fallback_pts_level(shift: str):
+            for dep, dm in des_maps.items():
+                if shift in dm:
+                    return dm[shift], des_level_maps.get(dep, {}).get(shift, 3)
+            return 4, 3
+
+        for vol in get_nursing_employees_db().volunteers.find({"employee_name": employee_name}):
+            shift = vol.get("shift_name", "")
+            fp, fl = _fallback_pts_level(shift)
+            _append_vol_row(vol, fp, fl)
+    else:
+        db = get_db()
+        des_map: dict = {}
+        des_level_map: dict = {}
+        for st in db.shift_types.find():
+            des = int(st.get("desirability", 3))
+            pts = JUSTICE_PTS.get(des, 4)
+            for name in st.get("names", []):
+                des_map[name] = pts
+                des_level_map[name] = des
+
+        for vol in db.volunteers.find({"employee_name": employee_name}):
+            shift = vol.get("shift_name", "")
+            _append_vol_row(vol, des_map.get(shift, 4), des_level_map.get(shift, 3))
 
     rows.sort(key=lambda r: r["date"])
     return jsonify(

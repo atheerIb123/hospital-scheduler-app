@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import * as XLSX from "xlsx";
 import * as api from "@/lib/api";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useShiftTypes } from "@/hooks/useShiftTypes";
@@ -15,11 +14,16 @@ import SummaryTable from "@/components/SummaryTable";
 import CalendarConfigurator from "@/components/CalendarConfigurator";
 import { useConstraints } from "@/hooks/useConstraints";
 import { useMode } from "@/components/ModeProvider";
-import type { Assignment, WeeklyShiftRow } from "@/lib/types";
+import type { Assignment, EmployeeWeekPlan, WeeklyShiftRow } from "@/lib/types";
 import { useWeeklySchedule } from "@/hooks/useWeeklySchedule";
 import { useShiftComposition } from "@/hooks/useShiftComposition";
 import WeeklyShiftGrid from "@/components/WeeklyShiftGrid";
 import EmployeeWeeklyPlan from "@/components/EmployeeWeeklyPlan";
+import { downloadDoctorsScheduleXlsx } from "@/lib/exportDoctorsScheduleExcel";
+import {
+  downloadNursingEmployeePlanXlsx,
+  downloadNursingWeeklyGridXlsx,
+} from "@/lib/exportNursingScheduleExcel";
 
 const MONTH_NAMES = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
 
@@ -542,6 +546,11 @@ function NursingSchedulePage() {
     return updated;
   }, [schedule?.employee_plan, localAssignments, weekDays, allEmployeesAsPlan]);
 
+  const nursingExcelWeekStart = selectedWeek ?? schedule?.week_start ?? "";
+  const nursingDeptLabelForExcel = selectedDept || "כל המחלקות";
+  const nursingPlanForExcel: EmployeeWeekPlan[] =
+    augmentedEmployeePlan ?? schedule?.employee_plan ?? [];
+
   return (
     <div className="flex flex-col gap-5 fade-in" dir="rtl">
       {/* Header */}
@@ -554,10 +563,10 @@ function NursingSchedulePage() {
 
       {/* Controls card */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-        {/* Row 1: department + generate + save */}
-        <div className="flex items-center gap-3 flex-wrap">
+        {/* Row 1: department | actions (ms-auto avoids flex-1 + wrap eating a full row in RTL) */}
+        <div className="flex flex-wrap items-center gap-3">
           {departments.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">מחלקה:</span>
               <Select
                 value={selectedDept}
@@ -572,46 +581,86 @@ function NursingSchedulePage() {
             </div>
           )}
 
-          <div className="flex-1" />
-
-          {changedCells.size > 0 && (
-            <Button
-              variant="success"
-              onClick={handleSave}
-              disabled={saving}
-              icon={saving ? <Loader2 className="animate-spin h-4 w-4" /> : <Save className="w-4 h-4" />}
-            >
-              {saving ? "שומר…" : `שמור שינויים (${changedCells.size})`}
-            </Button>
-          )}
-          {saveSuccess && (
-            <span className="text-sm text-emerald-600 font-medium">נשמר בהצלחה</span>
-          )}
-
-          {schedule && (
-            <Button
-              variant="danger"
-              onClick={deleteSchedule}
-              disabled={deleting}
-              icon={deleting ? <Loader2 className="animate-spin h-4 w-4" /> : <Trash2 className="w-4 h-4" />}
-            >
-              {deleting ? "מוחק…" : "מחק סידור"}
-            </Button>
-          )}
-
-          {(() => {
-            const deptLocked = lockedAssignments.filter(a => !a.department || a.department === selectedDept);
-            return (
+          <div className="flex flex-wrap items-center gap-2 shrink-0 ms-auto">
+            {changedCells.size > 0 && (
               <Button
-                variant="primary"
-                onClick={() => generate(undefined)}
-                disabled={generating || !selectedWeek || lockedLoading}
-                icon={generating ? <Loader2 className="animate-spin h-4 w-4" /> : undefined}
+                variant="success"
+                onClick={handleSave}
+                disabled={saving}
+                icon={saving ? <Loader2 className="animate-spin h-4 w-4" /> : <Save className="w-4 h-4" />}
               >
-                {generating ? "מחשב..." : deptLocked.length ? `צור סידור (${deptLocked.length} שיבוצים נעולים)` : "צור סידור שבועי"}
+                {saving ? "שומר…" : `שמור שינויים (${changedCells.size})`}
               </Button>
-            );
-          })()}
+            )}
+            {saveSuccess && (
+              <span className="text-sm text-emerald-600 font-medium whitespace-nowrap">נשמר בהצלחה</span>
+            )}
+
+            {schedule?.status === "generated" && (
+              <>
+                <Button
+                  variant="secondary"
+                  size="small"
+                  type="button"
+                  icon={<Download size={16} />}
+                  disabled={!localGrid.length || !weekDays.length || !nursingExcelWeekStart}
+                  onClick={() => {
+                    void downloadNursingWeeklyGridXlsx(
+                      localGrid,
+                      weekDays,
+                      nursingExcelWeekStart,
+                      nursingDeptLabelForExcel,
+                      shiftLeaderIds,
+                    );
+                  }}
+                >
+                  שמור סידור ב-Excel
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="small"
+                  type="button"
+                  icon={<Download size={16} />}
+                  disabled={!nursingPlanForExcel.length || !weekDays.length || !nursingExcelWeekStart}
+                  onClick={() => {
+                    void downloadNursingEmployeePlanXlsx(
+                      nursingPlanForExcel,
+                      weekDays,
+                      nursingExcelWeekStart,
+                      nursingDeptLabelForExcel,
+                    );
+                  }}
+                >
+                  שמור תכנון ב-Excel
+                </Button>
+              </>
+            )}
+
+            {schedule && (
+              <Button
+                variant="danger"
+                onClick={deleteSchedule}
+                disabled={deleting}
+                icon={deleting ? <Loader2 className="animate-spin h-4 w-4" /> : <Trash2 className="w-4 h-4" />}
+              >
+                {deleting ? "מוחק…" : "מחק סידור"}
+              </Button>
+            )}
+
+            {(() => {
+              const deptLocked = lockedAssignments.filter(a => !a.department || a.department === selectedDept);
+              return (
+                <Button
+                  variant="primary"
+                  onClick={() => generate(undefined)}
+                  disabled={generating || !selectedWeek || lockedLoading}
+                  icon={generating ? <Loader2 className="animate-spin h-4 w-4" /> : undefined}
+                >
+                  {generating ? "מחשב..." : deptLocked.length ? `צור סידור (${deptLocked.length} שיבוצים נעולים)` : "צור סידור שבועי"}
+                </Button>
+              );
+            })()}
+          </div>
         </div>
 
         {/* Row 2: week selector */}
@@ -922,43 +971,12 @@ function DoctorsSchedulePage() {
   };
 
   const handleDownloadExcel = () => {
-    if (!schedule || !shiftTypes) return;
-    const wb = XLSX.utils.book_new();
-
-    const activeShifts = [...shiftTypes].sort((a, b) => (a.shift_id ?? 0) - (b.shift_id ?? 0));
-    const daysInMonth = new Date(schedule.year, schedule.month, 0).getDate();
-    const lookup: Record<number, Record<string, string>> = {};
-    for (const a of localAssignments) {
-      if (!lookup[a.day]) lookup[a.day] = {};
-      lookup[a.day][a.shift_name] = a.employee_name;
-    }
-    const schedHeaders = ["יום", ...activeShifts.map(st => st.names.join(", "))];
-    const schedRows = Array.from({ length: daysInMonth }, (_, i) => {
-      const day = i + 1;
-      const dayOfWeek = new Date(schedule.year, schedule.month - 1, day).getDay();
-      const dayLabel = `${day}${dayOfWeek === 5 ? " (ו)" : dayOfWeek === 6 ? " (ש)" : ""}`;
-      return [dayLabel, ...activeShifts.map(st => lookup[day]?.[st.names[0]] ?? "")];
+    if (!schedule || !shiftTypes?.length) return;
+    void downloadDoctorsScheduleXlsx({
+      schedule: { month: schedule.month, year: schedule.year },
+      shiftTypes,
+      localAssignments,
     });
-    const ws1 = XLSX.utils.aoa_to_sheet([schedHeaders, ...schedRows]);
-    ws1["!cols"] = schedHeaders.map(() => ({ wch: 16 }));
-    XLSX.utils.book_append_sheet(wb, ws1, "לוח משמרות");
-
-    const empMap: Record<string, Record<string, number>> = {};
-    for (const a of localAssignments) {
-      if (!empMap[a.employee_name]) empMap[a.employee_name] = {};
-      empMap[a.employee_name][a.shift_name] = (empMap[a.employee_name][a.shift_name] ?? 0) + 1;
-    }
-    const summaryHeaders = ["עובד", ...activeShifts.map(st => st.names.join(", ")), "סה״כ"];
-    const summaryRows = Object.entries(empMap).map(([emp, counts]) => {
-      const row = activeShifts.map(st => counts[st.names[0]] ?? 0);
-      return [emp, ...row, row.reduce((s, v) => s + v, 0)];
-    });
-    const ws2 = XLSX.utils.aoa_to_sheet([summaryHeaders, ...summaryRows]);
-    ws2["!cols"] = summaryHeaders.map(() => ({ wch: 16 }));
-    XLSX.utils.book_append_sheet(wb, ws2, "סיכום");
-
-    const monthName = MONTH_NAMES[schedule.month - 1];
-    XLSX.writeFile(wb, `סידור_${monthName}_${schedule.year}.xlsx`);
   };
 
   return (
