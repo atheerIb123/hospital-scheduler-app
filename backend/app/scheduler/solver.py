@@ -353,16 +353,22 @@ def generate_schedule(
         shift_comp_cfg = comp.get(name, {})
         total_w = max(1, int(shift_comp_cfg.get("total_workers", 1)))
 
-        # Special shifts: apply a total-period cap instead of per-day coverage
-        if sid in special_shift_ids and name not in special_with_c7:
-            all_sv = [
-                x[(e["id"], sid, d)]
-                for e in active_employees
-                for d in applicable_days(shift)
-                if (e["id"], sid, d) in x
-            ]
-            if all_sv:
-                model.Add(cp_model.LinearExpr.Sum(all_sv) <= total_w)
+        # Special shifts: never use per-day composition staffing (C2 below).
+        # With C7: totals enforced only in C7. Without C7: nursing assigns none
+        # (manual / overrides); doctors keep legacy global cap from composition.
+        if sid in special_shift_ids:
+            if name not in special_with_c7:
+                all_sv = [
+                    x[(e["id"], sid, d)]
+                    for e in active_employees
+                    for d in applicable_days(shift)
+                    if (e["id"], sid, d) in x
+                ]
+                if all_sv:
+                    if nursing_mode:
+                        model.Add(cp_model.LinearExpr.Sum(all_sv) == 0)
+                    else:
+                        model.Add(cp_model.LinearExpr.Sum(all_sv) <= total_w)
             continue
 
         for day in applicable_days(shift):

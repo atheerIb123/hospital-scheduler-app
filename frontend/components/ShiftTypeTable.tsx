@@ -325,7 +325,11 @@ export default function ShiftTypeTable({
                   showSpecial={!!onSaveComposition}
                   expanded={expandedId === st.id}
                   onToggleExpand={() => setExpandedId(prev => prev === st.id ? null : st.id)}
-                  compositionConfig={compositionConfigs?.find(c => st.names.includes(c.shift_name))}
+                  compositionConfig={
+                    st.is_special
+                      ? undefined
+                      : compositionConfigs?.find(c => st.names.includes(c.shift_name))
+                  }
                   allCompositionConfigs={compositionConfigs ?? []}
                   onSaveComposition={onSaveComposition}
                 />
@@ -481,6 +485,11 @@ function ShiftTypeRow({
         {/* Required attributes — derived from role_slots in nursing, editable otherwise */}
         <td className="px-4 py-3">
           {onSaveComposition ? (
+            shiftType.is_special ? (
+              <span className="text-xs text-slate-500 leading-relaxed block px-2 py-1.5">
+                מכסות חודשיות או שיבוץ ידני בלבד — לא חלק מהרכב
+              </span>
+            ) : (
             // Nursing mode: read-only display derived from composition role_slots
             <div className="flex flex-wrap gap-1.5 items-center min-h-[2rem] px-2 py-1.5">
               {displayConfig.role_slots.length === 0 ? (
@@ -493,6 +502,7 @@ function ShiftTypeRow({
                 ))
               )}
             </div>
+            )
           ) : (
             // Standard mode: manual editor
             <div className="relative">
@@ -570,7 +580,7 @@ function ShiftTypeRow({
         {/* Actions */}
         <td className="px-3 py-3 text-center">
           <div className="flex items-center justify-center gap-1">
-            {onSaveComposition && (
+            {onSaveComposition && !shiftType.is_special && (
               <button
                 type="button"
                 onClick={onToggleExpand}
@@ -591,8 +601,8 @@ function ShiftTypeRow({
         </td>
       </tr>
 
-      {/* Inline composition row */}
-      {expanded && (
+      {/* Inline composition row — not for מיוחדת */}
+      {expanded && !shiftType.is_special && (
         <tr className="border-b border-blue-100 bg-blue-50/20">
           <td colSpan={colSpan} className="px-4 py-4">
             <div className="max-w-2xl">
