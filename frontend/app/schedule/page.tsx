@@ -529,7 +529,7 @@ function NursingSchedulePage() {
       if (planIds.has(empId)) continue;
       const empInfo = allEmployeesAsPlan.find(e => e.employee_id === empId);
       if (!empInfo) continue;
-      const days: typeof empInfo.days = {};
+      const days: Record<string, { type: "shift"; shift_name: string }[] | { type: "off" }[]> = {};
       for (const iso of weekDays) {
         const shifts = aLookup[empId]?.[iso];
         days[iso] = shifts?.length

@@ -2,12 +2,13 @@ import React from "react";
 import { Trash2 } from "lucide-react";
 
 type Variant = "primary" | "secondary" | "danger" | "success" | "ghost" | "gradient" | "icon";
-type Size = "large" | "small" | "compact";
+type Size = "large" | "small" | "sm" | "compact";
 type IconSide = "before" | "after";
 
 const SIZE_PADDING: Record<Size, string> = {
   large: "px-5 py-2.5 text-sm",
   small: "py-1.5 px-3 text-sm",
+  sm: "py-1.5 px-3 text-sm",
   compact: "py-0 px-0 text-xs",
 };
 

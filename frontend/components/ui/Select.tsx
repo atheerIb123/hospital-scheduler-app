@@ -26,13 +26,14 @@ function getOptionLabel(children: React.ReactNode, value: string): string | null
   let found: string | null = null;
   React.Children.forEach(children, (child) => {
     if (found || !React.isValidElement(child)) return;
+    const props = child.props as Record<string, unknown>;
     if (child.type === "option") {
-      const optVal = child.props.value ?? child.props.children;
+      const optVal = props.value ?? props.children;
       if (String(optVal) === String(value)) {
-        found = String(child.props.children);
+        found = String(props.children);
       }
     } else if (child.type === "optgroup") {
-      const nested = getOptionLabel(child.props.children, value);
+      const nested = getOptionLabel(props.children as React.ReactNode, value);
       if (nested) found = nested;
     }
   });

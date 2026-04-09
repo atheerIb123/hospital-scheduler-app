@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, forwardRef } from "react";
 
 const FORM_CLASSES =
   "border border-slate-300 bg-transparent rounded-xl px-2 py-1.5 text-sm text-slate-800 " +
@@ -16,7 +16,7 @@ const SIZER_STYLE: React.CSSProperties = {
   pointerEvents: "none",
 };
 
-export function Input({ className = "", inputPrefix, style, value, defaultValue, onChange, ...props }: InputProps) {
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ className = "", inputPrefix, style, value, defaultValue, onChange, ...props }, ref) {
   const prefixRef = useRef<HTMLSpanElement>(null);
   const valueSizerRef = useRef<HTMLSpanElement>(null);
   const [paddingRight, setPaddingRight] = useState<number | undefined>(undefined);
@@ -53,6 +53,7 @@ export function Input({ className = "", inputPrefix, style, value, defaultValue,
         </span>
       )}
       <input
+        ref={ref}
         dir="rtl"
         className={`${FORM_CLASSES} w-full ${className}`.trim()}
         style={{ paddingRight: paddingRight ? `${paddingRight}px` : undefined, ...style }}
@@ -70,4 +71,4 @@ export function Input({ className = "", inputPrefix, style, value, defaultValue,
       </span>
     </div>
   );
-}
+});
