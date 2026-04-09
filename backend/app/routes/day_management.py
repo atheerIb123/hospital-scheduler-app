@@ -1,6 +1,12 @@
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
 from ..db import get_db, get_global_db
+from ..nursing_aggregation import (
+    assignment_date_in_week,
+    is_nursing_request,
+    latest_weekly_schedule_docs,
+    nursing_department_filter_from_request,
+)
 import datetime
 
 day_mgmt_bp = Blueprint("day_management", __name__)
@@ -167,6 +173,7 @@ def day_type_justice():
     end_str = request.args.get("end_date")
     db = get_global_db()
     sched_db = get_db()
+    nursing = is_nursing_request()
 
     weekday_scores = _get_weekday_scores(db)
 
@@ -193,23 +200,32 @@ def day_type_justice():
             if s.get("score") is not None:
                 date_score_map[s["date"]] = s["score"]
 
-    # Keep only the latest generated schedule per (year, month) — same as /justice
-    latest_map = {}
-    for s in sched_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
-        latest_map[(s.get("year"), s.get("month"))] = s
-    schedules = list(latest_map.values())
+    # Doctors: latest schedule per (year, month). Nursing: latest weekly per (dept, week_start).
+    if nursing:
+        dept_filter = nursing_department_filter_from_request()
+        schedules = [s for _dep, s in latest_weekly_schedule_docs(dept_filter)]
+    else:
+        latest_map = {}
+        for s in sched_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+            latest_map[(s.get("year"), s.get("month"))] = s
+        schedules = list(latest_map.values())
     emp_data = {}  # {name: {shabbat_count, by_type: {type_id: count}}}
 
     for sched in schedules:
-        year = sched["year"]
-        month = sched["month"]
         for a in sched.get("assignments", []):
             day_num = a.get("day")
             emp_name = a.get("employee_name", "")
-            if not emp_name or not day_num:
+            if not emp_name or day_num is None:
                 continue
             try:
-                date_obj = dt_mod.date(year, month, day_num)
+                if nursing:
+                    date_obj = assignment_date_in_week(sched, int(day_num))
+                    if not date_obj:
+                        continue
+                else:
+                    year = sched["year"]
+                    month = sched["month"]
+                    date_obj = dt_mod.date(year, month, int(day_num))
                 date_str = date_obj.isoformat()
             except Exception:
                 continue
@@ -297,6 +313,7 @@ def day_type_justice_breakdown():
     end_str = request.args.get("end_date")
     db = get_global_db()
     sched_db = get_db()
+    nursing = is_nursing_request()
 
     weekday_scores = _get_weekday_scores(db)
 
@@ -321,9 +338,14 @@ def day_type_justice_breakdown():
             if s.get("score") is not None:
                 date_score_map[s["date"]] = s["score"]
 
-    latest_map: dict = {}
-    for s in sched_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
-        latest_map[(s.get("year"), s.get("month"))] = s
+    if nursing:
+        dept_filter = nursing_department_filter_from_request()
+        sched_iter = [s for _dep, s in latest_weekly_schedule_docs(dept_filter)]
+    else:
+        latest_map: dict = {}
+        for s in sched_db.schedules.find({"status": "generated"}, sort=[("generated_at", 1)]):
+            latest_map[(s.get("year"), s.get("month"))] = s
+        sched_iter = list(latest_map.values())
 
     HE_DAYS = {
         0: "שני",
@@ -336,14 +358,19 @@ def day_type_justice_breakdown():
     }
 
     rows = []
-    for sched in latest_map.values():
-        year = sched.get("year")
-        month = sched.get("month")
+    for sched in sched_iter:
         for a in sched.get("assignments", []):
             if a.get("employee_name") != employee_name:
                 continue
             try:
-                date_obj = dt_mod.date(year, month, int(a["day"]))
+                if nursing:
+                    date_obj = assignment_date_in_week(sched, int(a["day"]))
+                    if not date_obj:
+                        continue
+                else:
+                    year = sched.get("year")
+                    month = sched.get("month")
+                    date_obj = dt_mod.date(year, month, int(a["day"]))
                 date_str = date_obj.isoformat()
             except Exception:
                 continue

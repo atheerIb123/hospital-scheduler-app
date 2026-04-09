@@ -1,9 +1,17 @@
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
-from ..db import get_db
+from ..db import get_db, get_nursing_employees_db
 import datetime
 
 manual_points_bp = Blueprint("manual_points", __name__)
+
+
+def _manual_points_db():
+    from ..nursing_aggregation import is_nursing_request
+
+    if is_nursing_request():
+        return get_nursing_employees_db()
+    return get_db()
 
 
 def _serialize(doc):
@@ -15,9 +23,9 @@ def _serialize(doc):
 
 @manual_points_bp.get("/manual-points")
 def list_manual_points():
-    db = get_db()
-    start = request.args.get("start")
-    end = request.args.get("end")
+    db = _manual_points_db()
+    start = request.args.get("start_date") or request.args.get("start")
+    end = request.args.get("end_date") or request.args.get("end")
     query = {}
     if start and end:
         # Filter by logical date if available, or created_at as fallback
@@ -28,7 +36,7 @@ def list_manual_points():
 
 @manual_points_bp.post("/manual-points")
 def add_manual_point():
-    db = get_db()
+    db = _manual_points_db()
     data = request.get_json()
 
     # Allow manual date override
@@ -55,6 +63,6 @@ def add_manual_point():
 
 @manual_points_bp.delete("/manual-points/<entry_id>")
 def remove_manual_point(entry_id):
-    db = get_db()
+    db = _manual_points_db()
     db.manual_points.delete_one({"_id": ObjectId(entry_id)})
     return jsonify({"ok": True})
