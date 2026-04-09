@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import type { ShiftConfig, RoleSlot, ShiftType } from "@/lib/types";
+import type { ShiftConfig, ShiftCompositionData, RoleSlot, ShiftType } from "@/lib/types";
 import { DesirabilityStars } from "./ShiftTypeTable";
 import { useShiftComposition } from "@/hooks/useShiftComposition";
 

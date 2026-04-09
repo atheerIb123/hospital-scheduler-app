@@ -265,8 +265,8 @@ export default function ShiftTypeTable({
 }: {
   shiftTypes: ShiftType[];
   columnHeaders: string[];
-  onUpdate: (id: string, data: Partial<ShiftType>) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  onUpdate: (id: string, data: Partial<ShiftType>) => Promise<unknown>;
+  onDelete: (id: string) => Promise<unknown>;
   dayTypes: DayType[];
   compositionConfigs?: ShiftConfig[];
   onSaveComposition?: (configs: ShiftConfig[]) => Promise<void>;
@@ -355,8 +355,8 @@ function ShiftTypeRow({
   shiftType: ShiftType;
   idx: number;
   columnHeaders: string[];
-  onUpdate: (id: string, data: Partial<ShiftType>) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  onUpdate: (id: string, data: Partial<ShiftType>) => Promise<unknown>;
+  onDelete: (id: string) => Promise<unknown>;
   dayTypes: DayType[];
   showSpecial: boolean;
   expanded: boolean;

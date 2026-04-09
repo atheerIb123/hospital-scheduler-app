@@ -569,11 +569,18 @@ export interface ManualPoint {
   employee_name: string;
   points: number;
   reason: string;
+  date?: string;
   table: ManualPointTable;
   created_at: string;
 }
 
-export const getManualPoints = () => request<ManualPoint[]>("/manual-points");
+export const getManualPoints = (startDate?: string, endDate?: string) => {
+  const qs = new URLSearchParams();
+  if (startDate) qs.set("start_date", startDate);
+  if (endDate) qs.set("end_date", endDate);
+  const q = qs.toString();
+  return request<ManualPoint[]>(`/manual-points${q ? `?${q}` : ""}`);
+};
 
 export const addManualPoint = (data: Omit<ManualPoint, "id" | "created_at">) =>
   request<ManualPoint>("/manual-points", {

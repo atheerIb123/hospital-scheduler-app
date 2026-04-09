@@ -421,7 +421,7 @@ function ConstraintRow({ constraint, onUpdate, onDelete }: {
 function GroupedRow({ group, onDelete, onUpdate, employeeNames = [] }: {
   group: ConstraintGroup;
   onDelete: (id: string) => Promise<void>;
-  onUpdate: (id: string, data: Partial<CreateConstraintPayload>) => Promise<void>;
+  onUpdate: (id: string, data: Partial<CreateConstraintPayload>) => Promise<unknown>;
   employeeNames?: string[];
 }) {
   const [expanded, setExpanded] = useState(false);

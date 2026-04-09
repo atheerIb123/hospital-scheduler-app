@@ -905,8 +905,7 @@ function AdvocatesSection({ employees, search, manualTotals = {} }: { employees:
         <div className="flex items-center gap-2">
           <SearchInput
             value={descSearch}
-            onChange={e => setDescSearch(e.target.value)}
-            onClear={() => setDescSearch("")}
+            onChange={v => setDescSearch(v)}
             placeholder="חיפוש לפי סוג סנגור..."
             className="flex-1 max-w-xs"
           />
