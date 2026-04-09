@@ -906,7 +906,8 @@ function DoctorsSchedulePage() {
   const month = dateRange ? new Date(dateRange.start + "T00:00:00").getMonth() + 1 : now.getMonth() + 1;
   const year  = dateRange ? new Date(dateRange.start + "T00:00:00").getFullYear() : now.getFullYear();
 
-  const { schedule, loading, generating, error, generate } = useSchedule(month, year);
+  const { schedule, loading, generating, deleting, error, generate, deleteSchedule } = useSchedule(month, year);
+  const [clearMonthConfirmOpen, setClearMonthConfirmOpen] = useState(false);
   const { shiftTypes } = useShiftTypes();
   const { employees, columnHeaders } = useEmployees();
   const { dayTypes } = useDayTypes();
@@ -980,7 +981,7 @@ function DoctorsSchedulePage() {
   };
 
   return (
-    <div className="flex flex-col gap-5 fade-in" style={{ height: "calc(100vh - 4rem)" }}>
+    <div className="flex flex-col gap-5 fade-in" dir="rtl" style={{ height: "calc(100vh - 4rem)" }}>
       <div>
         <h1 className="text-3xl font-bold text-slate-800">סידור עבודה</h1>
         <p className="text-slate-500 mt-1 text-sm">
@@ -1021,9 +1022,20 @@ function DoctorsSchedulePage() {
             )}
           </Button>
           {schedule?.status === "generated" && (
-            <Button variant="secondary" onClick={handleDownloadExcel} icon={<Download className="w-4 h-4" />}>
-              הורד Excel
-            </Button>
+            <>
+              <Button variant="secondary" onClick={handleDownloadExcel} icon={<Download className="w-4 h-4" />}>
+                הורד Excel
+              </Button>
+              <Button
+                variant="danger"
+                type="button"
+                onClick={() => setClearMonthConfirmOpen(true)}
+                disabled={deleting}
+                icon={deleting ? <Loader2 className="animate-spin h-4 w-4" /> : <Trash2 className="w-4 h-4" />}
+              >
+                {deleting ? "מוחק…" : "נקה סידור חודשי"}
+              </Button>
+            </>
           )}
           {changedCells.size > 0 && (
             <Button
@@ -1043,7 +1055,7 @@ function DoctorsSchedulePage() {
 
       {error && (
         <Alert type="error">
-          <p className="font-semibold">שגיאה ביצירת הסידור</p>
+          <p className="font-semibold">שגיאה</p>
           <p className="text-sm mt-0.5">{error}</p>
         </Alert>
       )}
@@ -1154,6 +1166,35 @@ function DoctorsSchedulePage() {
                 constraints={constraints}
               />
             )}
+          </div>
+        </div>
+      )}
+
+      {clearMonthConfirmOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl" dir="rtl">
+            <div className="px-5 pt-5 pb-2">
+              <p className="text-lg font-semibold text-slate-800">למחוק את הסידור?</p>
+              <p className="text-sm text-slate-500 mt-2">
+                הסידור ל־{MONTH_NAMES[month - 1]} {year} יימחק לצמיתות מהמערכת. פעולה זו אינה ניתנת לביטול.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
+              <Button variant="secondary" type="button" onClick={() => setClearMonthConfirmOpen(false)} disabled={deleting}>
+                ביטול
+              </Button>
+              <Button
+                variant="danger"
+                type="button"
+                disabled={deleting}
+                onClick={async () => {
+                  await deleteSchedule();
+                  setClearMonthConfirmOpen(false);
+                }}
+              >
+                {deleting ? "מוחק…" : "מחק סידור"}
+              </Button>
+            </div>
           </div>
         </div>
       )}

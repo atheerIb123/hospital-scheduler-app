@@ -515,9 +515,14 @@ function ShiftTypeRow({
                   }`}
               >
                 {localAttrs.length === 0 ? (
-                  <span className="text-xs text-slate-400 italic flex items-center gap-1">
-                    ללא הגבלה
-                    <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                  <span className="text-xs text-slate-400 italic flex flex-col items-stretch gap-0.5 w-full text-right">
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      ללא הגבלה
+                      <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                    </span>
+                    <span className="text-[10px] text-slate-400 not-italic font-normal leading-snug">
+                      ללא שיבוץ אוטומטי ביצירת סידור — ניתן למלא ידנית בטבלה
+                    </span>
                   </span>
                 ) : (
                   <>

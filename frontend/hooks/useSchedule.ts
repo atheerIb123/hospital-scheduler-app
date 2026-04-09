@@ -7,6 +7,7 @@ export function useSchedule(month: number, year: number) {
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,5 +41,19 @@ export function useSchedule(month: number, year: number) {
     }
   };
 
-  return { schedule, loading, generating, error, generate };
+  const deleteSchedule = async () => {
+    if (!schedule?.id) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deleteSchedule(schedule.id);
+      setSchedule(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return { schedule, loading, generating, deleting, error, generate, deleteSchedule };
 }

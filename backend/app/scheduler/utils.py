@@ -33,10 +33,12 @@ def build_eligibility_matrix(
     """
     Returns eligibility[emp_id][shift_id] = True/False.
 
-    Standard mode (composition=None):
+    Standard mode (composition=None, doctors monthly schedule):
       An employee is eligible for a shift if their expanded attributes
       contain ALL of the shift type's required_attributes.
-      Empty required_attributes → any employee is eligible.
+      Empty required_attributes (UI: "ללא הגבלה") → no employee is eligible
+      for automatic assignment; the column stays empty unless filled manually
+      or via locked_assignments.
 
     Nursing mode (composition provided):
       If the shift has role_slots configured in the composition, an employee
@@ -68,9 +70,13 @@ def build_eligibility_matrix(
                     # No role_slots configured → everyone eligible
                     eligible = True
             else:
-                # Standard mode: employee must have ALL required_attributes
-                required = set(shift.get("required_attributes", []))
-                eligible = required.issubset(expanded)
+                # Standard (doctors) mode: ALL required_attributes must match.
+                # Empty list = manual-only column — solver does not auto-fill.
+                required = set(shift.get("required_attributes") or [])
+                if not required:
+                    eligible = False
+                else:
+                    eligible = required.issubset(expanded)
 
             eligibility[emp_id][shift_id] = eligible
     return eligibility
